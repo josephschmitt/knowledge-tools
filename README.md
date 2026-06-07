@@ -48,7 +48,10 @@ skill. CI builds these zips on every skill change merged to `main`.
 Compiling the inbox into the wiki runs on the host as systemd *user* units:
 
 - `knowledge-compile.service` — one ephemeral inbox→wiki compile (the worker).
-- `knowledge-compile.timer` — runs it nightly at 03:00.
+- `knowledge-compile.timer` — runs it on a schedule (default hourly; set
+  `KNOWLEDGE_COMPILE_ONCALENDAR` to any systemd OnCalendar expression and re-run
+  `install.sh`). The worker no-ops cheaply when the inbox is empty (no Claude run), so a
+  tick only does real work when there are captures to compile.
 - `knowledge-compile.path` — runs it on demand when the MCP server's `compile_run` tool
   drops `inbox/.compile/request` into the vault. Both triggers start the same service, so
   systemd runs only one compile at a time (the lock shared between them).

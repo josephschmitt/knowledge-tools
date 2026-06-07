@@ -25,7 +25,8 @@ working in the repo.
   - `nightly-compile.sh` runs an ephemeral Claude Code `/compile-inbox` pass over the vault.
   - `install.sh` generates the systemd *user* units from the `knowledge-compile.*.in`
     templates (worker = this repo; watched inbox = the vault repo, the required
-    `KNOWLEDGE_REPO`). Idempotent.
+    `KNOWLEDGE_REPO`). The compile cadence is configurable via `KNOWLEDGE_COMPILE_ONCALENDAR`
+    (any systemd OnCalendar expression; default hourly) — re-run after changing. Idempotent.
   - `load-env.sh` is sourced by both scripts to read config (e.g. `KNOWLEDGE_REPO`) from a
     repo-root `.env` (gitignored; see `.env.example`). Real env vars and the systemd
     `Environment=` override `.env`.

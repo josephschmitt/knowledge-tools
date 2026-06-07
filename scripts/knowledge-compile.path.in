@@ -4,7 +4,7 @@
 # Watches for a manual compile request the MCP server drops into inbox/ and starts
 # knowledge-compile.service. Because the timer and this path unit start the SAME service,
 # systemd runs only one instance at a time — that single-instance guarantee is the lock
-# shared between the manual trigger and the nightly job.
+# shared between the manual trigger and the scheduled job.
 [Unit]
 Description=Watch for an on-demand vault compile request
 
