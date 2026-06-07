@@ -28,10 +28,11 @@ just fights that.
 ## MCP operations
 
 The exact tools and their input/output shapes live in `references/mcp-operations.md`.
-Read it before calling anything. At a high level the connector exposes six tools:
+Read it before calling anything. At a high level the connector exposes seven tools:
 `append_to_inbox` to capture, `search_wiki` to find notes, `get_note` to read one,
-`list_index` to read the navigation map, `list_notes` to enumerate every note, and
-`compile_run` to trigger an on-demand compile (rate-limited; see below).
+`list_index` to read the navigation map, `list_notes` to enumerate every note,
+`compile_run` to trigger an on-demand compile (rate-limited; see below), and
+`vault_status` to poll whether a compile has finished and the wiki is caught up.
 
 ## Capturing
 
