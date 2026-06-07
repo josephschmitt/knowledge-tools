@@ -6,7 +6,7 @@ following Andrej Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf5
 pattern: immutable raw sources, an LLM-owned wiki of markdown files, and a schema document
 (`CLAUDE.md`) that defines the workflows. This repo holds everything that operates *on* the
 vault from the outside; the vault itself — the notes plus the `CLAUDE.md` librarian spec and
-`/compile-inbox` command Claude runs inside it — lives in a separate, private repo.
+`/compile-inbox` command Claude runs inside it — lives in a separate repo.
 
 ## Components
 
@@ -50,7 +50,8 @@ Compiling the inbox into the wiki runs on the host as systemd *user* units:
   systemd runs only one compile at a time (the lock shared between them).
 
 To set this up from scratch (idempotent — safe to re-run), point `KNOWLEDGE_REPO` at your
-vault repo:
+vault repo — either inline as below, or by copying `.env.example` to `.env` and setting it
+there (the scripts load the repo-root `.env` automatically; a real env var overrides it):
 
 ```sh
 KNOWLEDGE_REPO=/path/to/vault ~/development/knowledge-tools/scripts/install.sh

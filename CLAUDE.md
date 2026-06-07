@@ -1,6 +1,6 @@
 # knowledge-tools
 
-This repo is the **tooling** for Joe's personal "LLM wiki" — everything that operates
+This repo is the **tooling** for a personal "LLM wiki" — everything that operates
 *on* the vault from the outside. The vault itself (the notes, plus the `CLAUDE.md`
 librarian spec and `/compile-inbox` command Claude runs *inside* it) lives in a separate
 repo whose location is configured by whoever sets this up (the `KNOWLEDGE_REPO` /
@@ -24,8 +24,11 @@ working in the repo.
 - `scripts/` — host-side compile automation and the skill validator.
   - `nightly-compile.sh` runs an ephemeral Claude Code `/compile-inbox` pass over the vault.
   - `install.sh` generates the systemd *user* units from the `knowledge-compile.*.in`
-    templates (worker = this repo; watched inbox = the vault repo, set via the required
-    `KNOWLEDGE_REPO` env var). Idempotent.
+    templates (worker = this repo; watched inbox = the vault repo, the required
+    `KNOWLEDGE_REPO`). Idempotent.
+  - `load-env.sh` is sourced by both scripts to read config (e.g. `KNOWLEDGE_REPO`) from a
+    repo-root `.env` (gitignored; see `.env.example`). Real env vars and the systemd
+    `Environment=` override `.env`.
   - `validate_skills.py` — the skill linter CI runs (see constraints below).
 - `.claude-plugin/` — the Claude Code plugin marketplace (`marketplace.json`) and plugin
   manifest (`plugin.json`).
