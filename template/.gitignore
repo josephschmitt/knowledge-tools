@@ -1,0 +1,9 @@
+# Nightly compile run logs (raw trail of inbox captures lives in inbox/archive/)
+outputs/compile-logs/
+
+# Compile coordination state (sentinel, status, lock — runtime only, shared with the MCP)
+inbox/.compile/
+
+# Local Claude Code state
+.claude/settings.local.json
+.claude/worktrees/
