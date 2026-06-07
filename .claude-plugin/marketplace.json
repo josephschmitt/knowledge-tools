@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace-manifest.json",
+  "name": "tools",
+  "owner": {
+    "name": "Joe Schmitt",
+    "email": "dev@joe.sh"
+  },
+  "description": "Joe's knowledge-tools: skills and plugins for the personal LLM wiki.",
+  "plugins": [
+    {
+      "name": "knowledge",
+      "source": ".",
+      "description": "The knowledge-vault skill: capture raw material into Joe's personal LLM wiki and query the compiled notes, through the vault's MCP connector."
+    }
+  ]
+}

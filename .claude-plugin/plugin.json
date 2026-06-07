@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "knowledge",
+  "description": "The knowledge-vault skill: capture raw material into Joe's personal LLM wiki and query the compiled notes, through the vault's MCP connector.",
+  "author": {
+    "name": "Joe Schmitt",
+    "email": "dev@joe.sh"
+  },
+  "homepage": "https://github.com/josephschmitt/knowledge-tools",
+  "repository": "https://github.com/josephschmitt/knowledge-tools"
+}

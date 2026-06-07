@@ -14,11 +14,30 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   server, gated by Cloudflare Access OIDC) that lets claude.ai capture raw material into the
   vault's `inbox/` and query the compiled `wiki/`. Reads/writes the vault via the `VAULT_ROOT`
   env var (bind-mounted into the container). Deployed separately — see [`mcp/README.md`](mcp/README.md).
-- **`skills/knowledge-vault/`** — the conversational front-door skill for claude.ai: capture
-  and query, delegating heavy compilation to the host. Packaged into release zips by CI.
+- **`skills/knowledge-vault/`** — the conversational front-door skill: capture and query,
+  delegating heavy compilation to the host. Ships two ways — as a Claude Code plugin (see
+  [Installing the skill](#installing-the-skill)) and as per-skill release zips for claude.ai.
 - **`scripts/`** — the host-side compile automation. `nightly-compile.sh` runs an ephemeral
   Claude Code pass (`/compile-inbox`) over the vault; `install.sh` generates the systemd
   *user* units from the `knowledge-compile.*.in` templates; `validate_skills.py` is used by CI.
+
+## Installing the skill
+
+**Claude Code** — this repo is a plugin marketplace (`tools`) holding one plugin
+(`knowledge`) that bundles the `skills/` directory:
+
+```text
+/plugin marketplace add josephschmitt/knowledge-tools
+/plugin install knowledge@tools
+```
+
+The skill is then invocable as `/knowledge:knowledge-vault`, and `/plugin update` tracks
+`main`. The skill drives the vault through its MCP connector, which must be configured
+separately for it to function.
+
+**claude.ai** — download the `knowledge-vault.zip` asset from the latest
+[release](https://github.com/josephschmitt/knowledge-tools/releases) and upload it as a
+skill. CI builds these zips on every skill change merged to `main`.
 
 ## Compile automation (host setup)
 
