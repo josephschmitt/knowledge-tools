@@ -1,0 +1,50 @@
+name: Package skills for release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Validate skills before packaging
+        run: python3 scripts/validate_skills.py
+
+      - name: Build per-skill zips
+        id: build
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Zip each skill as `<name>/...` at the root of the archive, which is the
+          # layout claude.ai expects for skill uploads. Skill folders live at
+          # skills/<name>/.
+          for skill_md in skills/*/SKILL.md; do
+            name="$(basename "$(dirname "$skill_md")")"
+            (cd skills && zip -r "$GITHUB_WORKSPACE/dist/${name}.zip" "$name" -x '*.DS_Store' '*/.DS_Store')
+            echo "built dist/${name}.zip"
+          done
+          ls -la dist/
+
+      - name: Upload zips to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          # --clobber so re-running the workflow replaces assets instead of failing.
+          gh release upload "$TAG" dist/*.zip --repo "$GITHUB_REPOSITORY" --clobber
