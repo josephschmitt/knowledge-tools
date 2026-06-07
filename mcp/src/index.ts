@@ -54,7 +54,11 @@ const oauthMetadata: OAuthMetadata = {
   token_endpoint: CF_TOKEN_ENDPOINT,
   jwks_uri: CF_JWKS_URL,
   response_types_supported: ['code'],
-  grant_types_supported: ['authorization_code'],
+  // Cloudflare issues refresh tokens when the app's "Refresh tokens" toggle is on (it does
+  // not key off an `offline_access` scope — that scope is absent from its discovery, so we do
+  // not advertise it). We list the standard `refresh_token` grant; Cloudflare's own discovery
+  // spells it `refresh_tokens`.
+  grant_types_supported: ['authorization_code', 'refresh_token'],
   code_challenge_methods_supported: ['S256'],
   scopes_supported: ['openid', 'email', 'profile'],
   token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
