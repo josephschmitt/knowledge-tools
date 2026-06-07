@@ -17,11 +17,10 @@
 #     and does not consume the manual cooldown.
 set -euo pipefail
 
-# Load config from the repo-root .env (KNOWLEDGE_REPO etc.); real env vars take precedence.
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/load-env.sh"
-: "${KNOWLEDGE_REPO:?set KNOWLEDGE_REPO to the vault repo path (in .env or the environment)}"
-REPO="$KNOWLEDGE_REPO"
-CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
+# Shared config (REPO, CLAUDE_BIN), the cross-job lock, and git side effects. This sources
+# load-env.sh and requires KNOWLEDGE_REPO; the lock it provides is what serializes compile
+# against synthesize/resolve (all three edit wiki/ and commit).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/vault-lib.sh"
 COOLDOWN_SECONDS="${KNOWLEDGE_COMPILE_COOLDOWN:-3600}"
 cd "$REPO"
 
@@ -34,7 +33,6 @@ LOG="$LOG_DIR/$STAMP.log"
 COMPILE_DIR="$REPO/inbox/.compile"
 REQUEST="$COMPILE_DIR/request"
 STATUS="$COMPILE_DIR/status.json"
-LOCK="$COMPILE_DIR/lock"
 LAST_COMPILED_FILE="$COMPILE_DIR/last-compiled-epoch"
 LAST_MANUAL_FILE="$COMPILE_DIR/last-manual-epoch"
 mkdir -p "$COMPILE_DIR"
@@ -57,12 +55,9 @@ write_status() {
 EOF
 }
 
-# Serialize against a hand-run script (systemd already serializes the timer vs path unit).
-exec 9>"$LOCK"
-if ! flock -n 9; then
-  log "another compile holds the lock — exiting."
-  exit 0
-fi
+# Take the shared vault lock so compile never runs concurrently with synthesize/resolve (or a
+# hand-run script). systemd already serializes this service's own timer vs path triggers.
+acquire_vault_lock
 
 # Manual if the MCP dropped a request sentinel; consume it so the .path unit can re-arm.
 if [ -f "$REQUEST" ]; then
@@ -114,17 +109,8 @@ for f in "${ITEMS[@]}"; do
 done
 log "archived processed captures to $ARCHIVE"
 
-# Commit if anything changed; push only if an origin remote exists.
-if [ -n "$(git status --porcelain)" ]; then
-  git add -A
-  git commit -m "Vault compile ($STAMP)" >>"$LOG" 2>&1
-  log "committed."
-  if git remote get-url origin >/dev/null 2>&1; then
-    git push >>"$LOG" 2>&1 && log "pushed." || log "push failed (non-fatal)."
-  fi
-else
-  log "no changes to commit."
-fi
+# Commit if anything changed; push only if an origin remote exists (shared with the other jobs).
+commit_and_push "Vault compile ($STAMP)"
 
 # Record completion timestamps for the cooldown + status surface.
 date +%s >"$LAST_COMPILED_FILE"

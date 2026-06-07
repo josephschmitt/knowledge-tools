@@ -14,9 +14,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-# Point the worker at the vault; nightly-compile.sh cd's into KNOWLEDGE_REPO.
+# Point the worker at the vault; vault-compile.sh cd's into KNOWLEDGE_REPO.
 Environment=KNOWLEDGE_REPO=@VAULT_REPO@
-ExecStart=@TOOLS_REPO@/scripts/nightly-compile.sh
+ExecStart=@TOOLS_REPO@/scripts/vault-compile.sh
 # Give the run room; a large inbox + model latency can take a while.
 TimeoutStartSec=1800
 

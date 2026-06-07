@@ -1,0 +1,27 @@
+# systemd USER service template — generated into ~/.config/systemd/user/knowledge-resolve.service
+# by scripts/install.sh, which fills in @TOOLS_REPO@ (this repo, where the worker lives) and
+# @VAULT_REPO@ (the vault repo it operates on). Edit this template, then re-run install.sh.
+#
+# Runs one ephemeral /resolve pass: reads my answers on open judgment-call issues, applies the
+# decisions to wiki/, and CLOSES the issues. Light + more frequent (cadence via
+# KNOWLEDGE_RESOLVE_ONCALENDAR); often a no-op when nothing is answered. Like synthesize it runs
+# `gh` from *inside* the Claude run, so PATH must reach gh and HOME must reach its auth.
+[Unit]
+Description=Resolve answered vault judgment-call issues into the wiki (closes them)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Point the worker at the vault; vault-job.sh cd's into KNOWLEDGE_REPO.
+Environment=KNOWLEDGE_REPO=@VAULT_REPO@
+# gh (and claude) live in the nix/local profiles, which aren't on the default systemd user
+# PATH. Claude shells out to `gh` for the issue calls, so those dirs must be here. HOME is set
+# by the user manager and gives gh its auth at ~/.config/gh.
+Environment=PATH=%h/.nix-profile/bin:%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=@TOOLS_REPO@/scripts/vault-job.sh resolve
+# Targeted opus pass over the named notes; lighter than synthesize.
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=default.target

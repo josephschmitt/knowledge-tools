@@ -18,7 +18,7 @@ obtains from a **Cloudflare Access for SaaS OIDC** app and forwards on each requ
 | `vault_status()` | Pollable JSON: last successful compile time, pending inbox count, manual-compile cooldown, running flag |
 
 `append_to_inbox` is the capture path: drop a thought from claude.ai, and the scheduled
-compile (`scripts/nightly-compile.sh`) folds it into the wiki.
+compile (`scripts/vault-compile.sh`) folds it into the wiki.
 
 ### Manual compile (`compile_run`)
 

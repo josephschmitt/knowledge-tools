@@ -21,13 +21,25 @@ working in the repo.
 - `mcp/` — the claude.ai connector. A Streamable-HTTP MCP server (TypeScript) that
   capture/query against the vault, gated by Cloudflare Access OIDC. Reads/writes the vault
   via `VAULT_ROOT`. Built into a GHCR image by CI; deployed separately. See `mcp/README.md`.
-- `scripts/` — host-side compile automation and the skill validator.
-  - `nightly-compile.sh` runs an ephemeral Claude Code `/compile-inbox` pass over the vault.
-  - `install.sh` generates the systemd *user* units from the `knowledge-compile.*.in`
-    templates (worker = this repo; watched inbox = the vault repo, the required
-    `KNOWLEDGE_REPO`). The compile cadence is configurable via `KNOWLEDGE_COMPILE_ONCALENDAR`
-    (any systemd OnCalendar expression; default hourly) — re-run after changing. Idempotent.
-  - `load-env.sh` is sourced by both scripts to read config (e.g. `KNOWLEDGE_REPO`) from a
+- `scripts/` — host-side vault automation and the skill validator. Three vault-mutating jobs
+  run as systemd *user* units; all three share one flock (`vault-lib.sh`) so they never run
+  concurrently, and in each the **wrapper** owns git (Claude only edits files + runs scoped
+  `gh` calls).
+  - `vault-compile.sh` runs an ephemeral `/compile-inbox` pass (inbox→wiki). Cadence
+    `KNOWLEDGE_COMPILE_ONCALENDAR` (default hourly); also triggered on demand via a `.path`
+    unit when the MCP drops `inbox/.compile/request`.
+  - `vault-job.sh <synthesize|resolve>` runs the two GitHub-issue jobs: `/synthesize` (heavy
+    weekly whole-corpus reconcile + connect, **opens** judgment-call issues) and `/resolve`
+    (light daily pass that applies answered issues and **closes** them). Unlike compile these
+    run `gh` from *inside* the Claude run, granted via `--allowedTools` (no skip-permissions);
+    the service units put `gh` on PATH and rely on `HOME` for `~/.config/gh` auth. Cadences:
+    `KNOWLEDGE_SYNTHESIZE_ONCALENDAR` / `KNOWLEDGE_RESOLVE_ONCALENDAR`.
+  - `vault-lib.sh` is sourced by all three — config, the shared lock, and the commit/push
+    side effect (issue jobs commit only `wiki/ index.md log.md`; compile stages everything).
+  - `install.sh` generates the systemd *user* units from the `knowledge-*.in` templates
+    (worker = this repo; vault = the required `KNOWLEDGE_REPO`) — re-run after changing a
+    template or a cadence. Idempotent.
+  - `load-env.sh` is sourced by the scripts to read config (e.g. `KNOWLEDGE_REPO`) from a
     repo-root `.env` (gitignored; see `.env.example`). Real env vars and the systemd
     `Environment=` override `.env`.
   - `validate_skills.py` — the skill linter CI runs (see constraints below).
