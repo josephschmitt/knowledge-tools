@@ -15,6 +15,7 @@ obtains from a **Cloudflare Access for SaaS OIDC** app and forwards on each requ
 | `list_notes()` | List every wiki note |
 | `append_to_inbox(text, title?)` | Capture a raw note into `inbox/` for the nightly compile |
 | `compile_run()` | Trigger an on-demand compile (async, rate-limited to one/hour) |
+| `vault_status()` | Pollable JSON: last successful compile time, pending inbox count, manual-compile cooldown, running flag |
 
 `append_to_inbox` is the capture path: drop a thought from claude.ai, and the nightly
 compile (`scripts/nightly-compile.sh`) folds it into the wiki.
@@ -30,6 +31,12 @@ the nightly timer uses — so systemd runs one compile at a time (the shared loc
 host writes `inbox/.compile/status.json`, which the server reads to return `triggered` /
 `throttled` (refused within the one-hour cooldown) / `busy` / `empty`. The scheduled
 nightly run is never throttled and doesn't consume the manual cooldown.
+
+Because `compile_run` returns before the compile finishes, `vault_status` is the completion
+signal: the host records `last_compiled_at` at the *end* of every successful compile (both
+nightly and on-demand), so a `last_compiled_at` newer than your trigger time means the run
+finished. It also reports `pending_inbox_count` and `manual_compile_available_at` (when the
+cooldown next clears) — poll it after a `compile_run` to know when the wiki is caught up.
 
 ## Auth model
 

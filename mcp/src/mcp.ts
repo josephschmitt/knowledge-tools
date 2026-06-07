@@ -10,6 +10,7 @@ import {
   countInboxCaptures,
   readCompileStatus,
   requestCompile,
+  getVaultStatus,
 } from './vault.js';
 
 // Manual compiles are rate-limited to one per hour. The host script is the authoritative
@@ -155,6 +156,22 @@ export function buildMcpServer(): McpServer {
           'your captures are safe in the inbox until then.',
       );
     },
+  );
+
+  server.registerTool(
+    'vault_status',
+    {
+      title: 'Vault status',
+      description:
+        'Pollable status of the vault as JSON. Returns last_compiled_at (when the most ' +
+        'recent compile *finished* — a value newer than your compile_run trigger time means ' +
+        'that run completed and the wiki is caught up), pending_inbox_count (captures not yet ' +
+        'compiled), manual_compile_available_at (when the next manual compile_run is allowed; ' +
+        'null/past = now, future = wait for the hourly cooldown), and running (a compile is in ' +
+        'progress). Cheap to call repeatedly to poll for a compile to finish.',
+      inputSchema: {},
+    },
+    async () => text(JSON.stringify(await getVaultStatus(), null, 2)),
   );
 
   return server;

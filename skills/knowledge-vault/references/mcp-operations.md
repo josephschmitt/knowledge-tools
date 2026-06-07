@@ -1,7 +1,7 @@
 # MCP Operations (claude.ai-facing)
 
 The vault's MCP server runs on homelab and is connected to claude.ai as a custom
-connector. It exposes the five tools below. These shapes mirror the server
+connector. It exposes the seven tools below. These shapes mirror the server
 (`mcp/src/mcp.ts`); if the server changes, update this file and `SKILL.md` to match.
 
 All tools return their result as plain text content. Paths are relative to `wiki/`.
@@ -64,6 +64,24 @@ All tools return their result as plain text content. Paths are relative to `wiki
   `CLAUDE.md`, not in this interface. The manual cooldown and a lock shared with the
   nightly job (one compile at a time) are enforced server-side; the scheduled run is
   never throttled and does not consume the manual cooldown.
+
+### vault_status
+- **Purpose:** check, at a glance, whether the vault is caught up — when the last compile
+  finished, how many captures are still waiting, and when a manual compile is next allowed.
+  This is the completion signal `compile_run` lacks (it returns before the compile finishes).
+- **Inputs:** none.
+- **Output:** a JSON object with four fields:
+  - `last_compiled_at` — ISO time the most recent *successful* compile finished, or `null`
+    if none yet. A value newer than your `compile_run` trigger time means that run
+    completed and the wiki is caught up.
+  - `pending_inbox_count` — number of captures in `inbox/` not yet compiled.
+  - `manual_compile_available_at` — ISO time the next manual `compile_run` is allowed.
+    `null` or a past time means available now; a future time means the hourly cooldown is
+    still active.
+  - `running` — `true` while a compile is in progress.
+- **Notes:** cheap to call repeatedly. After triggering `compile_run`, poll this until
+  `last_compiled_at` advances past your trigger time (or `running` goes false) to know the
+  wiki is up to date.
 
 ## Out of scope for this surface
 

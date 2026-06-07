@@ -150,6 +150,56 @@ export async function readCompileStatus(): Promise<CompileStatus | null> {
   }
 }
 
+// Mirrors the host's KNOWLEDGE_COMPILE_COOLDOWN default; only used when status.json is
+// absent (before the first compile writes it).
+const DEFAULT_COOLDOWN_SECONDS = 3600;
+
+/** Treat the host's empty-string timestamps (iso_of writes "" when an epoch file is missing) as absent. */
+function nonEmpty(s: string | undefined): string | null {
+  return s && s.length > 0 ? s : null;
+}
+
+export interface VaultStatus {
+  /** ISO time the most recent *successful* compile finished, or null if none yet. */
+  last_compiled_at: string | null;
+  /** Captures sitting in inbox/ not yet compiled. */
+  pending_inbox_count: number;
+  /**
+   * ISO time the next manual compile_run is allowed (the hourly cooldown clears).
+   * null when no manual compile has run yet (available now). A value in the past also
+   * means available now; a future value means wait.
+   */
+  manual_compile_available_at: string | null;
+  /** Whether a compile is in progress right now. */
+  running: boolean;
+}
+
+/**
+ * Pollable vault status. Reads the host-written compile status plus the inbox count.
+ * A `last_compiled_at` newer than a compile_run trigger time means that run finished.
+ */
+export async function getVaultStatus(): Promise<VaultStatus> {
+  const status = await readCompileStatus();
+  const pending = await countInboxCaptures();
+
+  let manualAvailableAt: string | null = null;
+  const lastManual = nonEmpty(status?.last_manual_compile_at);
+  if (lastManual) {
+    const t = Date.parse(lastManual);
+    if (!Number.isNaN(t)) {
+      const cooldownMs = (status?.cooldown_seconds ?? DEFAULT_COOLDOWN_SECONDS) * 1000;
+      manualAvailableAt = new Date(t + cooldownMs).toISOString();
+    }
+  }
+
+  return {
+    last_compiled_at: nonEmpty(status?.last_compiled_at),
+    pending_inbox_count: pending,
+    manual_compile_available_at: manualAvailableAt,
+    running: status?.running ?? false,
+  };
+}
+
 /**
  * Request a manual compile by dropping the sentinel the host's systemd .path unit watches.
  * Writes inbox/.compile/request with the trigger time. The host consumes it when it runs.
