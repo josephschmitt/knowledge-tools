@@ -1,10 +1,12 @@
 # knowledge-tools
 
-Infrastructure for [`knowledge-vault`](https://github.com/josephschmitt/knowledge-vault) —
-a personal markdown knowledge base where raw captures land in `inbox/` and Claude Code
-compiles them into durable, cross-linked notes in `wiki/`. This repo holds everything that
-operates *on* that vault from the outside; the vault repo holds the knowledge itself plus
-the `CLAUDE.md` librarian spec and `/compile-inbox` command Claude runs inside it.
+Infrastructure for a personal "LLM wiki" — a knowledge base where raw captures land in
+`inbox/` and Claude Code compiles them into durable, cross-linked notes in `wiki/`,
+following Andrej Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)
+pattern: immutable raw sources, an LLM-owned wiki of markdown files, and a schema document
+(`CLAUDE.md`) that defines the workflows. This repo holds everything that operates *on* the
+vault from the outside; the vault itself — the notes plus the `CLAUDE.md` librarian spec and
+`/compile-inbox` command Claude runs inside it — lives in a separate, private repo.
 
 ## Components
 
