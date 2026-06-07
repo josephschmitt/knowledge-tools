@@ -1,9 +1,9 @@
 # Knowledge Vault MCP Server
 
 A remote [MCP](https://modelcontextprotocol.io) server that exposes this knowledge vault to
-**claude.ai as a custom connector**. It serves the **Streamable HTTP** transport and is gated
-by **OAuth 2.1** (with Dynamic Client Registration), because claude.ai's connector flow
-assumes OAuth and offers no bearer-token field.
+**claude.ai as a custom connector**. It serves the **Streamable HTTP** transport and is an
+**OAuth resource server**: it issues no tokens itself, but validates the token claude.ai
+obtains from a **Cloudflare Access for SaaS OIDC** app and forwards on each request.
 
 ## Tools
 
@@ -31,12 +31,23 @@ host writes `inbox/.compile/status.json`, which the server reads to return `trig
 `throttled` (refused within the one-hour cooldown) / `busy` / `empty`. The scheduled
 nightly run is never throttled and doesn't consume the manual cooldown.
 
-## Auth model (single user)
+## Auth model
 
-OAuth 2.1 + PKCE + DCR, implemented with the MCP SDK's auth router. The only "login" is a
-**shared passphrase** (`LOGIN_PASSPHRASE`): when you add the connector, claude.ai sends you
-to an approval page; enter the passphrase to approve. Registered clients and tokens persist
-in a SQLite store (`OAUTH_DB_PATH`) so a restart doesn't force re-auth.
+claude.ai authenticates the user **directly against Cloudflare Access** (a SaaS OIDC app),
+then sends the resulting token as a bearer on every `/mcp` request. This server is purely a
+**resource server**: it advertises Cloudflare as its authorization server via
+`/.well-known/oauth-protected-resource`, and on each request verifies the token's signature
+against Cloudflare's JWKS (Key) endpoint plus its issuer and audience (`auth/verifier.ts`).
+No passphrase, no token store, no dynamic client registration on our side — Cloudflare owns
+login, MFA, policy, and token lifecycle.
+
+Because Cloudflare's app is a *statically registered* OAuth client (fixed client ID +
+secret), claude.ai uses its **Advanced settings** to supply those credentials instead of
+registering dynamically (supported since July 2025). See "Connect to claude.ai" below.
+
+> Cloudflare Access is used only as the **identity provider** the OAuth login redirects to.
+> Do **not** put a Cloudflare Access *application in front of* `/mcp` — Access blocks
+> claude.ai's server-side fetch. The bearer-token check in this server is the gate.
 
 ## Local development
 
@@ -44,7 +55,7 @@ in a SQLite store (`OAUTH_DB_PATH`) so a restart doesn't force re-auth.
 cd mcp
 npm install
 npm run build
-cp .env.example .env        # set LOGIN_PASSPHRASE, point VAULT_ROOT at the repo
+cp .env.example .env        # set CF_ISSUER + CF_CLIENT_ID, point VAULT_ROOT at the repo
 node --env-file=.env dist/index.js
 ```
 
@@ -57,41 +68,51 @@ npx @modelcontextprotocol/inspector      # connect to http://localhost:3000/mcp
 The discovery + 401 contract:
 
 ```sh
+# protected-resource metadata: authorization_servers should list the Cloudflare issuer
 curl -s localhost:3000/.well-known/oauth-protected-resource/mcp
 curl -s -i -X POST localhost:3000/mcp -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'   # 401 + WWW-Authenticate
 ```
 
+## Image (CI)
+
+Pushes to `main` that touch `mcp/**` trigger `.github/workflows/build-mcp.yml`, which builds
+the image (linux/amd64 + arm64) and pushes it to
+**`ghcr.io/josephschmitt/knowledge-mcp:latest`** (also tagged with the commit SHA). The
+homelab pulls this published image — it does not build from a source checkout. The package
+is **public** (set once in the GHCR package settings after the first push), so the host
+pulls without authenticating; the image carries only server code, no vault content.
+
 ## Deploy (homelab — `~/example.com`)
 
-The server runs as the `knowledge-mcp` compose service (already added to
-`~/example.com/docker-compose.yaml`), behind traefik at `knowledge.mcp.example.com`.
+The server runs as the `knowledge-mcp` compose service (already in
+`~/example.com/docker-compose.yaml` as `image: ghcr.io/josephschmitt/knowledge-mcp:latest`),
+behind traefik at `knowledge.mcp.example.com`.
 
-1. **Passphrase** — add to `~/example.com/.env`:
+1. **Cloudflare OIDC env** — set the app's values in `~/example.com/.env`
+   (issuer + client ID; neither is secret — the server validates tokens via Cloudflare's JWKS
+   and needs no client secret):
    ```sh
-   echo 'KNOWLEDGE_MCP_PASSPHRASE=<a-strong-passphrase>' >> ~/example.com/.env
+   KNOWLEDGE_MCP_CF_ISSUER=https://example.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<CLIENT_ID>
+   KNOWLEDGE_MCP_CF_CLIENT_ID=<CLIENT_ID>
    ```
-2. **OAuth store dir** (owned by uid 1000):
-   ```sh
-   mkdir -p ~/example.com/knowledge-mcp/data
-   ```
-3. **TLS** — `*.mcp.example.com` was added to `traefik/traefik.yml` SANs. Restart traefik so
+2. **TLS** — `*.mcp.example.com` was added to `traefik/traefik.yml` SANs. Restart traefik so
    it issues the wildcard via the Cloudflare DNS challenge (briefly drops ingress):
    ```sh
    cd ~/example.com && docker compose up -d traefik
    ```
-4. **Build + start the service** (does not touch other services):
+3. **Pull + start the service** (does not touch other services):
    ```sh
-   cd ~/example.com && docker compose up -d --build knowledge-mcp
+   cd ~/example.com && docker compose pull knowledge-mcp && docker compose up -d knowledge-mcp
    docker compose logs -f knowledge-mcp
    ```
-5. **Cloudflare Zero Trust UI** — add a **public hostname** to the existing tunnel:
+4. **Cloudflare Zero Trust UI** — add a **public hostname** to the existing tunnel:
    - Hostname: `knowledge.mcp.example.com`
    - Service: `https://localhost:443`, with **Origin Server Name** = `knowledge.mcp.example.com`
      (or enable *No TLS Verify*) — cloudflared is host-network and traefik terminates TLS.
    - Adding the hostname creates the DNS record automatically.
    - **Do not** attach a Cloudflare Access application to this hostname — Access blocks
-     claude.ai's server-side fetch. The server's OAuth is the gate.
+     claude.ai's server-side fetch. The bearer-token check is the gate.
 
 Verify publicly:
 
@@ -99,14 +120,32 @@ Verify publicly:
 curl -s https://knowledge.mcp.example.com/.well-known/oauth-protected-resource/mcp
 ```
 
+## Cloudflare Access app (one-time)
+
+In Zero Trust → Access controls → Applications, the OIDC SaaS app ("Claude") must have:
+
+- **Redirect URL** `https://claude.ai/api/mcp/auth_callback` (claude.ai's OAuth callback).
+- A **policy** restricting login to your identity (e.g. your email) — this is who can reach
+  the vault.
+- **PKCE** enabled is recommended (claude.ai sends a code challenge); the client secret keeps
+  the flow working regardless.
+
+The **Issuer** and **Client ID** feed this server's env (`CF_ISSUER` / `CF_CLIENT_ID`) — it
+validates tokens against Cloudflare's JWKS and needs no secret. The **Client Secret** is used
+only by claude.ai (the OAuth client); it's shown only at creation, so use **Reset secret** if
+you no longer have it.
+
 ## Connect to claude.ai
 
 claude.ai → **Settings → Connectors → Add custom connector** → URL:
-`https://knowledge.mcp.example.com/mcp`. Approve with the passphrase. The five tools appear.
+`https://knowledge.mcp.example.com/mcp`. Open **Advanced settings** and paste the Cloudflare
+**Client ID** and **Client Secret**. Add it, complete the Cloudflare login, and the tools
+appear.
 
 ## Notes
 
 - Vault is mounted read-only except `inbox/` (least privilege — only `append_to_inbox` writes).
-- DNS-rebinding protection is off by default (OAuth is the gate; claude.ai's fetch may omit
-  `Origin`). See `.env.example` to enable it with `ALLOWED_HOSTS`/`ALLOWED_ORIGINS`.
-- Access-token TTL is 1h; refresh tokens are long-lived and persisted.
+- DNS-rebinding protection is off by default (the bearer-token check is the gate; claude.ai's
+  fetch may omit `Origin`). See `.env.example` to enable it with `ALLOWED_HOSTS`/`ALLOWED_ORIGINS`.
+- Tokens are issued and expired by Cloudflare; this server validates them per request against
+  Cloudflare's JWKS and holds no token state.

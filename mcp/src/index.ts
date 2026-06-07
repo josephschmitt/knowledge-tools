@@ -1,18 +1,27 @@
-// Entry point: an Express app that serves the OAuth endpoints (via the SDK auth router),
-// the single-user approval page, and the Streamable HTTP MCP endpoint gated by bearer auth.
+// Entry point: an Express app that serves OAuth resource-server metadata (pointing at the
+// Cloudflare Access OIDC app as the authorization server) and the Streamable HTTP MCP
+// endpoint, gated by bearer auth. This server issues no tokens — it only validates the
+// Cloudflare-issued token claude.ai forwards (see auth/verifier.ts).
 import express from 'express';
 import { randomUUID } from 'node:crypto';
-import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js';
+import {
+  mcpAuthMetadataRouter,
+  getOAuthProtectedResourceMetadataUrl,
+} from '@modelcontextprotocol/sdk/server/auth/router.js';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import type { OAuthMetadata } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { buildMcpServer } from './mcp.js';
-import { provider, issueAuthorizationCode, checkPassphrase } from './auth/provider.js';
-import { loginPage } from './auth/login.js';
-import * as store from './auth/store.js';
+import { verifier } from './auth/verifier.js';
 import {
   PORT,
   PUBLIC_URL,
+  RESOURCE_URL,
+  CF_ISSUER,
+  CF_JWKS_URL,
+  CF_AUTHORIZATION_ENDPOINT,
+  CF_TOKEN_ENDPOINT,
   ALLOWED_HOSTS,
   ALLOWED_ORIGINS,
   ENABLE_DNS_REBINDING,
@@ -22,79 +31,39 @@ const app = express();
 app.set('trust proxy', true);
 app.disable('x-powered-by');
 
-const issuerUrl = new URL(PUBLIC_URL);
-const resourceUrl = new URL(`${PUBLIC_URL}/mcp`);
-const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(resourceUrl);
+const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(RESOURCE_URL);
 
 app.get('/healthz', (_req, res) => {
   res.json({ ok: true });
 });
 
-// Approval form target. Validates client + redirect_uri + passphrase, then issues the code
-// and redirects back to the client (claude.ai). Has its own body parser per SDK convention.
-app.post('/approve', express.urlencoded({ extended: false }), (req, res) => {
-  const body = req.body as Record<string, string | undefined>;
-  const clientId = body.client_id;
-  const redirectUri = body.redirect_uri;
-  const codeChallenge = body.code_challenge;
-  const state = body.state;
-  const scope = body.scope ?? '';
-  const resource = body.resource || undefined;
+// Describe the Cloudflare Access OIDC app as our authorization server. mcpAuthMetadataRouter
+// serves /.well-known/oauth-protected-resource (pointing claude.ai at Cloudflare to log in)
+// and echoes this as /.well-known/oauth-authorization-server.
+const oauthMetadata: OAuthMetadata = {
+  issuer: CF_ISSUER,
+  authorization_endpoint: CF_AUTHORIZATION_ENDPOINT,
+  token_endpoint: CF_TOKEN_ENDPOINT,
+  jwks_uri: CF_JWKS_URL,
+  response_types_supported: ['code'],
+  grant_types_supported: ['authorization_code', 'refresh_token'],
+  code_challenge_methods_supported: ['S256'],
+  scopes_supported: ['openid', 'email', 'profile'],
+  token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
+};
 
-  const client = clientId ? store.getClient(clientId) : undefined;
-  if (!client || !redirectUri || !codeChallenge) {
-    res.status(400).send('Invalid authorization request');
-    return;
-  }
-  if (!client.redirect_uris.includes(redirectUri)) {
-    res.status(400).send('Unregistered redirect_uri');
-    return;
-  }
-  if (!checkPassphrase(body.passphrase ?? '')) {
-    res.status(401).setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(
-      loginPage(
-        clientId!,
-        {
-          redirectUri,
-          codeChallenge,
-          state,
-          scopes: scope ? scope.split(' ').filter(Boolean) : [],
-          resource: resource ? new URL(resource) : undefined,
-        },
-        { error: true },
-      ),
-    );
-    return;
-  }
-
-  const code = issueAuthorizationCode({
-    clientId: clientId!,
-    redirectUri,
-    codeChallenge,
-    scopes: scope ? scope.split(' ').filter(Boolean) : [],
-    resource,
-  });
-  const url = new URL(redirectUri);
-  url.searchParams.set('code', code);
-  if (state) url.searchParams.set('state', state);
-  res.redirect(url.toString());
-});
-
-// OAuth metadata + DCR + authorize + token + revoke. Mounted at the app root.
 app.use(
-  mcpAuthRouter({
-    provider,
-    issuerUrl,
-    resourceServerUrl: resourceUrl,
+  mcpAuthMetadataRouter({
+    oauthMetadata,
+    resourceServerUrl: RESOURCE_URL,
     resourceName: 'Knowledge Vault',
-    scopesSupported: ['vault'],
+    scopesSupported: ['openid', 'email', 'profile'],
   }),
 );
 
 // --- Streamable HTTP MCP endpoint (stateful: one transport+server per session) ---
 const transports: Record<string, StreamableHTTPServerTransport> = {};
-const bearer = requireBearerAuth({ verifier: provider, resourceMetadataUrl });
+const bearer = requireBearerAuth({ verifier, resourceMetadataUrl });
 
 app.post('/mcp', bearer, express.json(), async (req, res) => {
   const sid = req.headers['mcp-session-id'] as string | undefined;
@@ -143,4 +112,5 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`knowledge-vault MCP server listening on :${PORT}`);
   console.log(`  public URL: ${PUBLIC_URL}`);
   console.log(`  MCP endpoint: ${PUBLIC_URL}/mcp`);
+  console.log(`  auth: Cloudflare Access OIDC (${CF_ISSUER})`);
 });
