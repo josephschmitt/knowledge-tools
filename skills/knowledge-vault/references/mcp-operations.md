@@ -14,8 +14,8 @@ All tools return their result as plain text content. Paths are relative to `wiki
   title). There is no separate `source_url` or `note` field — fold a source link and a
   one-line of context into `text`.
 - **Output:** a confirmation naming the inbox path written, e.g. `Captured to
-  inbox/2026-06-07T…-<slug>.md. It will be compiled into the wiki on the next nightly
-  run.`
+  inbox/2026-06-07T…-<slug>.md. It will be compiled into the wiki on the next scheduled
+  compile.`
 - **Notes:** never touches `wiki/` — the vault is mounted read-only except `inbox/`.
   One call writes one new file under `inbox/`.
 
@@ -50,7 +50,7 @@ All tools return their result as plain text content. Paths are relative to `wiki
 
 ### compile_run
 - **Purpose:** trigger an on-demand compile of the inbox into the wiki, on top of the
-  scheduled nightly job. Only needed to process the inbox sooner; capturing alone never
+  scheduled job. Only needed to process the inbox sooner; capturing alone never
   requires it.
 - **Inputs:** none.
 - **Output:** text describing one of four outcomes —
@@ -62,7 +62,7 @@ All tools return their result as plain text content. Paths are relative to `wiki
 - **Notes:** asynchronous — the tool kicks off the compile and returns immediately; it
   does not wait for or return a summary of the result. Synthesis runs on homelab under
   `CLAUDE.md`, not in this interface. The manual cooldown and a lock shared with the
-  nightly job (one compile at a time) are enforced server-side; the scheduled run is
+  scheduled job (one compile at a time) are enforced server-side; the scheduled run is
   never throttled and does not consume the manual cooldown.
 
 ### vault_status

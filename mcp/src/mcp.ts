@@ -103,7 +103,7 @@ export function buildMcpServer(): McpServer {
     {
       title: 'Capture to inbox',
       description:
-        'Append a raw capture (a thought, link, or clipping) to the vault inbox. The nightly ' +
+        'Append a raw capture (a thought, link, or clipping) to the vault inbox. The scheduled ' +
         'compile turns inbox captures into durable wiki notes. Use this to save something for later.',
       inputSchema: {
         text: z.string().min(1).describe('The raw capture content'),
@@ -112,7 +112,7 @@ export function buildMcpServer(): McpServer {
     },
     async ({ text: body, title }) => {
       const rel = await appendToInbox(body, title);
-      return text(`Captured to ${rel}. It will be compiled into the wiki on the next nightly run.`);
+      return text(`Captured to ${rel}. It will be compiled into the wiki on the next scheduled compile.`);
     },
   );
 
@@ -124,9 +124,9 @@ export function buildMcpServer(): McpServer {
         'Request an on-demand compile of the inbox into the wiki on the home server. Runs ' +
         'asynchronously — it kicks off the compile and returns immediately; the wiki updates ' +
         'once it finishes, and captures stay safe in the inbox meanwhile. Rate-limited to one ' +
-        'manual compile per hour: a call within the cooldown is refused (the scheduled nightly ' +
+        'manual compile per hour: a call within the cooldown is refused (the scheduled ' +
         'compile still runs regardless). Only needed to process the inbox sooner than the ' +
-        'nightly run; capturing alone does not require it.',
+        'next scheduled compile; capturing alone does not require it.',
       inputSchema: {},
     },
     async () => {
@@ -146,7 +146,7 @@ export function buildMcpServer(): McpServer {
         return text(
           `Refused — a manual compile ran recently and the hourly cooldown is still active. ` +
             `Next manual compile available ${fmtWhen(next)}. Your captures are safe in the inbox; ` +
-            `the scheduled nightly compile will process them regardless.`,
+            `the scheduled compile will process them regardless.`,
         );
       }
 

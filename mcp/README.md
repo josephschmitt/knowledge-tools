@@ -13,11 +13,11 @@ obtains from a **Cloudflare Access for SaaS OIDC** app and forwards on each requ
 | `get_note(path)` | Return one note's markdown |
 | `list_index()` | Return `index.md` (the navigation map) |
 | `list_notes()` | List every wiki note |
-| `append_to_inbox(text, title?)` | Capture a raw note into `inbox/` for the nightly compile |
+| `append_to_inbox(text, title?)` | Capture a raw note into `inbox/` for the scheduled compile |
 | `compile_run()` | Trigger an on-demand compile (async, rate-limited to one/hour) |
 | `vault_status()` | Pollable JSON: last successful compile time, pending inbox count, manual-compile cooldown, running flag |
 
-`append_to_inbox` is the capture path: drop a thought from claude.ai, and the nightly
+`append_to_inbox` is the capture path: drop a thought from claude.ai, and the scheduled
 compile (`scripts/nightly-compile.sh`) folds it into the wiki.
 
 ### Manual compile (`compile_run`)
@@ -26,15 +26,15 @@ The server can't compile in-process — the vault is read-only here except `inbo
 synthesis needs the `claude` CLI + git on the host. So `compile_run` *triggers* the host
 compile and reports status; it doesn't wait for the result. It writes a sentinel to
 `inbox/.compile/request` (the one writable path), which a systemd `.path` unit
-(`deploy/knowledge-compile.path`) watches to start the same `knowledge-compile.service`
-the nightly timer uses — so systemd runs one compile at a time (the shared lock). The
+(`scripts/knowledge-compile.path.in`) watches to start the same `knowledge-compile.service`
+the scheduled timer uses — so systemd runs one compile at a time (the shared lock). The
 host writes `inbox/.compile/status.json`, which the server reads to return `triggered` /
 `throttled` (refused within the one-hour cooldown) / `busy` / `empty`. The scheduled
-nightly run is never throttled and doesn't consume the manual cooldown.
+run is never throttled and doesn't consume the manual cooldown.
 
 Because `compile_run` returns before the compile finishes, `vault_status` is the completion
 signal: the host records `last_compiled_at` at the *end* of every successful compile (both
-nightly and on-demand), so a `last_compiled_at` newer than your trigger time means the run
+scheduled and on-demand), so a `last_compiled_at` newer than your trigger time means the run
 finished. It also reports `pending_inbox_count` and `manual_compile_available_at` (when the
 cooldown next clears) — poll it after a `compile_run` to know when the wiki is caught up.
 
