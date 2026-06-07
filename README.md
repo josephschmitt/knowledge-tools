@@ -49,21 +49,16 @@ Compiling the inbox into the wiki runs on the host as systemd *user* units:
   drops `inbox/.compile/request` into the vault. Both triggers start the same service, so
   systemd runs only one compile at a time (the lock shared between them).
 
-To set this up from scratch (idempotent — safe to re-run):
+To set this up from scratch (idempotent — safe to re-run), point `KNOWLEDGE_REPO` at your
+vault repo:
 
 ```sh
-~/development/knowledge-tools/scripts/install.sh
+KNOWLEDGE_REPO=/path/to/vault ~/development/knowledge-tools/scripts/install.sh
 ```
 
 It generates the three units from the `scripts/knowledge-compile.*.in` templates — filling
-in this repo's path for the worker script and the **vault** repo's path (`KNOWLEDGE_REPO`,
-default `~/knowledge-vault`) for the inbox it watches and compiles — writes them into
+in this repo's path for the worker script and the **vault** repo's path (from the required
+`KNOWLEDGE_REPO`) for the inbox it watches and compiles — writes them into
 `~/.config/systemd/user/`, reloads the daemon, enables and starts the timer + path watcher,
 and enables linger so they run while you're logged out. To change a unit, edit its `.in`
 template and re-run the script.
-
-Point the install at a vault in a non-default location with `KNOWLEDGE_REPO`:
-
-```sh
-KNOWLEDGE_REPO=/path/to/knowledge-vault ~/development/knowledge-tools/scripts/install.sh
-```

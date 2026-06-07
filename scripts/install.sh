@@ -1,26 +1,27 @@
 #!/usr/bin/env bash
-# Install the knowledge-vault compile automation as systemd *user* units.
+# Install the vault compile automation as systemd *user* units.
 #
 # Generates three user units from the templates next to this script and enables them.
 # Two paths are filled in (they live in different repos now that tooling and the vault
 # are split):
 #   - @TOOLS_REPO@ — this repo, where the worker script lives (ExecStart).
-#   - @VAULT_REPO@ — the knowledge-vault repo, whose inbox is watched and compiled.
-#                    Defaults to ~/knowledge-vault; override with KNOWLEDGE_REPO.
+#   - @VAULT_REPO@ — the vault repo, whose inbox is watched and compiled. Its path comes
+#                    from the required KNOWLEDGE_REPO env var.
 # The three units:
 #   - knowledge-compile.service  one ephemeral inbox->wiki compile (the worker)
 #   - knowledge-compile.timer    runs it nightly at 03:00
 #   - knowledge-compile.path     runs it on demand when the MCP server drops
 #                                inbox/.compile/request into the vault (compile_run tool)
 #
-# Idempotent — safe to re-run (re-run after editing a *.in template). Run from anywhere:
-#   ~/development/knowledge-tools/scripts/install.sh
-#   KNOWLEDGE_REPO=/path/to/knowledge-vault ~/development/knowledge-tools/scripts/install.sh
+# KNOWLEDGE_REPO is required — point it at the vault repo. Idempotent — safe to re-run
+# (re-run after editing a *.in template). Run from anywhere:
+#   KNOWLEDGE_REPO=/path/to/vault ~/development/knowledge-tools/scripts/install.sh
 set -euo pipefail
 
 SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLS_REPO="$(cd "$SCRIPTS/.." && pwd)"
-VAULT_REPO="${KNOWLEDGE_REPO:-$HOME/knowledge-vault}"
+: "${KNOWLEDGE_REPO:?set KNOWLEDGE_REPO to the vault repo path}"
+VAULT_REPO="$KNOWLEDGE_REPO"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNITS=(knowledge-compile.service knowledge-compile.timer knowledge-compile.path)
 
@@ -30,7 +31,7 @@ if ! systemctl --user show-environment >/dev/null 2>&1; then
 fi
 
 if [ ! -d "$VAULT_REPO" ]; then
-  echo "warning: vault repo not found at $VAULT_REPO (set KNOWLEDGE_REPO to override)." >&2
+  echo "warning: vault repo not found at $VAULT_REPO (from KNOWLEDGE_REPO)." >&2
 fi
 
 echo "Generating units in $UNIT_DIR (tools: $TOOLS_REPO, vault: $VAULT_REPO)"

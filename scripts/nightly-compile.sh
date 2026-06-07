@@ -17,7 +17,8 @@
 #     and does not consume the manual cooldown.
 set -euo pipefail
 
-REPO="${KNOWLEDGE_REPO:-$HOME/knowledge-vault}"
+: "${KNOWLEDGE_REPO:?set KNOWLEDGE_REPO to the vault repo path}"
+REPO="$KNOWLEDGE_REPO"
 CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
 COOLDOWN_SECONDS="${KNOWLEDGE_COMPILE_COOLDOWN:-3600}"
 cd "$REPO"
