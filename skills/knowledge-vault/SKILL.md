@@ -28,10 +28,10 @@ just fights that.
 ## MCP operations
 
 The exact tools and their input/output shapes live in `references/mcp-operations.md`.
-Read it before calling anything. At a high level the connector exposes five tools:
+Read it before calling anything. At a high level the connector exposes six tools:
 `append_to_inbox` to capture, `search_wiki` to find notes, `get_note` to read one,
-`list_index` to read the navigation map, and `list_notes` to enumerate every note.
-There is no compile tool — compilation runs on its own on homelab (see below).
+`list_index` to read the navigation map, `list_notes` to enumerate every note, and
+`compile_run` to trigger an on-demand compile (rate-limited; see below).
 
 ## Capturing
 
@@ -75,15 +75,24 @@ Joe: "What do I know about lake house options for the trip with Adam?"
 You: `search_wiki` → `get_note` on the matching paths → answer from them, naming the
 note(s); if it's thin, say where the gap is.
 
-## Compiling
+## Triggering a compile
 
-Compilation is not available from this interface. The scheduled job on homelab compiles
-the inbox into the wiki on its own nightly cadence, and the connector exposes no tool to
-trigger it. If Joe asks to compile or process the inbox now, tell him a manual compile
-isn't available here, and reassure him his captures are safe in the inbox — the
-scheduled job will process them on its next run. Never attempt the synthesis yourself
-from this interface; it belongs on homelab where the full vault and the `CLAUDE.md`
-conventions live.
+A scheduled job on homelab compiles the inbox into the wiki nightly, so a manual compile
+is occasional, not routine — capturing alone never requires it. When Joe explicitly wants
+the inbox processed sooner, call `compile_run` and act on what it returns. The compile
+runs asynchronously on homelab: the tool only *kicks it off* and returns right away; the
+wiki updates once the run finishes, and captures stay safe in the inbox until then. Never
+run the synthesis yourself from this interface — it belongs on homelab where the full
+vault and the `CLAUDE.md` conventions live.
+
+- **Triggered:** the compile has started. Tell Joe it's running and the wiki will update
+  shortly; his captures are safe meanwhile.
+- **Throttled (refused):** a manual compile ran within the last hour and the cooldown is
+  still active, so the call is refused. Relay when the next manual compile is available,
+  and reassure him his captures are safe — the nightly job will process them regardless.
+  **Don't** retry.
+- **Busy:** a compile is already running. Let him know; **don't** trigger another.
+- **Empty:** the inbox has nothing to compile. Say so; nothing to do.
 
 ## Conventions
 

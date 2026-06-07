@@ -8,6 +8,12 @@ const WIKI_DIR = path.join(VAULT_ROOT, 'wiki');
 const INBOX_DIR = path.join(VAULT_ROOT, 'inbox');
 const INDEX_FILE = path.join(VAULT_ROOT, 'index.md');
 
+// Compile coordination lives under inbox/.compile/ — the one mount the container can
+// write. It's a subdir, so the host's capture snapshot (top-level files only) ignores it.
+const COMPILE_DIR = path.join(INBOX_DIR, '.compile');
+const COMPILE_REQUEST = path.join(COMPILE_DIR, 'request');
+const COMPILE_STATUS = path.join(COMPILE_DIR, 'status.json');
+
 /** Resolve `rel` under `base`, throwing if it escapes `base`. */
 function confine(base: string, rel: string): string {
   const resolved = path.resolve(base, rel);
@@ -113,4 +119,42 @@ export async function appendToInbox(text: string, title?: string): Promise<strin
   const body = title ? `# ${title}\n\n${text}\n` : `${text}\n`;
   await fs.writeFile(full, body, { flag: 'wx' });
   return path.relative(VAULT_ROOT, full);
+}
+
+/** Count top-level inbox captures, ignoring control files (.gitkeep, dotfiles, .compile/). */
+export async function countInboxCaptures(): Promise<number> {
+  let entries;
+  try {
+    entries = await fs.readdir(INBOX_DIR, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  return entries.filter((e) => e.isFile() && !e.name.startsWith('.')).length;
+}
+
+export interface CompileStatus {
+  running?: boolean;
+  started_at?: string;
+  last_compiled_at?: string;
+  last_manual_compile_at?: string;
+  cooldown_seconds?: number;
+  summary?: string;
+}
+
+/** Read the host-written compile status, or null if it doesn't exist / is unparseable. */
+export async function readCompileStatus(): Promise<CompileStatus | null> {
+  try {
+    return JSON.parse(await fs.readFile(COMPILE_STATUS, 'utf8')) as CompileStatus;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Request a manual compile by dropping the sentinel the host's systemd .path unit watches.
+ * Writes inbox/.compile/request with the trigger time. The host consumes it when it runs.
+ */
+export async function requestCompile(): Promise<void> {
+  await fs.mkdir(COMPILE_DIR, { recursive: true });
+  await fs.writeFile(COMPILE_REQUEST, `${new Date().toISOString()}\n`);
 }

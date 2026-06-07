@@ -1,7 +1,29 @@
 // Builds a fresh McpServer with the vault tools. One instance per Streamable HTTP session.
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { listNotes, readIndex, getNote, searchWiki, appendToInbox } from './vault.js';
+import {
+  listNotes,
+  readIndex,
+  getNote,
+  searchWiki,
+  appendToInbox,
+  countInboxCaptures,
+  readCompileStatus,
+  requestCompile,
+} from './vault.js';
+
+// Manual compiles are rate-limited to one per hour. The host script is the authoritative
+// guard; this mirrors its default so the tool can refuse early with a clear message.
+const COOLDOWN_SECONDS = 3600;
+
+function fmtWhen(iso: string): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso;
+  const mins = Math.ceil((t - Date.now()) / 60000);
+  if (mins <= 0) return 'now';
+  if (mins < 60) return `in ~${mins} min`;
+  return `in ~${Math.ceil(mins / 60)} h`;
+}
 
 function text(s: string) {
   return { content: [{ type: 'text' as const, text: s }] };
@@ -14,7 +36,8 @@ export function buildMcpServer(): McpServer {
       instructions:
         'Personal knowledge vault. Use search_wiki / get_note / list_index / list_notes to ' +
         'answer from the compiled wiki, and append_to_inbox to capture a raw note or idea for ' +
-        'later compilation. Prefer answering from the vault over general knowledge.',
+        'later compilation. compile_run triggers an on-demand compile (rate-limited). Prefer ' +
+        'answering from the vault over general knowledge.',
     },
   );
 
@@ -89,6 +112,48 @@ export function buildMcpServer(): McpServer {
     async ({ text: body, title }) => {
       const rel = await appendToInbox(body, title);
       return text(`Captured to ${rel}. It will be compiled into the wiki on the next nightly run.`);
+    },
+  );
+
+  server.registerTool(
+    'compile_run',
+    {
+      title: 'Trigger a compile',
+      description:
+        'Request an on-demand compile of the inbox into the wiki on the home server. Runs ' +
+        'asynchronously — it kicks off the compile and returns immediately; the wiki updates ' +
+        'once it finishes, and captures stay safe in the inbox meanwhile. Rate-limited to one ' +
+        'manual compile per hour: a call within the cooldown is refused (the scheduled nightly ' +
+        'compile still runs regardless). Only needed to process the inbox sooner than the ' +
+        'nightly run; capturing alone does not require it.',
+      inputSchema: {},
+    },
+    async () => {
+      if ((await countInboxCaptures()) === 0) {
+        return text('Inbox is empty — nothing to compile. (No cooldown consumed.)');
+      }
+
+      const status = await readCompileStatus();
+      if (status?.running) {
+        return text('A compile is already running. Your captures are safe; no need to trigger another.');
+      }
+
+      const cooldown = (status?.cooldown_seconds ?? COOLDOWN_SECONDS) * 1000;
+      const last = status?.last_manual_compile_at ? Date.parse(status.last_manual_compile_at) : NaN;
+      if (!Number.isNaN(last) && Date.now() - last < cooldown) {
+        const next = new Date(last + cooldown).toISOString();
+        return text(
+          `Refused — a manual compile ran recently and the hourly cooldown is still active. ` +
+            `Next manual compile available ${fmtWhen(next)}. Your captures are safe in the inbox; ` +
+            `the scheduled nightly compile will process them regardless.`,
+        );
+      }
+
+      await requestCompile();
+      return text(
+        'Compile triggered. It runs on the home server and the wiki updates once it finishes; ' +
+          'your captures are safe in the inbox until then.',
+      );
     },
   );
 

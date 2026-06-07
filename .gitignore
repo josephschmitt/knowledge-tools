@@ -9,3 +9,6 @@ mcp/data/
 
 # Per-skill release zips (built in CI by package-skills.yml)
 dist/
+
+# Compile coordination state (sentinel, status, lock — runtime only)
+inbox/.compile/

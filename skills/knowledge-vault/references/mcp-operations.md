@@ -48,11 +48,28 @@ All tools return their result as plain text content. Paths are relative to `wiki
 - **Notes:** useful when a search comes up empty or you need to see what exists before
   searching.
 
+### compile_run
+- **Purpose:** trigger an on-demand compile of the inbox into the wiki, on top of the
+  scheduled nightly job. Only needed to process the inbox sooner; capturing alone never
+  requires it.
+- **Inputs:** none.
+- **Output:** text describing one of four outcomes —
+  - *triggered* — the compile has started; the wiki updates once it finishes.
+  - *throttled* — refused: a manual compile ran within the cooldown window (one per
+    hour); names when the next is available. Don't retry.
+  - *busy* — a compile is already running. Don't trigger another.
+  - *empty* — the inbox has nothing to compile (no cooldown consumed).
+- **Notes:** asynchronous — the tool kicks off the compile and returns immediately; it
+  does not wait for or return a summary of the result. Synthesis runs on homelab under
+  `CLAUDE.md`, not in this interface. The manual cooldown and a lock shared with the
+  nightly job (one compile at a time) are enforced server-side; the scheduled run is
+  never throttled and does not consume the manual cooldown.
+
 ## Out of scope for this surface
 
-- **Compiling.** There is no compile tool. The inbox is compiled into the wiki by a
-  scheduled nightly job on homelab; this interface cannot trigger it.
+- **Synthesis.** `compile_run` only *triggers* a compile; the actual inbox→wiki
+  synthesis runs on homelab under `CLAUDE.md`, never in this interface.
 - **Wiki maintenance and health checks** (broken links, deduping, gap-finding) run on
   homelab.
 - **Anything that reorganizes or rewrites the wiki** from this interface — the vault is
-  read-only here except for inbox captures.
+  read-only here except for inbox captures (and the compile request sentinel).

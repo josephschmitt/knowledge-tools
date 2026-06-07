@@ -14,9 +14,22 @@ assumes OAuth and offers no bearer-token field.
 | `list_index()` | Return `index.md` (the navigation map) |
 | `list_notes()` | List every wiki note |
 | `append_to_inbox(text, title?)` | Capture a raw note into `inbox/` for the nightly compile |
+| `compile_run()` | Trigger an on-demand compile (async, rate-limited to one/hour) |
 
 `append_to_inbox` is the capture path: drop a thought from claude.ai, and the nightly
 compile (`scripts/nightly-compile.sh`) folds it into the wiki.
+
+### Manual compile (`compile_run`)
+
+The server can't compile in-process — the vault is read-only here except `inbox/`, and
+synthesis needs the `claude` CLI + git on the host. So `compile_run` *triggers* the host
+compile and reports status; it doesn't wait for the result. It writes a sentinel to
+`inbox/.compile/request` (the one writable path), which a systemd `.path` unit
+(`deploy/knowledge-compile.path`) watches to start the same `knowledge-compile.service`
+the nightly timer uses — so systemd runs one compile at a time (the shared lock). The
+host writes `inbox/.compile/status.json`, which the server reads to return `triggered` /
+`throttled` (refused within the one-hour cooldown) / `busy` / `empty`. The scheduled
+nightly run is never throttled and doesn't consume the manual cooldown.
 
 ## Auth model (single user)
 

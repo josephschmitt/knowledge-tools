@@ -1,0 +1,21 @@
+# systemd USER path unit — install to ~/.config/systemd/user/knowledge-compile.path
+# Watches for a manual compile request dropped by the MCP server (append into inbox/) and
+# starts knowledge-compile.service. Because the timer and this path unit start the SAME
+# service, systemd runs only one instance at a time — that single-instance guarantee is
+# the lock shared between the manual trigger and the nightly job.
+#
+# Install + enable (alongside the timer; see knowledge-compile.service):
+#   ln -s ~/knowledge/deploy/knowledge-compile.path ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now knowledge-compile.path
+#
+[Unit]
+Description=Watch for an on-demand knowledge-vault compile request
+
+[Path]
+# Fires when the sentinel exists; the service consumes (deletes) it, re-arming the watch.
+PathExists=/home/USER/knowledge/inbox/.compile/request
+Unit=knowledge-compile.service
+
+[Install]
+WantedBy=default.target
