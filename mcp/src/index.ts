@@ -97,9 +97,14 @@ app.post('/mcp', bearer, express.json(), async (req, res) => {
     };
     await buildMcpServer().connect(transport);
   } else if (!transport) {
-    res.status(400).json({
+    // Unknown/expired session (e.g. after a redeploy wiped the in-memory `transports` map):
+    // answer 404, not 400. The MCP Streamable-HTTP spec says a client that gets 404 for a
+    // request carrying an Mcp-Session-Id MUST transparently re-initialize — reusing its
+    // still-valid bearer token, no user re-auth. A 400 reads as a hard failure and forces a
+    // manual reconnect in claude.ai.
+    res.status(404).json({
       jsonrpc: '2.0',
-      error: { code: -32000, message: 'Bad Request: no valid session ID for non-initialize request' },
+      error: { code: -32001, message: 'Session not found' },
       id: null,
     });
     return;
@@ -113,7 +118,9 @@ const replaySession: express.RequestHandler = async (req, res) => {
   const sid = req.headers['mcp-session-id'] as string | undefined;
   const transport = sid ? transports[sid] : undefined;
   if (!transport) {
-    res.status(400).send('Invalid or missing session ID');
+    // 404 (not 400) so a stale session ID — e.g. left over after a redeploy — triggers a
+    // clean client-side re-initialize rather than a manual reconnect/re-auth.
+    res.status(404).send('Session not found');
     return;
   }
   await transport.handleRequest(req, res);
