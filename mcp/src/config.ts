@@ -3,6 +3,10 @@
 
 export const PORT = Number(process.env.PORT ?? 3000);
 
+// pino log level (fatal|error|warn|info|debug|trace|silent). Default 'info'; set
+// LOG_LEVEL=debug to surface per-request and token-verification detail with no code change.
+export const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
+
 // Public origin the server is reached at, used as the OAuth resource id (audience of the
 // protected resource metadata) and the base for the MCP endpoint.
 export const PUBLIC_URL = (process.env.PUBLIC_URL ?? `http://localhost:${PORT}`).replace(/\/+$/, '');
@@ -24,13 +28,18 @@ export const VAULT_ROOT = process.env.VAULT_ROOT ?? '/vault';
 // (https://<team>.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<client_id>).
 export const CF_ISSUER = (process.env.CF_ISSUER ?? '').replace(/\/+$/, '');
 
-// The app's Client ID — also the expected token audience (`aud`).
+// The app's Client ID. Used to identify the OAuth client; NOT the token audience (see below).
 export const CF_CLIENT_ID = process.env.CF_CLIENT_ID ?? '';
 
 if (!CF_ISSUER || !CF_CLIENT_ID) {
   console.error('FATAL: CF_ISSUER and CF_CLIENT_ID are required — refusing to start an unprotected server.');
   process.exit(1);
 }
+
+// Expected token audience (`aud`). Cloudflare Access SaaS OIDC stamps the access token's `aud`
+// with the app's *redirect URL* (claude.ai's OAuth callback), not the client ID — so that is
+// what we validate against. Override only if the app's registered redirect URL differs.
+export const CF_AUDIENCE = process.env.CF_AUDIENCE || 'https://claude.ai/api/mcp/auth_callback';
 
 // CF_ISSUER is guaranteed non-empty past the guard above. The JWKS / authorization / token
 // endpoints all live under the issuer at Cloudflare's standard paths; override only if they

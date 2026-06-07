@@ -14,6 +14,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { OAuthMetadata } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { buildMcpServer } from './mcp.js';
 import { verifier } from './auth/verifier.js';
+import { logger } from './logger.js';
 import {
   PORT,
   PUBLIC_URL,
@@ -33,6 +34,13 @@ app.disable('x-powered-by');
 
 const resourceMetadataUrl = getOAuthProtectedResourceMetadataUrl(RESOURCE_URL);
 
+// One line per request at debug level — cheap, and the first thing you want when a connector
+// flow misbehaves (set LOG_LEVEL=debug).
+app.use((req, _res, next) => {
+  logger.debug({ method: req.method, path: req.path }, 'request');
+  next();
+});
+
 app.get('/healthz', (_req, res) => {
   res.json({ ok: true });
 });
@@ -46,7 +54,7 @@ const oauthMetadata: OAuthMetadata = {
   token_endpoint: CF_TOKEN_ENDPOINT,
   jwks_uri: CF_JWKS_URL,
   response_types_supported: ['code'],
-  grant_types_supported: ['authorization_code', 'refresh_token'],
+  grant_types_supported: ['authorization_code'],
   code_challenge_methods_supported: ['S256'],
   scopes_supported: ['openid', 'email', 'profile'],
   token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
@@ -67,6 +75,7 @@ const bearer = requireBearerAuth({ verifier, resourceMetadataUrl });
 
 app.post('/mcp', bearer, express.json(), async (req, res) => {
   const sid = req.headers['mcp-session-id'] as string | undefined;
+  logger.debug({ sessionId: sid, rpcMethod: req.body?.method }, 'mcp request');
   let transport = sid ? transports[sid] : undefined;
 
   if (!transport && !sid && isInitializeRequest(req.body)) {
@@ -109,8 +118,8 @@ app.get('/mcp', bearer, replaySession);
 app.delete('/mcp', bearer, replaySession);
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`knowledge-vault MCP server listening on :${PORT}`);
-  console.log(`  public URL: ${PUBLIC_URL}`);
-  console.log(`  MCP endpoint: ${PUBLIC_URL}/mcp`);
-  console.log(`  auth: Cloudflare Access OIDC (${CF_ISSUER})`);
+  logger.info(
+    { port: PORT, publicUrl: PUBLIC_URL, mcpEndpoint: `${PUBLIC_URL}/mcp`, issuer: CF_ISSUER },
+    'knowledge-vault MCP server listening',
+  );
 });

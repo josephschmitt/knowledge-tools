@@ -41,6 +41,12 @@ against Cloudflare's JWKS (Key) endpoint plus its issuer and audience (`auth/ver
 No passphrase, no token store, no dynamic client registration on our side — Cloudflare owns
 login, MFA, policy, and token lifecycle.
 
+> **Audience quirk:** Cloudflare Access SaaS OIDC stamps the access token's `aud` with the
+> app's **redirect URL** (`https://claude.ai/api/mcp/auth_callback`), *not* the client ID. The
+> verifier therefore validates `aud` against `CF_AUDIENCE` (default: that redirect URL), while
+> `CF_CLIENT_ID` only identifies the client. Checking `aud` against the client ID rejects every
+> otherwise-valid token.
+
 Because Cloudflare's app is a *statically registered* OAuth client (fixed client ID +
 secret), claude.ai uses its **Advanced settings** to supply those credentials instead of
 registering dynamically (supported since July 2025). See "Connect to claude.ai" below.
@@ -87,7 +93,12 @@ pulls without authenticating; the image carries only server code, no vault conte
 
 The server runs as the `knowledge-mcp` compose service (already in
 `~/example.com/docker-compose.yaml` as `image: ghcr.io/josephschmitt/knowledge-mcp:latest`),
-behind traefik at `knowledge.mcp.example.com`.
+behind traefik at `knowledge.example.com`.
+
+> **Use a single-level subdomain.** Cloudflare's free Universal SSL covers only `example.com`
+> and `*.example.com` (one level). A deeper host like `knowledge.mcp.example.com` has no edge
+> certificate and fails the TLS handshake unless you buy Advanced Certificate Manager, so the
+> host is `knowledge.example.com` and the MCP endpoint stays at the `/mcp` path.
 
 1. **Cloudflare OIDC env** — set the app's values in `~/example.com/.env`
    (issuer + client ID; neither is secret — the server validates tokens via Cloudflare's JWKS
@@ -96,20 +107,19 @@ behind traefik at `knowledge.mcp.example.com`.
    KNOWLEDGE_MCP_CF_ISSUER=https://example.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<CLIENT_ID>
    KNOWLEDGE_MCP_CF_CLIENT_ID=<CLIENT_ID>
    ```
-2. **TLS** — `*.mcp.example.com` was added to `traefik/traefik.yml` SANs. Restart traefik so
-   it issues the wildcard via the Cloudflare DNS challenge (briefly drops ingress):
-   ```sh
-   cd ~/example.com && docker compose up -d traefik
-   ```
+2. **TLS** — the compose router requests the origin cert for `knowledge.example.com`
+   automatically via the `cf-dns` resolver (the token already has the `example.com` zone); no
+   traefik change is needed. The public *edge* cert is Cloudflare's Universal SSL `*.example.com`.
 3. **Pull + start the service** (does not touch other services):
    ```sh
    cd ~/example.com && docker compose pull knowledge-mcp && docker compose up -d knowledge-mcp
    docker compose logs -f knowledge-mcp
    ```
 4. **Cloudflare Zero Trust UI** — add a **public hostname** to the existing tunnel:
-   - Hostname: `knowledge.mcp.example.com`
-   - Service: `https://localhost:443`, with **Origin Server Name** = `knowledge.mcp.example.com`
-     (or enable *No TLS Verify*) — cloudflared is host-network and traefik terminates TLS.
+   - Hostname: `knowledge.example.com`
+   - Service: `https://localhost:443`. Under **TLS**, either set **Origin Server Name** =
+     `knowledge.example.com` (so cloudflared's SNI matches traefik's cert) or enable
+     **No TLS Verify** — cloudflared is host-network and traefik terminates TLS on a loopback hop.
    - Adding the hostname creates the DNS record automatically.
    - **Do not** attach a Cloudflare Access application to this hostname — Access blocks
      claude.ai's server-side fetch. The bearer-token check is the gate.
@@ -117,7 +127,7 @@ behind traefik at `knowledge.mcp.example.com`.
 Verify publicly:
 
 ```sh
-curl -s https://knowledge.mcp.example.com/.well-known/oauth-protected-resource/mcp
+curl -s https://knowledge.example.com/.well-known/oauth-protected-resource/mcp
 ```
 
 ## Cloudflare Access app (one-time)
@@ -138,7 +148,7 @@ you no longer have it.
 ## Connect to claude.ai
 
 claude.ai → **Settings → Connectors → Add custom connector** → URL:
-`https://knowledge.mcp.example.com/mcp`. Open **Advanced settings** and paste the Cloudflare
+`https://knowledge.example.com/mcp`. Open **Advanced settings** and paste the Cloudflare
 **Client ID** and **Client Secret**. Add it, complete the Cloudflare login, and the tools
 appear.
 
@@ -149,3 +159,6 @@ appear.
   fetch may omit `Origin`). See `.env.example` to enable it with `ALLOWED_HOSTS`/`ALLOWED_ORIGINS`.
 - Tokens are issued and expired by Cloudflare; this server validates them per request against
   Cloudflare's JWKS and holds no token state.
+- Logging is [pino](https://getpino.io) (line-delimited JSON). Default level is `info`; set
+  `LOG_LEVEL=debug` to see per-request lines and token-verification detail. Rejected tokens log
+  at `warn` with jose's specific failure reason.
