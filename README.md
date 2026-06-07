@@ -104,8 +104,11 @@ and off the top of the hour so they don't collide with the hourly compile on the
 > `~/.config/gh`). The generated service units put `~/.nix-profile/bin` and `~/.local/bin` on
 > PATH and rely on `HOME` for the auth; the run is granted only the exact `gh issue`
 > subcommands each command's frontmatter declares (via `--allowedTools`), never a blanket
-> skip-permissions. The required labels (`vault:judgment-call`, `vault:needs-verification`)
-> must exist on the repo.
+> skip-permissions. The required labels (`vault:judgment-call`, `vault:needs-verification`,
+> and `vault:answered`) must exist on the repo — create them once with `gh label create`.
+> `/synthesize` opens issues under the first two; you mark a settled one `vault:answered` and
+> `/resolve` then applies it (or asks a follow-up and clears the label), so `/resolve`'s grant
+> includes `gh issue edit` to manage that label.
 
 To set this up from scratch (idempotent — safe to re-run), point `KNOWLEDGE_REPO` at your
 vault repo — either inline as below, or by copying `.env.example` to `.env` and setting it

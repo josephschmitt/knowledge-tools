@@ -82,9 +82,16 @@ gh issue create --title "<short question>" --label "vault:judgment-call" \
   --body "<both sides, notes involved, the decision needed>"
 ```
 
-This command only **opens** issues — it never closes them. Reading my answers back out and
-closing resolved issues is `/resolve`'s job. If your reconciliation in Phase 1 happens to make
-an already-open issue moot, leave it; `/resolve` will catch and close it on its next run.
+End every issue body with a one-line reminder of how I act on it, so the loop explains itself in
+GitHub:
+
+> Reply with your decision, then add the `vault:answered` label to apply it. If anything's
+> unclear, `/resolve` asks a follow-up here and clears the label.
+
+This command only **opens** issues — it never closes them; applying my answers and closing is
+`/resolve`'s job, and `/resolve` acts only on issues I've labeled `vault:answered`. If your
+Phase 1 reconciliation makes an already-open issue moot, leave it open (you can't close it here) —
+I'll close it, or mark it `vault:answered` for `/resolve` to close. Just don't duplicate it.
 
 Then:
 
