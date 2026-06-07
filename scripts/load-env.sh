@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sourced by the host compile scripts (install.sh, nightly-compile.sh) to load config
+# Sourced by the host compile scripts (install.sh, vault-compile.sh) to load config
 # like KNOWLEDGE_REPO from the repo-root .env. Override the path with KNOWLEDGE_ENV_FILE.
 #
 # Values already set in the environment WIN — an explicit `KNOWLEDGE_REPO=... ./install.sh`

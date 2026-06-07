@@ -17,9 +17,11 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
 - **`skills/knowledge-vault/`** — the conversational front-door skill: capture and query,
   delegating heavy compilation to the host. Ships two ways — as a Claude Code plugin (see
   [Installing the skill](#installing-the-skill)) and as per-skill release zips for claude.ai.
-- **`scripts/`** — the host-side compile automation. `nightly-compile.sh` runs an ephemeral
-  Claude Code pass (`/compile-inbox`) over the vault; `install.sh` generates the systemd
-  *user* units from the `knowledge-compile.*.in` templates; `validate_skills.py` is used by CI.
+- **`scripts/`** — the host-side automation. `vault-compile.sh` runs an ephemeral Claude
+  Code pass (`/compile-inbox`) over the vault; `vault-job.sh` runs the two GitHub-issue jobs
+  (`/synthesize` and `/resolve`); `vault-lib.sh` holds the config, shared cross-job lock, and
+  git side effects all three share; `install.sh` generates the systemd *user* units from the
+  `knowledge-*.in` templates; `validate_skills.py` is used by CI.
 
 ## Installing the skill
 
@@ -43,18 +45,44 @@ deployed and reachable at that URL — see [`mcp/README.md`](mcp/README.md).
 [release](https://github.com/josephschmitt/knowledge-tools/releases) and upload it as a
 skill. CI builds these zips on every skill change merged to `main`.
 
-## Compile automation (host setup)
+## Vault automation (host setup)
 
-Compiling the inbox into the wiki runs on the host as systemd *user* units:
+Three vault jobs run on the host as systemd *user* units. They all edit `wiki/` and commit,
+so they share **one lockfile** (`~/.local/state/knowledge-tools/vault.lock`, overridable with
+`KNOWLEDGE_VAULT_LOCK`) and never run concurrently. In every case Claude only edits files (and,
+for the issue jobs, runs scoped `gh` calls) — the **wrapper** owns git: it commits any
+`wiki/` + `index.md` + `log.md` changes and pushes if an `origin` remote exists.
+
+**Compile** — turn fresh captures into notes:
 
 - `knowledge-compile.service` — one ephemeral inbox→wiki compile (the worker).
-- `knowledge-compile.timer` — runs it on a schedule (default hourly; set
-  `KNOWLEDGE_COMPILE_ONCALENDAR` to any systemd OnCalendar expression and re-run
-  `install.sh`). The worker no-ops cheaply when the inbox is empty (no Claude run), so a
-  tick only does real work when there are captures to compile.
-- `knowledge-compile.path` — runs it on demand when the MCP server's `compile_run` tool
-  drops `inbox/.compile/request` into the vault. Both triggers start the same service, so
-  systemd runs only one compile at a time (the lock shared between them).
+- `knowledge-compile.timer` — runs it on a schedule (default hourly;
+  `KNOWLEDGE_COMPILE_ONCALENDAR`). No-ops cheaply when the inbox is empty, so a tick only does
+  real work when there are captures.
+- `knowledge-compile.path` — runs it on demand when the MCP server's `compile_run` tool drops
+  `inbox/.compile/request` into the vault. Both triggers start the same service.
+
+**Synthesize** (heavy, infrequent) and **Resolve** (light, frequent) — the GitHub-issue loop:
+
+- `knowledge-synthesize.{service,timer}` — a whole-corpus `/synthesize` pass (default **weekly,
+  ~4:30am local**, `KNOWLEDGE_SYNTHESIZE_ONCALENDAR`). Reconciles drift/contradictions and finds
+  new cross-note connections, **opening** judgment-call issues for anything only you can decide.
+- `knowledge-resolve.{service,timer}` — a `/resolve` pass (default **daily, ~3:30am local**,
+  `KNOWLEDGE_RESOLVE_ONCALENDAR`). Reads your answers on open issues, applies the decisions to
+  `wiki/`, and **closes** them. Short-circuits cheaply when no issues are open.
+
+Both default to the middle of the night (pinned to `America/Detroit` so they track local night
+through DST even on a UTC host) to land on off-peak Claude Max capacity, staggered an hour apart
+and off the top of the hour so they don't collide with the hourly compile on the shared lock.
+
+> **`gh` auth required for synthesize/resolve** (not compile). These two run `gh issue ...`
+> from *inside* the Claude run — that's how issues get filed and closed — so the host needs the
+> GitHub CLI installed, on PATH, and authenticated once with `gh auth login` (stored in
+> `~/.config/gh`). The generated service units put `~/.nix-profile/bin` and `~/.local/bin` on
+> PATH and rely on `HOME` for the auth; the run is granted only the exact `gh issue`
+> subcommands each command's frontmatter declares (via `--allowedTools`), never a blanket
+> skip-permissions. The required labels (`vault:judgment-call`, `vault:needs-verification`)
+> must exist on the repo.
 
 To set this up from scratch (idempotent — safe to re-run), point `KNOWLEDGE_REPO` at your
 vault repo — either inline as below, or by copying `.env.example` to `.env` and setting it
@@ -64,9 +92,9 @@ there (the scripts load the repo-root `.env` automatically; a real env var overr
 KNOWLEDGE_REPO=/path/to/vault ~/development/knowledge-tools/scripts/install.sh
 ```
 
-It generates the three units from the `scripts/knowledge-compile.*.in` templates — filling
-in this repo's path for the worker script and the **vault** repo's path (from the required
-`KNOWLEDGE_REPO`) for the inbox it watches and compiles — writes them into
-`~/.config/systemd/user/`, reloads the daemon, enables and starts the timer + path watcher,
-and enables linger so they run while you're logged out. To change a unit, edit its `.in`
-template and re-run the script.
+It generates the units from the `scripts/knowledge-*.in` templates — filling in this repo's
+path for the worker scripts and the **vault** repo's path (from the required `KNOWLEDGE_REPO`)
+— writes them into `~/.config/systemd/user/`, reloads the daemon, enables and starts the three
+timers + the path watcher, and enables linger so they run while you're logged out. Run the
+issue jobs on demand with `systemctl --user start knowledge-{synthesize,resolve}.service`. To
+change a unit, edit its `.in` template and re-run the script.
