@@ -40,6 +40,7 @@ case "$JOB" in
       "Bash(gh issue list:*)"
       "Bash(gh issue view:*)"
       "Bash(gh issue comment:*)"
+      "Bash(gh issue edit:*)"
       "Bash(gh issue close:*)"
     )
     ;;
@@ -65,17 +66,16 @@ acquire_vault_lock
 
 log "$JOB starting ($SLASH)"
 
-# resolve is the consumer side: when there are no open vault issues at all, there's nothing
-# to read back, so skip the (opus) run entirely — the same short-circuit compile does on an
-# empty inbox. Two label queries because gh ANDs multiple --label flags; we want either.
+# resolve is the consumer side and acts ONLY on issues I've marked answered (the vault:answered
+# go-signal). If nothing is answered there's nothing to apply, so skip the (opus) run entirely —
+# the same short-circuit compile does on an empty inbox.
 if [ "$JOB" = resolve ]; then
-  n1=$(gh issue list --state open --label "vault:judgment-call"      --json number -q 'length' 2>>"$LOG" || echo 0)
-  n2=$(gh issue list --state open --label "vault:needs-verification" --json number -q 'length' 2>>"$LOG" || echo 0)
-  if [ "$((n1 + n2))" -eq 0 ]; then
-    log "no open vault issues — nothing to resolve."
+  n=$(gh issue list --state open --label "vault:answered" --json number -q 'length' 2>>"$LOG" || echo 0)
+  if [ "$n" -eq 0 ]; then
+    log "no answered vault issues — nothing to resolve."
     exit 0
   fi
-  log "open vault issues: judgment-call=$n1 needs-verification=$n2"
+  log "answered vault issues: $n"
 fi
 
 # Fresh, headless run. acceptEdits auto-applies Claude's wiki/ edits; --allowedTools grants
