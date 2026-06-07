@@ -70,9 +70,17 @@ Adding a new skill needs no manifest change — drop it under `skills/<name>/` a
 picks it up. The plugin pulls from the repo's default branch, so `/plugin update` tracks
 `main`.
 
-> The `knowledge-vault` skill drives the vault through its **MCP connector**; installing
-> the plugin alone doesn't configure that server. In Claude Code the connector must be set
-> up separately for the skill to function.
+The `knowledge-vault` skill drives the vault through its **MCP connector**, which the
+plugin now bundles: `plugin.json` declares a `userConfig.mcp_url` field, so enabling the
+plugin prompts the user for their self-hosted MCP endpoint, and an inline `mcpServers`
+entry wires `${user_config.mcp_url}` into a remote HTTP server named `knowledge-vault`.
+OAuth is auto-negotiated (the server advertises Cloudflare Access via
+`/.well-known/oauth-protected-resource` + 401), so no secret lives in the manifest. The
+config is inlined in `plugin.json` rather than a repo-root `.mcp.json` on purpose: source
+is `"."`, so a root `.mcp.json` would also act as this repo's *project* MCP config.
+
+> The plugin only points Claude Code at the connector — the user still has to deploy the
+> MCP server (see `mcp/README.md`) and reach it at the URL they enter.
 
 **claude.ai (zip releases).** CI (`.github/workflows/package-skills.yml`) zips each skill
 as `<name>/...` for manual upload to claude.ai. Two paths trigger it: a skill change merged

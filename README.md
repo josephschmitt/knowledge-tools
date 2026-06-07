@@ -32,8 +32,12 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
 ```
 
 The skill is then invocable as `/knowledge:knowledge-vault`, and `/plugin update` tracks
-`main`. The skill drives the vault through its MCP connector, which must be configured
-separately for it to function.
+`main`. The plugin bundles the skill's MCP connector: enabling it prompts for your
+self-hosted MCP URL (including the `/mcp` path, e.g. `https://knowledge.example.com/mcp`)
+and wires it up as a remote HTTP server. OAuth is negotiated automatically on first
+connect — the server advertises its Cloudflare Access authorization server and Claude Code
+walks the flow (run `/mcp` if you need to (re)authenticate). The vault must already be
+deployed and reachable at that URL — see [`mcp/README.md`](mcp/README.md).
 
 **claude.ai** — download the `knowledge-vault.zip` asset from the latest
 [release](https://github.com/josephschmitt/knowledge-tools/releases) and upload it as a

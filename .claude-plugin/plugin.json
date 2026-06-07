@@ -7,5 +7,19 @@
     "email": "dev@joe.sh"
   },
   "homepage": "https://github.com/josephschmitt/knowledge-tools",
-  "repository": "https://github.com/josephschmitt/knowledge-tools"
+  "repository": "https://github.com/josephschmitt/knowledge-tools",
+  "userConfig": {
+    "mcp_url": {
+      "type": "string",
+      "title": "Knowledge vault MCP URL",
+      "description": "Your self-hosted knowledge-vault MCP connector endpoint, including the /mcp path (e.g. https://knowledge.example.com/mcp). The skill drives the vault through this server; OAuth is negotiated automatically on first connect.",
+      "required": true
+    }
+  },
+  "mcpServers": {
+    "knowledge-vault": {
+      "type": "http",
+      "url": "${user_config.mcp_url}"
+    }
+  }
 }
