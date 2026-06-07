@@ -4,13 +4,7 @@
 #   - knowledge-compile.timer → nightly scheduled run
 #   - knowledge-compile.path  → on-demand run when the MCP drops inbox/.compile/request
 #
-#   mkdir -p ~/.config/systemd/user
-#   ln -s ~/knowledge/deploy/knowledge-compile.service ~/.config/systemd/user/
-#   ln -s ~/knowledge/deploy/knowledge-compile.timer   ~/.config/systemd/user/
-#   ln -s ~/knowledge/deploy/knowledge-compile.path    ~/.config/systemd/user/
-#   systemctl --user daemon-reload
-#   systemctl --user enable --now knowledge-compile.timer knowledge-compile.path
-#   loginctl enable-linger "$USER"   # so the units run while you're logged out
+# Install all three units (service + timer + path) with: ~/knowledge/deploy/install.sh
 #
 [Unit]
 Description=Compile the knowledge-vault inbox into the wiki (ephemeral Claude run)

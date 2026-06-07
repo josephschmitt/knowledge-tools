@@ -1,5 +1,5 @@
 # systemd USER timer — fires the nightly compile at 03:00 local time.
-# Install + enable instructions are in knowledge-compile.service.
+# Install all three units (service + timer + path) with: ~/knowledge/deploy/install.sh
 [Unit]
 Description=Nightly knowledge-vault inbox compile
 
