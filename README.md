@@ -121,3 +121,31 @@ path for the worker scripts and the **vault** repo's path (from the required `KN
 timers + the path watcher, and enables linger so they run while you're logged out. Run the
 issue jobs on demand with `systemctl --user start knowledge-{synthesize,resolve}.service`. To
 change a unit, edit its `.in` template and re-run the script.
+
+### Bot account (optional)
+
+By default the issue jobs run `gh` as **you** (the `~/.config/gh` login), so any comment
+`/synthesize` or `/resolve` posts is authored by your personal account — which reads as you
+talking to yourself on your own issues. Purely cosmetic: it doesn't affect behavior, since
+`/resolve` gates on the `vault:answered` label, not on who wrote a comment. If the self-talk
+bugs you, give the jobs a separate **machine account** (GitHub permits one per person for
+automation, and it's free — including on private repos):
+
+1. Create a second GitHub account with a distinct email — a plus-alias like
+   `you+vaultbot@example.com` works, so you don't need a new inbox.
+2. Invite it to the vault repo as a collaborator with **write** access; accept from the bot.
+3. On the bot account, create a **fine-grained PAT** scoped to just the vault repo with
+   **Issues: read/write**.
+4. Drop it where the units already look for it (this path is wired into the service templates
+   as an *optional* `EnvironmentFile`, so it's inert until the file exists):
+
+   ```sh
+   install -d -m 700 ~/.config/knowledge-tools
+   printf 'GH_TOKEN=%s\n' '<the-bot-PAT>' > ~/.config/knowledge-tools/gh.env
+   chmod 600 ~/.config/knowledge-tools/gh.env
+   ```
+
+`gh` honors `GH_TOKEN` over the keyring, so the next run authenticates as the bot. **Until
+that file exists, nothing changes** — `gh` falls back to your `~/.config/gh` login and the jobs
+keep working exactly as before. To revert, delete the file. The token must never be committed;
+keeping it in `~/.config` (not the repo) is the point.
