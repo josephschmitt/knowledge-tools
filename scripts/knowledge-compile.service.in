@@ -1,6 +1,6 @@
 # systemd USER service template — generated into ~/.config/systemd/user/knowledge-compile.service
 # by scripts/install.sh, which fills in @TOOLS_REPO@ (this repo, where the worker lives) and
-# @VAULT_REPO@ (the knowledge-vault repo it compiles). Edit this template, then re-run install.sh.
+# @VAULT_REPO@ (the vault repo it compiles). Edit this template, then re-run install.sh.
 #
 # Runs one ephemeral inbox->wiki compile. Started by two units that share this single
 # service instance (so systemd serializes them — the cross-process lock):
@@ -8,7 +8,7 @@
 #   - knowledge-compile.path  → on-demand run when the MCP drops inbox/.compile/request
 #
 [Unit]
-Description=Compile the knowledge-vault inbox into the wiki (ephemeral Claude run)
+Description=Compile the vault inbox into the wiki (ephemeral Claude run)
 After=network-online.target
 Wants=network-online.target
 

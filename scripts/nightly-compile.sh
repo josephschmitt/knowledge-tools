@@ -17,7 +17,10 @@
 #     and does not consume the manual cooldown.
 set -euo pipefail
 
-REPO="${KNOWLEDGE_REPO:-$HOME/knowledge-vault}"
+# Load config from the repo-root .env (KNOWLEDGE_REPO etc.); real env vars take precedence.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/load-env.sh"
+: "${KNOWLEDGE_REPO:?set KNOWLEDGE_REPO to the vault repo path (in .env or the environment)}"
+REPO="$KNOWLEDGE_REPO"
 CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
 COOLDOWN_SECONDS="${KNOWLEDGE_COMPILE_COOLDOWN:-3600}"
 cd "$REPO"
