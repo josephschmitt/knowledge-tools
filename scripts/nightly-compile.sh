@@ -17,7 +17,7 @@
 #     and does not consume the manual cooldown.
 set -euo pipefail
 
-REPO="${KNOWLEDGE_REPO:-/home/USER/knowledge}"
+REPO="${KNOWLEDGE_REPO:-$HOME/knowledge-vault}"
 CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
 COOLDOWN_SECONDS="${KNOWLEDGE_COMPILE_COOLDOWN:-3600}"
 cd "$REPO"
