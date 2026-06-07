@@ -12,3 +12,6 @@ dist/
 
 # Compile coordination state (sentinel, status, lock — runtime only)
 inbox/.compile/
+
+# Local git worktrees (e.g. for parallel branch work)
+.claude/worktrees/
