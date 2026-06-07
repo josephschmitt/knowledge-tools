@@ -4,7 +4,7 @@
 #
 # Triggered two ways, both starting the SAME systemd unit (so systemd's single-instance
 # guarantee serializes them — that's the cross-process lock):
-#   - knowledge-compile.timer  → nightly scheduled run
+#   - knowledge-compile.timer  → scheduled run (cadence via KNOWLEDGE_COMPILE_ONCALENDAR)
 #   - knowledge-compile.path   → manual run, when the MCP server drops inbox/.compile/request
 #
 # Design notes:
@@ -117,7 +117,7 @@ log "archived processed captures to $ARCHIVE"
 # Commit if anything changed; push only if an origin remote exists.
 if [ -n "$(git status --porcelain)" ]; then
   git add -A
-  git commit -m "Nightly compile ($STAMP)" >>"$LOG" 2>&1
+  git commit -m "Vault compile ($STAMP)" >>"$LOG" 2>&1
   log "committed."
   if git remote get-url origin >/dev/null 2>&1; then
     git push >>"$LOG" 2>&1 && log "pushed." || log "push failed (non-fatal)."

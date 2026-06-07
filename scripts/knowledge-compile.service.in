@@ -4,7 +4,7 @@
 #
 # Runs one ephemeral inbox->wiki compile. Started by two units that share this single
 # service instance (so systemd serializes them — the cross-process lock):
-#   - knowledge-compile.timer → nightly scheduled run
+#   - knowledge-compile.timer → scheduled run (cadence via KNOWLEDGE_COMPILE_ONCALENDAR)
 #   - knowledge-compile.path  → on-demand run when the MCP drops inbox/.compile/request
 #
 [Unit]

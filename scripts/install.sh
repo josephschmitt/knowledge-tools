@@ -9,7 +9,8 @@
 #                    from the required KNOWLEDGE_REPO env var.
 # The three units:
 #   - knowledge-compile.service  one ephemeral inbox->wiki compile (the worker)
-#   - knowledge-compile.timer    runs it nightly at 03:00
+#   - knowledge-compile.timer    runs it on a schedule (KNOWLEDGE_COMPILE_ONCALENDAR,
+#                                default hourly; no-ops cheaply when the inbox is empty)
 #   - knowledge-compile.path     runs it on demand when the MCP server drops
 #                                inbox/.compile/request into the vault (compile_run tool)
 #
@@ -24,6 +25,9 @@ TOOLS_REPO="$(cd "$SCRIPTS/.." && pwd)"
 . "$SCRIPTS/load-env.sh"
 : "${KNOWLEDGE_REPO:?set KNOWLEDGE_REPO to the vault repo path (in .env or the environment)}"
 VAULT_REPO="$KNOWLEDGE_REPO"
+# Compile cadence — any systemd OnCalendar expression (e.g. hourly, daily, '*-*-* 03:00:00',
+# '*-*-* *:00/30:00' for every 30 min). Default hourly; the worker no-ops on an empty inbox.
+ONCALENDAR="${KNOWLEDGE_COMPILE_ONCALENDAR:-hourly}"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNITS=(knowledge-compile.service knowledge-compile.timer knowledge-compile.path)
 
@@ -32,14 +36,22 @@ if ! systemctl --user show-environment >/dev/null 2>&1; then
   exit 1
 fi
 
+# Fail fast on a bad cadence rather than letting systemd reject the unit later.
+if command -v systemd-analyze >/dev/null 2>&1 && ! systemd-analyze calendar "$ONCALENDAR" >/dev/null 2>&1; then
+  echo "error: KNOWLEDGE_COMPILE_ONCALENDAR='$ONCALENDAR' is not a valid systemd OnCalendar expression." >&2
+  echo "  Examples: hourly | daily | '*-*-* 03:00:00' | '*-*-* *:00/30:00' (every 30 min)" >&2
+  exit 1
+fi
+
 if [ ! -d "$VAULT_REPO" ]; then
   echo "warning: vault repo not found at $VAULT_REPO (from KNOWLEDGE_REPO)." >&2
 fi
 
-echo "Generating units in $UNIT_DIR (tools: $TOOLS_REPO, vault: $VAULT_REPO)"
+echo "Generating units in $UNIT_DIR (tools: $TOOLS_REPO, vault: $VAULT_REPO, schedule: $ONCALENDAR)"
 mkdir -p "$UNIT_DIR"
 for u in "${UNITS[@]}"; do
   sed -e "s|@TOOLS_REPO@|$TOOLS_REPO|g" -e "s|@VAULT_REPO@|$VAULT_REPO|g" \
+    -e "s|@ONCALENDAR@|$ONCALENDAR|g" \
     "$SCRIPTS/$u.in" >"$UNIT_DIR/$u"
   echo "  $u"
 done
