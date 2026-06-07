@@ -1,8 +1,22 @@
-name: Package skills for release
+name: Release skills
+
+# Two ways to ship skills:
+#   - Auto: a skill change merged to main cuts a new release (version bumped from the
+#     landed commits — see "Compute next version") with the per-skill zips attached.
+#   - Manual: publish a GitHub release by hand and this packages it (the upload path).
+#
+# The auto path builds the zips AND creates the release in one run on purpose: a release
+# created by the workflow's GITHUB_TOKEN does NOT trigger other workflows, so we can't
+# rely on the `release: published` event to package an auto-cut release.
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'skills/**'
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,7 +27,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          # Manual release: build from the tagged commit. Otherwise the pushed commit.
+          # Full history + tags so we can compute the next version from existing tags.
+          ref: ${{ github.event.release.tag_name || github.sha }}
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -25,8 +42,43 @@ jobs:
       - name: Validate skills before packaging
         run: python3 scripts/validate_skills.py
 
+      - name: Compute next version
+        id: ver
+        if: github.event_name != 'release'
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          latest="$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1)"
+          if [ -z "$latest" ]; then
+            next="v0.1.0"   # first release in this repo
+          else
+            IFS=. read -r MA MI PA <<<"${latest#v}"
+
+            # Messages of the commits that just landed, to pick the semver bump. On a
+            # first push / force-push BEFORE is all-zeros, so fall back to the tip commit.
+            if git rev-parse --quiet --verify "${BEFORE}^{commit}" >/dev/null 2>&1; then
+              msgs="$(git log --format='%s%n%b' "${BEFORE}..${AFTER}")"
+            else
+              msgs="$(git log -n1 --format='%s%n%b' "${AFTER}")"
+            fi
+
+            # Default minor; conventional-commit prefixes in the landed commits override.
+            if printf '%s\n' "$msgs" | grep -qiE '^[a-z]+(\([^)]+\))?!:' \
+               || printf '%s\n' "$msgs" | grep -q 'BREAKING CHANGE'; then
+              next="v$((MA+1)).0.0"
+            elif printf '%s\n' "$msgs" | grep -qiE '^fix(\([^)]+\))?:' \
+                 && ! printf '%s\n' "$msgs" | grep -qiE '^feat(\([^)]+\))?:'; then
+              next="v${MA}.${MI}.$((PA+1))"
+            else
+              next="v${MA}.$((MI+1)).0"
+            fi
+          fi
+          echo "next=$next" >>"$GITHUB_OUTPUT"
+          echo "Next version: $next"
+
       - name: Build per-skill zips
-        id: build
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -40,11 +92,25 @@ jobs:
           done
           ls -la dist/
 
-      - name: Upload zips to release
+      - name: Create release with zips (auto)
+        if: github.event_name != 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.next }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" dist/*.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --generate-notes
+
+      - name: Upload zips to release (manual)
+        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          # --clobber so re-running the workflow replaces assets instead of failing.
+          # --clobber so re-running replaces assets instead of failing.
           gh release upload "$TAG" dist/*.zip --repo "$GITHUB_REPOSITORY" --clobber
