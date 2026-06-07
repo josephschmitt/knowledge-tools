@@ -49,7 +49,7 @@ and stop there.
 - Do not categorize, synthesize, pick a destination, or write a polished note. The
   compiler on homelab does that. Pre-organizing here defeats the inbox.
 - Confirm briefly what went in. The tool returns the inbox path it wrote; relay that the
-  capture will fold into the wiki on the next nightly compile.
+  capture will fold into the wiki on the next scheduled compile.
 
 **Example:**
 Joe: "Save this to my knowledge base — we landed on the Waterfield Legion Go 2 case for the GPD Win 5."
@@ -78,8 +78,8 @@ note(s); if it's thin, say where the gap is.
 
 ## Triggering a compile
 
-A scheduled job on homelab compiles the inbox into the wiki nightly, so a manual compile
-is occasional, not routine — capturing alone never requires it. When Joe explicitly wants
+A scheduled job on homelab compiles the inbox into the wiki on a schedule (hourly by
+default), so a manual compile is occasional, not routine — capturing alone never requires it. When Joe explicitly wants
 the inbox processed sooner, call `compile_run` and act on what it returns. The compile
 runs asynchronously on homelab: the tool only *kicks it off* and returns right away; the
 wiki updates once the run finishes, and captures stay safe in the inbox until then. Never
@@ -90,7 +90,7 @@ vault and the `CLAUDE.md` conventions live.
   shortly; his captures are safe meanwhile.
 - **Throttled (refused):** a manual compile ran within the last hour and the cooldown is
   still active, so the call is refused. Relay when the next manual compile is available,
-  and reassure him his captures are safe — the nightly job will process them regardless.
+  and reassure him his captures are safe — the scheduled job will process them regardless.
   **Don't** retry.
 - **Busy:** a compile is already running. Let him know; **don't** trigger another.
 - **Empty:** the inbox has nothing to compile. Say so; nothing to do.
