@@ -1,0 +1,14 @@
+# systemd USER timer — fires the nightly compile at 03:00 local time.
+# Install + enable instructions are in knowledge-compile.service.
+[Unit]
+Description=Nightly knowledge-vault inbox compile
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+# Run on next boot/login if the machine was off at 03:00.
+Persistent=true
+# Spread out so it doesn't fire at the exact same instant as other timers.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

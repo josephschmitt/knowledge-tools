@@ -1,0 +1,23 @@
+# systemd USER service — install to ~/.config/systemd/user/knowledge-compile.service
+# Runs one ephemeral inbox->wiki compile. Triggered by knowledge-compile.timer.
+#
+#   mkdir -p ~/.config/systemd/user
+#   ln -s ~/knowledge/deploy/knowledge-compile.service ~/.config/systemd/user/
+#   ln -s ~/knowledge/deploy/knowledge-compile.timer   ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now knowledge-compile.timer
+#   loginctl enable-linger "$USER"   # so the timer runs while you're logged out
+#
+[Unit]
+Description=Compile the knowledge-vault inbox into the wiki (ephemeral Claude run)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/USER/knowledge/scripts/nightly-compile.sh
+# Give the run room; a large inbox + model latency can take a while.
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=default.target

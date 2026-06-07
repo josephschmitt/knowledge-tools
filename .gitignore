@@ -1,0 +1,8 @@
+# Nightly compile run logs (raw trail of inbox captures lives in inbox/archive/)
+outputs/compile-logs/
+
+# MCP server build artifacts / secrets
+mcp/node_modules/
+mcp/dist/
+mcp/.env
+mcp/data/
