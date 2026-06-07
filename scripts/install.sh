@@ -20,7 +20,9 @@ set -euo pipefail
 
 SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLS_REPO="$(cd "$SCRIPTS/.." && pwd)"
-: "${KNOWLEDGE_REPO:?set KNOWLEDGE_REPO to the vault repo path}"
+# Load config from the repo-root .env (KNOWLEDGE_REPO etc.); real env vars take precedence.
+. "$SCRIPTS/load-env.sh"
+: "${KNOWLEDGE_REPO:?set KNOWLEDGE_REPO to the vault repo path (in .env or the environment)}"
 VAULT_REPO="$KNOWLEDGE_REPO"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNITS=(knowledge-compile.service knowledge-compile.timer knowledge-compile.path)

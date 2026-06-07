@@ -1,7 +1,9 @@
+# Local env files (never commit; *.env.example is the committed template)
+.env
+
 # MCP server build artifacts / secrets
 mcp/node_modules/
 mcp/dist/
-mcp/.env
 mcp/data/
 
 # Per-skill release zips (built in CI by package-skills.yml)
