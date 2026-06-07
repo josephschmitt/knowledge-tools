@@ -21,7 +21,12 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   Code pass (`/compile-inbox`) over the vault; `vault-job.sh` runs the two GitHub-issue jobs
   (`/synthesize` and `/resolve`); `vault-lib.sh` holds the config, shared cross-job lock, and
   git side effects all three share; `install.sh` generates the systemd *user* units from the
-  `knowledge-*.in` templates; `validate_skills.py` is used by CI.
+  `knowledge-*.in` templates; `init-vault.sh` seeds a brand-new vault from `template/`;
+  `validate_skills.py` is used by CI.
+- **`template/`** — the starting point of a vault's own librarian (`CLAUDE.md`, the
+  `/compile-inbox`, `/synthesize`, `/resolve` commands, and the folder skeleton). A seed, not
+  a source of truth — once `init-vault.sh` copies it into a new vault, those files belong to
+  the vault and are expected to drift as the corpus grows. See [Starting a new vault](#starting-a-new-vault).
 
 ## Installing the skill
 
@@ -44,6 +49,24 @@ deployed and reachable at that URL — see [`mcp/README.md`](mcp/README.md).
 **claude.ai** — download the `knowledge-vault.zip` asset from the latest
 [release](https://github.com/josephschmitt/knowledge-tools/releases) and upload it as a
 skill. CI builds these zips on every skill change merged to `main`.
+
+## Starting a new vault
+
+If you don't already have a vault repo, seed one from the bundled `template/`:
+
+```sh
+KNOWLEDGE_REPO=/path/to/new-vault scripts/init-vault.sh
+# or pass the path directly:
+scripts/init-vault.sh /path/to/new-vault
+```
+
+This lays down the librarian (`CLAUDE.md`), the `/compile-inbox`, `/synthesize`, and
+`/resolve` commands, and the folder skeleton (`inbox/`, `wiki/`, empty `index.md`/`log.md`).
+It's a **one-shot scaffold, not a sync**: strictly copy-if-absent (existing files are never
+touched, there's no `--force`), and it leaves git to you — `cd` into the new vault, `git init`,
+and make the first commit. After seeding, the librarian belongs to the vault and is meant to
+diverge from the template as your corpus grows; that drift is expected, not something to
+reconcile. To reset a single file back to the seed, delete it and re-run.
 
 ## Vault automation (host setup)
 

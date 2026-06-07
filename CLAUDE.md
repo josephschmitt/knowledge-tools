@@ -4,7 +4,9 @@ This repo is the **tooling** for a personal "LLM wiki" — everything that opera
 *on* the vault from the outside. The vault itself (the notes, plus the `CLAUDE.md`
 librarian spec and `/compile-inbox` command Claude runs *inside* it) lives in a separate
 repo whose location is configured by whoever sets this up (the `KNOWLEDGE_REPO` /
-`VAULT_ROOT` knobs below). This repo holds none of the vault's content.
+`VAULT_ROOT` knobs below). This repo holds none of the vault's content — only the
+generic *starting point* of its librarian (see `template/`), which a fresh vault is
+seeded from once and then tunes on its own as the corpus grows.
 
 History: this was split out of a combined repo, so if you need context on how something
 got here, that original repo holds the full history.
@@ -39,10 +41,21 @@ working in the repo.
   - `install.sh` generates the systemd *user* units from the `knowledge-*.in` templates
     (worker = this repo; vault = the required `KNOWLEDGE_REPO`) — re-run after changing a
     template or a cadence. Idempotent.
+  - `init-vault.sh` seeds a fresh vault from `template/` (below). **One-shot scaffold, not
+    `install.sh`**: strictly copy-if-absent, no `--force`, leaves git alone. Re-running only
+    fills gaps — it never overwrites a tuned `CLAUDE.md` or command, because post-seed drift
+    is the design (the librarian is content-coupled). Targets `KNOWLEDGE_REPO` or a path arg.
   - `load-env.sh` is sourced by the scripts to read config (e.g. `KNOWLEDGE_REPO`) from a
     repo-root `.env` (gitignored; see `.env.example`). Real env vars and the systemd
     `Environment=` override `.env`.
   - `validate_skills.py` — the skill linter CI runs (see constraints below).
+- `template/` — the **starting point** of a vault's own librarian, mirroring the vault layout:
+  `CLAUDE.md` (the librarian spec), `.claude/commands/{compile-inbox,synthesize,resolve}.md`,
+  `.claude/settings.json`, `.gitignore`, the folder skeleton (`inbox/`, `inbox/archive/`,
+  `wiki/`, `outputs/`), and empty `index.md`/`log.md`. `scripts/init-vault.sh` copies these
+  into a new vault. This is a seed, **not** a source of truth: the commands and `CLAUDE.md`
+  belong to the vault once seeded and are *expected* to diverge as the content grows — the
+  tooling only schedules them.
 - `.claude-plugin/` — the Claude Code plugin marketplace (`marketplace.json`) and plugin
   manifest (`plugin.json`).
 
