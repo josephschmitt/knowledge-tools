@@ -1,6 +1,3 @@
-# Nightly compile run logs (raw trail of inbox captures lives in inbox/archive/)
-outputs/compile-logs/
-
 # MCP server build artifacts / secrets
 mcp/node_modules/
 mcp/dist/
@@ -9,9 +6,6 @@ mcp/data/
 
 # Per-skill release zips (built in CI by package-skills.yml)
 dist/
-
-# Compile coordination state (sentinel, status, lock — runtime only)
-inbox/.compile/
 
 # Local git worktrees (e.g. for parallel branch work)
 .claude/worktrees/
