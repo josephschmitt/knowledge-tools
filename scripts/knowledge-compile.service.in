@@ -1,10 +1,10 @@
-# systemd USER service — install to ~/.config/systemd/user/knowledge-compile.service
+# systemd USER service template — generated into ~/.config/systemd/user/knowledge-compile.service
+# by scripts/install.sh, which fills in @REPO@. Edit this template, then re-run install.sh.
+#
 # Runs one ephemeral inbox->wiki compile. Started by two units that share this single
 # service instance (so systemd serializes them — the cross-process lock):
 #   - knowledge-compile.timer → nightly scheduled run
 #   - knowledge-compile.path  → on-demand run when the MCP drops inbox/.compile/request
-#
-# Install all three units (service + timer + path) with: ~/knowledge/deploy/install.sh
 #
 [Unit]
 Description=Compile the knowledge-vault inbox into the wiki (ephemeral Claude run)
@@ -13,7 +13,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/home/USER/knowledge/scripts/nightly-compile.sh
+ExecStart=@REPO@/scripts/nightly-compile.sh
 # Give the run room; a large inbox + model latency can take a while.
 TimeoutStartSec=1800
 
