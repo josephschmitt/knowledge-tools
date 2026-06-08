@@ -39,9 +39,26 @@ async function walkMarkdown(dir: string): Promise<string[]> {
   }
   for (const e of entries) {
     const full = path.join(dir, e.name);
-    if (e.isDirectory()) {
+    let isDir = e.isDirectory();
+    let isFile = e.isFile();
+    // Container bind/overlay/network mounts often return DT_UNKNOWN from readdir,
+    // so Dirent.isFile()/isDirectory() are *both* false even for a regular file —
+    // and inconsistently so between calls, which is how a note can show up in one
+    // walk (search_wiki) but vanish from another (list_notes). Resolve the type
+    // with stat() (also follows symlinked notes) so nothing is silently dropped.
+    // See issue #12.
+    if (!isDir && !isFile) {
+      try {
+        const st = await fs.stat(full);
+        isDir = st.isDirectory();
+        isFile = st.isFile();
+      } catch {
+        continue;
+      }
+    }
+    if (isDir) {
       out.push(...(await walkMarkdown(full)));
-    } else if (e.isFile() && e.name.toLowerCase().endsWith('.md')) {
+    } else if (isFile && e.name.toLowerCase().endsWith('.md')) {
       out.push(full);
     }
   }
@@ -129,7 +146,22 @@ export async function countInboxCaptures(): Promise<number> {
   } catch {
     return 0;
   }
-  return entries.filter((e) => e.isFile() && !e.name.startsWith('.')).length;
+  // Same DT_UNKNOWN caveat as walkMarkdown: a capture whose dirent type didn't
+  // resolve would be missed, undercounting pending_inbox_count. Stat the unknowns.
+  let count = 0;
+  for (const e of entries) {
+    if (e.name.startsWith('.')) continue;
+    let isFile = e.isFile();
+    if (!isFile && !e.isDirectory()) {
+      try {
+        isFile = (await fs.stat(path.join(INBOX_DIR, e.name))).isFile();
+      } catch {
+        continue;
+      }
+    }
+    if (isFile) count++;
+  }
+  return count;
 }
 
 export interface CompileStatus {
