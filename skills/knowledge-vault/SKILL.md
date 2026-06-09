@@ -27,12 +27,19 @@ just fights that.
 
 ## MCP operations
 
-The exact tools and their input/output shapes live in `references/mcp-operations.md`.
-Read it before calling anything. At a high level the connector exposes seven tools:
+The connector exposes seven tools, and each one arrives with its own name, description,
+and input schema already — so **you don't need to read anything before calling them.**
+Just call the right tool for what Joe wants. At a high level:
 `append_to_inbox` to capture, `search_wiki` to find notes, `get_note` to read one,
 `list_index` to read the navigation map, `list_notes` to enumerate every note,
 `compile_run` to trigger an on-demand compile (rate-limited; see below), and
 `vault_status` to poll whether a compile has finished and the wiki is caught up.
+
+The sections below already give you everything you need for the common paths —
+capturing and querying in particular. Only open `references/mcp-operations.md` when you
+genuinely need an exact input/output shape you're unsure of (e.g. the `vault_status`
+JSON fields, or `compile_run`'s four outcomes). Don't read it as a reflex before a
+routine capture or search — that just adds latency.
 
 ## Capturing
 
