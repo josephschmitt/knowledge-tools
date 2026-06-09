@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Remote MCP server exposing the knowledge vault to claude.ai (Streamable HTTP, OAuth resource server validating Cloudflare Access OIDC tokens)",
+  "description": "Remote MCP server exposing the knowledge vault to claude.ai over Streamable HTTP. Performs no auth itself — deploy it behind an authenticating reverse proxy.",
   "engines": {
     "node": ">=24"
   },
@@ -15,7 +15,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "express": "^5.0.0",
-    "jose": "^5.10.0",
+    "jose": "^6.2.3",
     "pino": "^10.3.1",
     "zod": "^3.23.0"
   },
