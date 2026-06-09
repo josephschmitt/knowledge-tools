@@ -79,8 +79,12 @@ File with, e.g.:
 
 ```
 gh issue create --title "<short question>" --label "vault:judgment-call" \
-  --body "<both sides, notes involved, the decision needed>"
+  --assignee "@me" --body "<both sides, notes involved, the decision needed>"
 ```
+
+Always pass `--assignee "@me"` so the call lands in my assigned queue. `@me` is gh's
+built-in alias for the authenticated account (the host's `~/.config/gh`), so it needs no
+configured username and stays correct for whoever owns the vault.
 
 End every issue body with a one-line reminder of how I act on it, so the loop explains itself in
 GitHub:
