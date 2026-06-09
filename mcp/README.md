@@ -1,9 +1,9 @@
 # Knowledge Vault MCP Server
 
 A remote [MCP](https://modelcontextprotocol.io) server that exposes this knowledge vault to
-**claude.ai as a custom connector**. It serves the **Streamable HTTP** transport and is an
-**OAuth resource server**: it issues no tokens itself, but validates the token claude.ai
-obtains from a **Cloudflare Access for SaaS OIDC** app and forwards on each request.
+**claude.ai as a custom connector**. It serves the **Streamable HTTP** transport and nothing
+more — **it performs no authentication of its own**. Authentication is a *deployment* concern:
+run it behind an authenticating reverse proxy and make sure only that proxy can reach it.
 
 ## Tools
 
@@ -38,29 +38,18 @@ scheduled and on-demand), so a `last_compiled_at` newer than your trigger time m
 finished. It also reports `pending_inbox_count` and `manual_compile_available_at` (when the
 cooldown next clears) — poll it after a `compile_run` to know when the wiki is caught up.
 
-## Auth model
+## Authentication (a deployment concern)
 
-claude.ai authenticates the user **directly against Cloudflare Access** (a SaaS OIDC app),
-then sends the resulting token as a bearer on every `/mcp` request. This server is purely a
-**resource server**: it advertises Cloudflare as its authorization server via
-`/.well-known/oauth-protected-resource`, and on each request verifies the token's signature
-against Cloudflare's JWKS (Key) endpoint plus its issuer and audience (`auth/verifier.ts`).
-No passphrase, no token store, no dynamic client registration on our side — Cloudflare owns
-login, MFA, policy, and token lifecycle.
+This server does **no** authentication. It is a plain Streamable-HTTP MCP server that trusts
+the network it runs on, which keeps the source portable — bring whatever identity layer you
+already use. **Your deployment owns two jobs:** put an authenticating proxy in front of `/mcp`,
+and make sure the origin can't be reached *around* it (don't publish the container port; keep
+untrusted workloads off its network). An exposed origin is an open, writable vault.
 
-> **Audience quirk:** Cloudflare Access SaaS OIDC stamps the access token's `aud` with the
-> app's **redirect URL** (`https://claude.ai/api/mcp/auth_callback`), *not* the client ID. The
-> verifier therefore validates `aud` against `CF_AUDIENCE` (default: that redirect URL), while
-> `CF_CLIENT_ID` only identifies the client. Checking `aud` against the client ID rejects every
-> otherwise-valid token.
-
-Because Cloudflare's app is a *statically registered* OAuth client (fixed client ID +
-secret), claude.ai uses its **Advanced settings** to supply those credentials instead of
-registering dynamically (supported since July 2025). See "Connect to claude.ai" below.
-
-> Cloudflare Access is used only as the **identity provider** the OAuth login redirects to.
-> Do **not** put a Cloudflare Access *application in front of* `/mcp` — Access blocks
-> claude.ai's server-side fetch. The bearer-token check in this server is the gate.
+> **Which clients can reach it?** claude.ai's connector fetches **server-side from Anthropic's
+> cloud**, so it needs a **publicly reachable** endpoint whose proxy speaks OAuth. The Claude
+> Code CLI runs **on your machine**, so a private network is enough for it. Pick a deployment
+> option (below) accordingly.
 
 ## Local development
 
@@ -68,23 +57,16 @@ registering dynamically (supported since July 2025). See "Connect to claude.ai" 
 cd mcp
 npm install
 npm run build
-cp .env.example .env        # set CF_ISSUER + CF_CLIENT_ID, point VAULT_ROOT at the repo
+cp .env.example .env        # point VAULT_ROOT at a vault; no auth config needed
 node --env-file=.env dist/index.js
 ```
 
-Then drive it with the MCP Inspector (interactive) or curl:
+There is no gate locally, so `/mcp` is reachable directly — drive it with the MCP Inspector or
+curl:
 
 ```sh
 npx @modelcontextprotocol/inspector      # connect to http://localhost:3000/mcp
-```
-
-The discovery + 401 contract:
-
-```sh
-# protected-resource metadata: authorization_servers should list the Cloudflare issuer
-curl -s localhost:3000/.well-known/oauth-protected-resource/mcp
-curl -s -i -X POST localhost:3000/mcp -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'   # 401 + WWW-Authenticate
+curl -s localhost:3000/healthz           # {"ok":true}
 ```
 
 ## Image (CI)
@@ -96,76 +78,62 @@ homelab pulls this published image — it does not build from a source checkout.
 is **public** (set once in the GHCR package settings after the first push), so the host
 pulls without authenticating; the image carries only server code, no vault content.
 
-## Deploy (homelab — `~/example.com`)
+## Deploying behind auth
 
-The server runs as the `knowledge-mcp` compose service (already in
-`~/example.com/docker-compose.yaml` as `image: ghcr.io/josephschmitt/knowledge-mcp:latest`),
-behind traefik at `knowledge.example.com`.
+The server's only config is `VAULT_ROOT` (plus optional `PORT` / `PUBLIC_URL` / tuning knobs in
+`.env.example`) — there is no auth env. Run the container, then front it with one of these.
 
-> **Use a single-level subdomain.** Cloudflare's free Universal SSL covers only `example.com`
-> and `*.example.com` (one level). A deeper host like `knowledge.mcp.example.com` has no edge
-> certificate and fails the TLS handshake unless you buy Advanced Certificate Manager, so the
-> host is `knowledge.example.com` and the MCP endpoint stays at the `/mcp` path.
+### Cloudflare Access + Managed OAuth  *(public; works with claude.ai)*
 
-1. **Cloudflare OIDC env** — set the app's values in `~/example.com/.env`
-   (issuer + client ID; neither is secret — the server validates tokens via Cloudflare's JWKS
-   and needs no client secret):
-   ```sh
-   KNOWLEDGE_MCP_CF_ISSUER=https://example.cloudflareaccess.com/cdn-cgi/access/sso/oidc/<CLIENT_ID>
-   KNOWLEDGE_MCP_CF_CLIENT_ID=<CLIENT_ID>
-   ```
-2. **TLS** — the compose router requests the origin cert for `knowledge.example.com`
-   automatically via the `cf-dns` resolver (the token already has the `example.com` zone); no
-   traefik change is needed. The public *edge* cert is Cloudflare's Universal SSL `*.example.com`.
-3. **Pull + start the service** (does not touch other services):
-   ```sh
-   cd ~/example.com && docker compose pull knowledge-mcp && docker compose up -d knowledge-mcp
-   docker compose logs -f knowledge-mcp
-   ```
-4. **Cloudflare Zero Trust UI** — add a **public hostname** to the existing tunnel:
-   - Hostname: `knowledge.example.com`
-   - Service: `https://localhost:443`. Under **TLS**, either set **Origin Server Name** =
-     `knowledge.example.com` (so cloudflared's SNI matches traefik's cert) or enable
-     **No TLS Verify** — cloudflared is host-network and traefik terminates TLS on a loopback hop.
-   - Adding the hostname creates the DNS record automatically.
-   - **Do not** attach a Cloudflare Access application to this hostname — Access blocks
-     claude.ai's server-side fetch. The bearer-token check is the gate.
+Cloudflare runs the whole OAuth flow at the edge and forwards only authenticated requests. This
+is how the homelab runs it.
 
-Verify publicly:
+1. Expose the container at a public hostname through a reverse proxy / tunnel (e.g. traefik + a
+   Cloudflare Tunnel public hostname → `knowledge.example.com`). Keep the MCP port internal.
+2. **Zero Trust → Access → Applications → Add → Self-hosted**: hostname `knowledge.example.com`,
+   path `/mcp`. Enable **Managed OAuth**, and add a **policy** allowing only your identity (email).
+3. claude.ai → **Settings → Connectors → Add custom connector** → `https://knowledge.example.com/mcp`.
+   Managed OAuth serves discovery + dynamic registration, so there are no client credentials to
+   paste — complete the Cloudflare login + consent and the tools appear.
 
-```sh
-curl -s https://knowledge.example.com/.well-known/oauth-protected-resource/mcp
-```
+<details><summary>Homelab specifics (traefik + cloudflared)</summary>
 
-## Cloudflare Access app (one-time)
+- **Single-level subdomain.** Free Universal SSL covers `example.com` and `*.example.com` only;
+  a deeper host like `knowledge.mcp.example.com` has no edge cert. Keep the host at
+  `knowledge.example.com` with the endpoint at the `/mcp` path.
+- **TLS.** The traefik router requests the origin cert via the `cf-dns` resolver; the public
+  edge cert is Universal SSL `*.example.com`.
+- **Tunnel.** Add a public hostname `knowledge.example.com` → `https://localhost:443`; set
+  cloudflared's **Origin Server Name** to the host (or **No TLS Verify**), since traefik
+  terminates TLS on a loopback hop. Adding the hostname creates the DNS record.
+- **Start it.** `cd ~/example.com && docker compose pull knowledge-mcp && docker compose up -d knowledge-mcp`
+- **Close the bypass.** Don't publish the container port to the host — route to it only on
+  traefik's internal network, and keep untrusted workloads off that network. Access guards the
+  *public* path only; a LAN client or neighbouring container could otherwise hit the open origin.
 
-In Zero Trust → Access controls → Applications, the OIDC SaaS app ("Claude") must have:
+</details>
 
-- **Redirect URL** `https://claude.ai/api/mcp/auth_callback` (claude.ai's OAuth callback).
-- A **policy** restricting login to your identity (e.g. your email) — this is who can reach
-  the vault.
-- **PKCE** enabled is recommended (claude.ai sends a code challenge); the client secret keeps
-  the flow working regardless.
+### OIDC gateway (oauth2-proxy / Authelia / Keycloak)  *(public; works with claude.ai)*
 
-The **Issuer** and **Client ID** feed this server's env (`CF_ISSUER` / `CF_CLIENT_ID`) — it
-validates tokens against Cloudflare's JWKS and needs no secret. The **Client Secret** is used
-only by claude.ai (the OAuth client); it's shown only at creation, so use **Reset secret** if
-you no longer have it.
+Front `/mcp` with a gateway that terminates OAuth/OIDC against your own IdP and forwards only
+authenticated requests. For the claude.ai connector the gateway must serve the discovery it
+expects (`/.well-known/oauth-protected-resource` + a 401 challenge) and either support dynamic
+client registration or let you preconfigure claude.ai's client. Restrict the policy to your
+account, then connect claude.ai to the public URL.
 
-## Connect to claude.ai
+### Private network (Tailscale / WireGuard / VPN)  *(Claude Code only)*
 
-claude.ai → **Settings → Connectors → Add custom connector** → URL:
-`https://knowledge.example.com/mcp`. Open **Advanced settings** and paste the Cloudflare
-**Client ID** and **Client Secret**. Add it, complete the Cloudflare login, and the tools
-appear.
+Put the endpoint on a private network and skip a public proxy entirely — simplest and fully
+private. **claude.ai can't reach it** (its fetch comes from Anthropic's cloud), so use this with
+the **Claude Code** CLI on a machine that's on the same tailnet/VPN: run `/mcp` to point Claude
+Code at the private URL.
 
 ## Notes
 
 - Vault is mounted read-only except `inbox/` (least privilege — only `append_to_inbox` writes).
-- DNS-rebinding protection is off by default (the bearer-token check is the gate; claude.ai's
-  fetch may omit `Origin`). See `.env.example` to enable it with `ALLOWED_HOSTS`/`ALLOWED_ORIGINS`.
-- Tokens are issued and expired by Cloudflare; this server validates them per request against
-  Cloudflare's JWKS and holds no token state.
+- DNS-rebinding protection is off by default (the proxy is the gate; claude.ai's fetch may omit
+  `Origin`). See `.env.example` to enable it with `ALLOWED_HOSTS`/`ALLOWED_ORIGINS`.
+- The server holds no auth state at all — login, MFA, policy, and token lifecycle live entirely
+  in whatever proxy you deploy it behind.
 - Logging is [pino](https://getpino.io) (line-delimited JSON). Default level is `info`; set
-  `LOG_LEVEL=debug` to see per-request lines and token-verification detail. Rejected tokens log
-  at `warn` with jose's specific failure reason.
+  `LOG_LEVEL=debug` to see per-request lines.

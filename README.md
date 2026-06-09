@@ -10,10 +10,12 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
 
 ## Components
 
-- **`mcp/`** — the claude.ai connector. A Streamable-HTTP MCP server (OAuth 2.1 resource
-  server, gated by Cloudflare Access OIDC) that lets claude.ai capture raw material into the
-  vault's `inbox/` and query the compiled `wiki/`. Reads/writes the vault via the `VAULT_ROOT`
-  env var (bind-mounted into the container). Deployed separately — see [`mcp/README.md`](mcp/README.md).
+- **`mcp/`** — the claude.ai connector. A Streamable-HTTP MCP server that lets claude.ai
+  capture raw material into the vault's `inbox/` and query the compiled `wiki/`. It does **no**
+  auth of its own — authentication is a deployment concern (run it behind an authenticating
+  proxy; the homelab uses Cloudflare Access + Managed OAuth). Reads/writes the vault via the
+  `VAULT_ROOT` env var (bind-mounted into the container). Deployed separately — see
+  [`mcp/README.md`](mcp/README.md).
 - **`skills/knowledge-vault/`** — the conversational front-door skill: capture and query,
   delegating heavy compilation to the host. Ships two ways — as a Claude Code plugin (see
   [Installing the skill](#installing-the-skill)) and as per-skill release zips for claude.ai.
@@ -42,9 +44,10 @@ The skill is then invocable as `/knowledge:knowledge-vault`, and `/plugin update
 `main`. The plugin bundles the skill's MCP connector: enabling it prompts for your
 self-hosted MCP URL (including the `/mcp` path, e.g. `https://knowledge.example.com/mcp`)
 and wires it up as a remote HTTP server. OAuth is negotiated automatically on first
-connect — the server advertises its Cloudflare Access authorization server and Claude Code
-walks the flow (run `/mcp` if you need to (re)authenticate). The vault must already be
-deployed and reachable at that URL — see [`mcp/README.md`](mcp/README.md).
+connect — the authenticating proxy in front of the server (Cloudflare Access in the homelab)
+advertises the authorization server and Claude Code walks the flow (run `/mcp` if you need to
+(re)authenticate). The vault must already be deployed and reachable at that URL — see
+[`mcp/README.md`](mcp/README.md).
 
 **claude.ai** — download the `knowledge-vault.zip` asset from the latest
 [release](https://github.com/josephschmitt/knowledge-tools/releases) and upload it as a

@@ -21,8 +21,10 @@ working in the repo.
   connector). Shipped two ways: zipped per-skill for claude.ai, and as a Claude Code
   plugin via the marketplace in `.claude-plugin/` (see below).
 - `mcp/` — the claude.ai connector. A Streamable-HTTP MCP server (TypeScript) that
-  capture/query against the vault, gated by Cloudflare Access OIDC. Reads/writes the vault
-  via `VAULT_ROOT`. Built into a GHCR image by CI; deployed separately. See `mcp/README.md`.
+  capture/query against the vault. It does **no** auth itself — authentication is a deployment
+  concern (run it behind an authenticating proxy; the homelab uses Cloudflare Access + Managed
+  OAuth). Reads/writes the vault via `VAULT_ROOT`. Built into a GHCR image by CI; deployed
+  separately. See `mcp/README.md`.
 - `scripts/` — host-side vault automation and the skill validator. Three vault-mutating jobs
   run as systemd *user* units; all three share one flock (`vault-lib.sh`) so they never run
   concurrently, and in each the **wrapper** owns git (Claude only edits files + runs scoped
@@ -100,8 +102,9 @@ The `knowledge-vault` skill drives the vault through its **MCP connector**, whic
 plugin now bundles: `plugin.json` declares a `userConfig.mcp_url` field, so enabling the
 plugin prompts the user for their self-hosted MCP endpoint, and an inline `mcpServers`
 entry wires `${user_config.mcp_url}` into a remote HTTP server named `knowledge-vault`.
-OAuth is auto-negotiated (the server advertises Cloudflare Access via
-`/.well-known/oauth-protected-resource` + 401), so no secret lives in the manifest. The
+OAuth is auto-negotiated against whatever authenticating proxy fronts the endpoint (the
+homelab uses Cloudflare Access, which serves `/.well-known/oauth-protected-resource` + 401),
+so no secret lives in the manifest. The
 config is inlined in `plugin.json` rather than a repo-root `.mcp.json` on purpose: source
 is `"."`, so a root `.mcp.json` would also act as this repo's *project* MCP config.
 
