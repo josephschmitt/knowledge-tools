@@ -45,7 +45,8 @@ export const requireToken: RequestHandler = async (req, res, next) => {
     return;
   }
   try {
-    await jwtVerify(token, jwks!, { issuer: AUTH_ISSUER, audience: AUTH_AUDIENCE });
+    const { payload } = await jwtVerify(token, jwks!, { issuer: AUTH_ISSUER, audience: AUTH_AUDIENCE });
+    logger.debug({ sub: payload.sub, email: payload.email, aud: payload.aud }, 'token verified');
     next();
   } catch (err) {
     // jose throws typed errors for expired/invalid/claim-mismatch — all map to 401.
