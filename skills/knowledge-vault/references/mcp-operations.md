@@ -1,7 +1,7 @@
 # MCP Operations (claude.ai-facing)
 
 The vault's MCP server runs on homelab and is connected to claude.ai as a custom
-connector. It exposes the seven tools below. These shapes mirror the server
+connector. It exposes the ten tools below. These shapes mirror the server
 (`mcp/src/mcp.ts`); if the server changes, update this file and `SKILL.md` to match.
 
 All tools return their result as plain text content. Paths are relative to `wiki/`.
@@ -82,6 +82,35 @@ All tools return their result as plain text content. Paths are relative to `wiki
 - **Notes:** cheap to call repeatedly. After triggering `compile_run`, poll this until
   `last_compiled_at` advances past your trigger time (or `running` goes false) to know the
   wiki is up to date.
+
+### list_questions
+- **Purpose:** list the judgment calls the vault's maintenance pass has raised for Joe —
+  contradictions it found between notes, or claims it can't verify internally.
+- **Inputs:** `status` (optional; one of `open`, `answered`, `applied`). Omit for all.
+  `open` = awaiting Joe's answer; `answered` = decided but not yet applied to the wiki;
+  `applied` = done.
+- **Output:** text — one line per question: `[status] <id> (<kind>) — <one-line summary>`,
+  where `kind` is `judgment-call` or `needs-verification`. Says so when none match.
+- **Notes:** use an `id` from a hit with `get_question` or `answer_question`. The server is
+  configured for one of two backends — the `inbox/.review/` file queue, or the vault's GitHub
+  issues (then `<id>` is the issue number) — and these tools work the same against either.
+
+### get_question
+- **Purpose:** read one judgment call's full context before answering it.
+- **Inputs:** `id` (from `list_questions`).
+- **Output:** the question's full markdown — the contradiction or claim, the notes
+  involved, and any prior discussion — or a "Question not found" message.
+
+### answer_question
+- **Purpose:** record Joe's decision on a judgment call. This is the only write this
+  surface makes beyond inbox captures.
+- **Inputs:** `id` (from `list_questions`) and `answer` (Joe's decision, in his words).
+- **Output:** a confirmation that the answer was recorded and marked answered.
+- **Notes:** marks the call `answered`; the next maintenance pass on homelab applies it to
+  the wiki and closes it (or follows up with a sharper question if the answer is ambiguous,
+  which reappears as an open question). Does **not** edit the wiki from this interface. On the
+  file backend it writes the answer under `inbox/.review/`; on the GitHub backend it comments
+  the answer and adds the `vault:answered` label, exactly as answering on github.com would.
 
 ## Out of scope for this surface
 

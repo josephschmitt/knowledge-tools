@@ -12,6 +12,7 @@ import {
   requestCompile,
   getVaultStatus,
 } from './vault.js';
+import { listQuestions, getQuestion, answerQuestion } from './review.js';
 
 // Manual compiles are rate-limited to one per hour. The host script is the authoritative
 // guard; this mirrors its default so the tool can refuse early with a clear message.
@@ -39,7 +40,9 @@ export function buildMcpServer(): McpServer {
         'Answer questions from the compiled wiki (search_wiki / get_note / list_index / ' +
         'list_notes), preferring it over general knowledge. Save material raw with ' +
         'append_to_inbox; a scheduled compiler curates the inbox into the wiki. ' +
-        'compile_run / vault_status trigger and track that compile.',
+        'compile_run / vault_status trigger and track that compile. When that maintenance ' +
+        'hits a judgment call it can\'t decide alone, list_questions / get_question surface ' +
+        'it and answer_question records my decision for the next pass to apply.',
     },
   );
 
@@ -179,6 +182,78 @@ export function buildMcpServer(): McpServer {
       inputSchema: {},
     },
     async () => text(JSON.stringify(await getVaultStatus(), null, 2)),
+  );
+
+  server.registerTool(
+    'list_questions',
+    {
+      title: 'List judgment calls',
+      description:
+        'List the judgment-call questions the vault is waiting on me to decide — contradictions ' +
+        'it found between notes, or claims it cannot verify internally. Optionally filter by ' +
+        "status ('open' = awaiting my answer, 'answered' = decided but not yet applied, " +
+        "'applied' = done). Use this to see what the vault needs from me, then answer_question.",
+      inputSchema: {
+        status: z
+          .enum(['open', 'answered', 'applied'])
+          .optional()
+          .describe('Filter by status; omit to list all'),
+      },
+    },
+    async ({ status }) => {
+      const qs = await listQuestions(status);
+      if (qs.length === 0) {
+        return text(status ? `No ${status} questions.` : 'No questions in the review queue.');
+      }
+      const out = qs
+        .map((q) => `- [${q.status}] ${q.id} (${q.kind}) — ${q.title}`)
+        .join('\n');
+      return text(`${qs.length} question(s):\n\n${out}\n\nUse get_question <id> for the full context.`);
+    },
+  );
+
+  server.registerTool(
+    'get_question',
+    {
+      title: 'Get a judgment call',
+      description:
+        'Return the full markdown of one review-queue question by its id (from list_questions): ' +
+        'the contradiction or claim, the notes involved, and any prior discussion.',
+      inputSchema: { id: z.string().min(1).describe('Question id from list_questions') },
+    },
+    async ({ id }) => {
+      try {
+        return text(await getQuestion(id));
+      } catch {
+        return text(`Question not found: ${id}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    'answer_question',
+    {
+      title: 'Answer a judgment call',
+      description:
+        'Record my decision on a review-queue question. Writes the answer and marks it answered ' +
+        'so the next maintenance pass applies it to the wiki and closes it out. If my answer is ' +
+        'ambiguous the maintenance pass will come back with a sharper follow-up question.',
+      inputSchema: {
+        id: z.string().min(1).describe('Question id from list_questions'),
+        answer: z.string().min(1).describe('My decision, in my own words'),
+      },
+    },
+    async ({ id, answer }) => {
+      try {
+        await answerQuestion(id, answer);
+      } catch {
+        return text(`Question not found: ${id}`);
+      }
+      return text(
+        `Answer recorded for ${id} and marked answered. The next maintenance pass will apply it ` +
+          `to the wiki (or follow up here if anything is unclear).`,
+      );
+    },
   );
 
   return server;

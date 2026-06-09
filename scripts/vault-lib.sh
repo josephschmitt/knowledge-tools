@@ -84,6 +84,13 @@ sync_from_origin() {
 # transient failure self-heals next pass and a real divergence is caught before any new commit.
 commit_and_push() {
   local msg="$1"; shift
+  # The vault need not be a git repo — it can be a plain folder synced by Dropbox/Syncthing,
+  # which carries history itself. If there's no work tree, there's nothing to commit: log it
+  # and bail cleanly. (Mirrors the origin-remote gate below: degrade, don't fail.)
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    log "not a git repo — skipping commit (history left to external sync)."
+    return 0
+  fi
   if [ "$#" -eq 0 ]; then
     git add -A
   else

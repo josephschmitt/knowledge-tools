@@ -14,6 +14,12 @@ const COMPILE_DIR = path.join(INBOX_DIR, '.compile');
 const COMPILE_REQUEST = path.join(COMPILE_DIR, 'request');
 const COMPILE_STATUS = path.join(COMPILE_DIR, 'status.json');
 
+// The judgment-call review queue, the GitHub-issue-free Q&A channel. Also under inbox/ —
+// the one mount the container can write — so the human can answer questions from chat.
+// Each open question is one markdown file with a `status` go-signal (open|answered|applied);
+// the host's synthesize/resolve jobs are the producer/consumer (see template/.claude/commands).
+const REVIEW_DIR = path.join(INBOX_DIR, '.review');
+
 /** Resolve `rel` under `base`, throwing if it escapes `base`. */
 function confine(base: string, rel: string): string {
   const resolved = path.resolve(base, rel);
@@ -239,4 +245,133 @@ export async function getVaultStatus(): Promise<VaultStatus> {
 export async function requestCompile(): Promise<void> {
   await fs.mkdir(COMPILE_DIR, { recursive: true });
   await fs.writeFile(COMPILE_REQUEST, `${new Date().toISOString()}\n`);
+}
+
+// --- Review queue (judgment-call Q&A channel) -------------------------------------------
+//
+// A question is one markdown file under inbox/.review/ with a small `key: value` frontmatter
+// block and `## Question` / `## Answer` / `## Discussion` sections. We hand-parse the fixed
+// schema rather than pull in a YAML dependency on the write path: keys are flat scalars,
+// preserved in file order so a round-trip stays stable.
+
+export type QuestionStatus = 'open' | 'answered' | 'applied';
+
+export interface QuestionSummary {
+  id: string;
+  kind: string;
+  status: string;
+  created: string;
+  /** First non-empty line of the `## Question` section, for a one-line listing. */
+  title: string;
+}
+
+interface ParsedDoc {
+  /** Frontmatter keys in file order. */
+  fm: Record<string, string>;
+  /** Everything after the closing `---` fence (leading blank line included). */
+  body: string;
+}
+
+function parseFrontmatter(content: string): ParsedDoc {
+  const m = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(content);
+  if (!m) return { fm: {}, body: content };
+  const fm: Record<string, string> = {};
+  for (const line of m[1].split('\n')) {
+    const i = line.indexOf(':');
+    if (i === -1) continue;
+    const key = line.slice(0, i).trim();
+    if (key) fm[key] = line.slice(i + 1).trim();
+  }
+  return { fm, body: m[2] };
+}
+
+function serializeDoc(fm: Record<string, string>, body: string): string {
+  const front = Object.entries(fm)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n');
+  return `---\n${front}\n---\n${body}`;
+}
+
+/** First non-empty line under `## <heading>`, or '' if the section is absent/empty. */
+function sectionFirstLine(body: string, heading: string): string {
+  const lines = body.split('\n');
+  const start = lines.findIndex((l) => l.trim() === `## ${heading}`);
+  if (start === -1) return '';
+  for (let i = start + 1; i < lines.length; i++) {
+    if (lines[i].startsWith('## ')) break;
+    if (lines[i].trim()) return lines[i].trim();
+  }
+  return '';
+}
+
+/** Replace the body under `## <heading>` with `content`, appending the section if absent. */
+function replaceSection(body: string, heading: string, content: string): string {
+  const lines = body.split('\n');
+  const start = lines.findIndex((l) => l.trim() === `## ${heading}`);
+  if (start === -1) {
+    return `${body.replace(/\s*$/, '')}\n\n## ${heading}\n\n${content}\n`;
+  }
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (lines[i].startsWith('## ')) {
+      end = i;
+      break;
+    }
+  }
+  return [...lines.slice(0, start + 1), '', content, '', ...lines.slice(end)].join('\n');
+}
+
+/** Resolve a question id (with or without `.md`) to its confined path under REVIEW_DIR. */
+function questionPath(id: string): string {
+  let rel = id.trim();
+  if (!rel.toLowerCase().endsWith('.md')) rel += '.md';
+  return confine(REVIEW_DIR, rel);
+}
+
+/** Open/answered/applied questions in the review queue, newest first. Optionally filtered. */
+export async function listQuestions(status?: string): Promise<QuestionSummary[]> {
+  const files = await walkMarkdown(REVIEW_DIR);
+  const out: QuestionSummary[] = [];
+  for (const file of files) {
+    let content: string;
+    try {
+      content = await fs.readFile(file, 'utf8');
+    } catch {
+      continue;
+    }
+    const { fm, body } = parseFrontmatter(content);
+    const st = fm.status ?? 'open';
+    if (status && st !== status) continue;
+    out.push({
+      id: fm.id || path.basename(file, '.md'),
+      kind: fm.kind || 'judgment-call',
+      status: st,
+      created: fm.created || '',
+      title: sectionFirstLine(body, 'Question') || '(no question text)',
+    });
+  }
+  return out.sort((a, b) => b.created.localeCompare(a.created));
+}
+
+/** Raw markdown of one question by id. */
+export async function getQuestion(id: string): Promise<string> {
+  return cap(await fs.readFile(questionPath(id), 'utf8'));
+}
+
+/**
+ * Record the human's answer to a question: write it into the `## Answer` section and flip
+ * `status` to `answered` (the go-signal the host's resolve job acts on). Written atomically
+ * (tmp + rename) so the resolve job never reads a half-written file. Returns the new status.
+ */
+export async function answerQuestion(id: string, answer: string): Promise<QuestionStatus> {
+  const full = questionPath(id);
+  const content = await fs.readFile(full, 'utf8');
+  const { fm, body } = parseFrontmatter(content);
+  fm.status = 'answered';
+  fm.updated = new Date().toISOString();
+  const next = serializeDoc(fm, replaceSection(body, 'Answer', answer.trim()));
+  const tmp = `${full}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, next, 'utf8');
+  await fs.rename(tmp, full);
+  return 'answered';
 }

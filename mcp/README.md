@@ -17,9 +17,38 @@ pointed at any OIDC issuer. See [Authentication](#authentication).
 | `append_to_inbox(text, title?)` | Capture a raw note into `inbox/` for the scheduled compile |
 | `compile_run()` | Trigger an on-demand compile (async, rate-limited to one/hour) |
 | `vault_status()` | Pollable JSON: last successful compile time, pending inbox count, manual-compile cooldown, running flag |
+| `list_questions(status?)` | List judgment calls the vault is waiting on (file review channel) |
+| `get_question(id)` | Return one judgment call's full markdown |
+| `answer_question(id, answer)` | Record a decision on a judgment call (writes `inbox/.review/`, marks it answered) |
 
 `append_to_inbox` is the capture path: drop a thought from claude.ai, and the scheduled
 compile (`scripts/vault-compile.sh`) folds it into the wiki.
+
+The `*_question` tools are the inbound half of the **judgment-call channel** — the calls the
+weekly maintenance pass can't decide on its own, answered from chat. They work against either
+backend (see [Review channel](#review-channel) below):
+
+- **files** (default) — `/synthesize-files` files calls as markdown in `inbox/.review/`, you
+  answer them here, `/resolve-files` applies them. Like `append_to_inbox` and the compile
+  sentinel, `answer_question` writes only under `inbox/`, staying inside the least-privilege
+  write mount — no external creds or egress.
+- **github** — the calls are the vault's GitHub issues; `answer_question` comments the answer and
+  adds the `vault:answered` label, exactly what answering on github.com does, so the host's
+  `/resolve` applies and closes it.
+
+See the root README's
+[judgment-call channel](../README.md#judgment-call-channel-github-or-files) for the host side.
+
+### Review channel
+
+`list_questions` / `get_question` / `answer_question` default to the **files** backend
+(`inbox/.review/`), which needs nothing beyond the vault mount. To back them with **GitHub
+issues** instead, set `MCP_GITHUB_TOKEN` (a PAT with `issues:read`+`write` on the vault repo) and
+`MCP_GITHUB_REPO` (`owner/repo`); the server then reaches the GitHub REST API over the network.
+The channel auto-detects (`github` when both are set, else `files`) and `MCP_REVIEW_CHANNEL`
+forces it. **Match it to the host's `KNOWLEDGE_REVIEW_CHANNEL`** so both halves of the loop share
+one surface. This is the only feature that gives the server outbound network access and a
+credential, so it stays off until you configure it.
 
 ### Manual compile (`compile_run`)
 
@@ -164,7 +193,10 @@ Code at the private URL.
 
 ## Notes
 
-- Vault is mounted read-only except `inbox/` (least privilege — only `append_to_inbox` writes).
+- Vault is mounted read-only except `inbox/` (least privilege — only `append_to_inbox`, the
+  compile sentinel, and the files-channel `answer_question` write touch it). The server makes no
+  outbound network calls unless the GitHub review channel is configured (see
+  [Review channel](#review-channel)).
 - DNS-rebinding protection is off by default (the proxy is the gate; claude.ai's fetch may omit
   `Origin`). See `.env.example` to enable it with `ALLOWED_HOSTS`/`ALLOWED_ORIGINS`.
 - The server never issues tokens or runs login/MFA/policy — that's the issuer's job. With
