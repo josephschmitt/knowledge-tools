@@ -1,9 +1,10 @@
 # Knowledge Vault MCP Server
 
 A remote [MCP](https://modelcontextprotocol.io) server that exposes this knowledge vault to
-**claude.ai as a custom connector**. It serves the **Streamable HTTP** transport and nothing
-more — **it performs no authentication of its own**. Authentication is a *deployment* concern:
-run it behind an authenticating reverse proxy and make sure only that proxy can reach it.
+**claude.ai as a custom connector** over the **Streamable HTTP** transport. Authentication is
+**optional and off by default**: out of the box the server does no auth and trusts its network
+(run it behind an authenticating proxy), or you can switch on built-in OAuth token validation
+pointed at any OIDC issuer. See [Authentication](#authentication).
 
 ## Tools
 
@@ -38,18 +39,35 @@ scheduled and on-demand), so a `last_compiled_at` newer than your trigger time m
 finished. It also reports `pending_inbox_count` and `manual_compile_available_at` (when the
 cooldown next clears) — poll it after a `compile_run` to know when the wiki is caught up.
 
-## Authentication (a deployment concern)
+## Authentication
 
-This server does **no** authentication. It is a plain Streamable-HTTP MCP server that trusts
-the network it runs on, which keeps the source portable — bring whatever identity layer you
-already use. **Your deployment owns two jobs:** put an authenticating proxy in front of `/mcp`,
-and make sure the origin can't be reached *around* it (don't publish the container port; keep
-untrusted workloads off its network). An exposed origin is an open, writable vault.
+Two models, and you can combine them:
+
+**1. Auth at a proxy (default — server does nothing).** Out of the box the server performs no
+auth and trusts its network. Put an authenticating reverse proxy in front of `/mcp` and make
+sure the origin can't be reached *around* it (don't publish the container port; keep untrusted
+workloads off its network). Portable — bring whatever identity layer you already run.
+
+**2. Built-in token validation (optional).** Set the `MCP_AUTH_*` env and the server becomes an
+OAuth 2.1 *resource server*: it validates a JWT access token on every `/mcp` request and
+advertises its authorization server for client discovery (RFC 9728). Vendor-neutral — point it
+at any OIDC issuer. It validates tokens but never issues them, so you still need an authorization
+server (the issuer). This is what lets the origin protect *itself*, so it's safe even if
+something can reach it directly.
+
+```sh
+MCP_AUTH_ISSUER=https://your-idp.example.com          # the OIDC issuer (authorization server)
+MCP_AUTH_JWKS_URL=https://your-idp.example.com/jwks    # its signing keys
+MCP_AUTH_AUDIENCE=https://knowledge.example.com/mcp    # expected `aud` claim
+# MCP_AUTH_TOKEN_HEADER=authorization                  # or e.g. cf-access-jwt-assertion
+```
+
+Set all three to enable; set none to stay authless. (Half-set → the server refuses to start.)
 
 > **Which clients can reach it?** claude.ai's connector fetches **server-side from Anthropic's
-> cloud**, so it needs a **publicly reachable** endpoint whose proxy speaks OAuth. The Claude
-> Code CLI runs **on your machine**, so a private network is enough for it. Pick a deployment
-> option (below) accordingly.
+> cloud**, so it needs a **publicly reachable** endpoint whose proxy *or* the server's own
+> discovery speaks OAuth. The Claude Code CLI runs **on your machine**, so a private network is
+> enough for it. Pick a deployment option (below) accordingly.
 
 ## Local development
 
@@ -80,8 +98,7 @@ pulls without authenticating; the image carries only server code, no vault conte
 
 ## Deploying behind auth
 
-The server's only config is `VAULT_ROOT` (plus optional `PORT` / `PUBLIC_URL` / tuning knobs in
-`.env.example`) — there is no auth env. Run the container, then front it with one of these.
+Run the container (only required config is `VAULT_ROOT`), then choose how it's protected.
 
 ### Cloudflare Access + Managed OAuth  *(public; works with claude.ai)*
 
@@ -96,6 +113,17 @@ is how the homelab runs it.
    Managed OAuth serves discovery + dynamic registration, so there are no client credentials to
    paste — complete the Cloudflare login + consent and the tools appear.
 
+**Recommended: also turn on built-in validation.** Cloudflare injects a `Cf-Access-Jwt-Assertion`
+JWT on every request it forwards. Point the server's built-in auth at it so the origin protects
+*itself* — then you don't need network isolation to stop LAN/sibling-container access:
+
+```sh
+MCP_AUTH_ISSUER=https://<team>.cloudflareaccess.com
+MCP_AUTH_JWKS_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/certs
+MCP_AUTH_AUDIENCE=<your Access application's AUD tag>
+MCP_AUTH_TOKEN_HEADER=cf-access-jwt-assertion
+```
+
 <details><summary>Homelab specifics (traefik + cloudflared)</summary>
 
 - **Single-level subdomain.** Free Universal SSL covers `example.com` and `*.example.com` only;
@@ -107,19 +135,25 @@ is how the homelab runs it.
   cloudflared's **Origin Server Name** to the host (or **No TLS Verify**), since traefik
   terminates TLS on a loopback hop. Adding the hostname creates the DNS record.
 - **Start it.** `cd ~/example.com && docker compose pull knowledge-mcp && docker compose up -d knowledge-mcp`
-- **Close the bypass.** Don't publish the container port to the host — route to it only on
-  traefik's internal network, and keep untrusted workloads off that network. Access guards the
-  *public* path only; a LAN client or neighbouring container could otherwise hit the open origin.
+- **The bypass.** Without built-in validation, Access guards only the *public* path — a LAN
+  client or neighbouring container could hit the origin directly. Either enable built-in
+  validation (above) or keep the port off the host and the origin off shared networks.
 
 </details>
 
-### OIDC gateway (oauth2-proxy / Authelia / Keycloak)  *(public; works with claude.ai)*
+### Your own OIDC issuer (Auth0 / Keycloak / Authentik / oauth2-proxy)  *(public; works with claude.ai)*
 
-Front `/mcp` with a gateway that terminates OAuth/OIDC against your own IdP and forwards only
-authenticated requests. For the claude.ai connector the gateway must serve the discovery it
-expects (`/.well-known/oauth-protected-resource` + a 401 challenge) and either support dynamic
-client registration or let you preconfigure claude.ai's client. Restrict the policy to your
-account, then connect claude.ai to the public URL.
+Two ways to use your own IdP:
+
+- **Built-in validation** — set `MCP_AUTH_ISSUER`/`MCP_AUTH_JWKS_URL`/`MCP_AUTH_AUDIENCE` to the
+  IdP's values; the server validates tokens and advertises the issuer for discovery itself. For
+  the claude.ai connector the IdP must support dynamic client registration (Auth0/Keycloak do)
+  or let you preconfigure claude.ai's client.
+- **A gateway** (oauth2-proxy / Authelia) terminating OAuth/OIDC in front of `/mcp` and
+  forwarding only authenticated requests — leave the server authless behind it. The gateway must
+  serve the discovery claude.ai expects (`/.well-known/oauth-protected-resource` + a 401 challenge).
+
+Either way, restrict the policy to your account.
 
 ### Private network (Tailscale / WireGuard / VPN)  *(Claude Code only)*
 
@@ -133,7 +167,8 @@ Code at the private URL.
 - Vault is mounted read-only except `inbox/` (least privilege — only `append_to_inbox` writes).
 - DNS-rebinding protection is off by default (the proxy is the gate; claude.ai's fetch may omit
   `Origin`). See `.env.example` to enable it with `ALLOWED_HOSTS`/`ALLOWED_ORIGINS`.
-- The server holds no auth state at all — login, MFA, policy, and token lifecycle live entirely
-  in whatever proxy you deploy it behind.
+- The server never issues tokens or runs login/MFA/policy — that's the issuer's job. With
+  built-in validation it only *verifies* tokens per request; with auth off, even that lives in
+  the proxy you deploy it behind.
 - Logging is [pino](https://getpino.io) (line-delimited JSON). Default level is `info`; set
   `LOG_LEVEL=debug` to see per-request lines.

@@ -21,10 +21,10 @@ working in the repo.
   connector). Shipped two ways: zipped per-skill for claude.ai, and as a Claude Code
   plugin via the marketplace in `.claude-plugin/` (see below).
 - `mcp/` — the claude.ai connector. A Streamable-HTTP MCP server (TypeScript) that
-  capture/query against the vault. It does **no** auth itself — authentication is a deployment
-  concern (run it behind an authenticating proxy; the homelab uses Cloudflare Access + Managed
-  OAuth). Reads/writes the vault via `VAULT_ROOT`. Built into a GHCR image by CI; deployed
-  separately. See `mcp/README.md`.
+  capture/query against the vault. Auth is **optional, off by default** (`src/auth.ts`): run it
+  authless behind an authenticating proxy, or set `MCP_AUTH_*` to validate JWT access tokens
+  against any OIDC issuer (the homelab uses Cloudflare Access + Managed OAuth). Reads/writes the
+  vault via `VAULT_ROOT`. Built into a GHCR image by CI; deployed separately. See `mcp/README.md`.
 - `scripts/` — host-side vault automation and the skill validator. Three vault-mutating jobs
   run as systemd *user* units; all three share one flock (`vault-lib.sh`) so they never run
   concurrently, and in each the **wrapper** owns git (Claude only edits files + runs scoped

@@ -11,11 +11,11 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
 ## Components
 
 - **`mcp/`** — the claude.ai connector. A Streamable-HTTP MCP server that lets claude.ai
-  capture raw material into the vault's `inbox/` and query the compiled `wiki/`. It does **no**
-  auth of its own — authentication is a deployment concern (run it behind an authenticating
-  proxy; the homelab uses Cloudflare Access + Managed OAuth). Reads/writes the vault via the
-  `VAULT_ROOT` env var (bind-mounted into the container). Deployed separately — see
-  [`mcp/README.md`](mcp/README.md).
+  capture raw material into the vault's `inbox/` and query the compiled `wiki/`. Auth is
+  **optional, off by default**: run it authless behind an authenticating proxy, or enable
+  built-in OAuth token validation against any OIDC issuer (the homelab uses Cloudflare Access +
+  Managed OAuth). Reads/writes the vault via the `VAULT_ROOT` env var (bind-mounted into the
+  container). Deployed separately — see [`mcp/README.md`](mcp/README.md).
 - **`skills/knowledge-vault/`** — the conversational front-door skill: capture and query,
   delegating heavy compilation to the host. Ships two ways — as a Claude Code plugin (see
   [Installing the skill](#installing-the-skill)) and as per-skill release zips for claude.ai.

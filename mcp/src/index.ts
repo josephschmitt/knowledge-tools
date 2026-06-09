@@ -1,11 +1,13 @@
-// Entry point: an Express app serving the Streamable HTTP MCP endpoint. The server does no
-// authentication of its own — it trusts the network it is deployed on. Run it behind an
-// authenticating reverse proxy and ensure only that proxy can reach it (see mcp/README.md).
+// Entry point: an Express app serving the Streamable HTTP MCP endpoint. Authentication is
+// optional and OFF by default — the server trusts the network it is deployed on, so run it
+// behind an authenticating proxy. Set MCP_AUTH_* to make it validate tokens itself (see auth.ts
+// and mcp/README.md).
 import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { buildMcpServer } from './mcp.js';
+import { requireToken, mountAuthMetadata } from './auth.js';
 import { logger } from './logger.js';
 import {
   PORT,
@@ -30,10 +32,14 @@ app.get('/healthz', (_req, res) => {
   res.json({ ok: true });
 });
 
+// Advertise the authorization server for client discovery (no-op unless auth is enabled).
+mountAuthMetadata(app);
+
 // --- Streamable HTTP MCP endpoint (stateful: one transport+server per session) ---
+// `requireToken` gates every /mcp route; it is a pass-through when auth is disabled.
 const transports: Record<string, StreamableHTTPServerTransport> = {};
 
-app.post('/mcp', express.json(), async (req, res) => {
+app.post('/mcp', requireToken, express.json(), async (req, res) => {
   const sid = req.headers['mcp-session-id'] as string | undefined;
   logger.debug({ sessionId: sid, rpcMethod: req.body?.method }, 'mcp request');
   let transport = sid ? transports[sid] : undefined;
@@ -80,8 +86,8 @@ const replaySession: express.RequestHandler = async (req, res) => {
   }
   await transport.handleRequest(req, res);
 };
-app.get('/mcp', replaySession);
-app.delete('/mcp', replaySession);
+app.get('/mcp', requireToken, replaySession);
+app.delete('/mcp', requireToken, replaySession);
 
 app.listen(PORT, '0.0.0.0', () => {
   logger.info(
