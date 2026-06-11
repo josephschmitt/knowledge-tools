@@ -28,8 +28,7 @@ set -euo pipefail
 JOB="${1:?usage: vault-job.sh <synthesize|resolve>}"
 
 case "$JOB" in
-  synthesize) COMMIT_MSG_PREFIX="Vault synthesize" ;;
-  resolve)    COMMIT_MSG_PREFIX="Vault resolve" ;;
+  synthesize | resolve) COMMIT_MSG_PREFIX="Vault $JOB" ;;
   *)
     echo "vault-job.sh: unknown job '$JOB' (expected 'synthesize' or 'resolve')" >&2
     exit 2

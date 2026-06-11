@@ -30,7 +30,7 @@ function confine(base: string, rel: string): string {
   return resolved;
 }
 
-function cap(text: string): string {
+export function cap(text: string): string {
   if (text.length <= MAX_RESULT_CHARS) return text;
   return text.slice(0, MAX_RESULT_CHARS) + `\n\n…[truncated — result exceeded ${MAX_RESULT_CHARS} characters]`;
 }

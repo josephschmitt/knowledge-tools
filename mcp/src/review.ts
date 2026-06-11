@@ -11,4 +11,3 @@ const impl = REVIEW_CHANNEL === 'github' ? github : files;
 export const listQuestions = impl.listQuestions;
 export const getQuestion = impl.getQuestion;
 export const answerQuestion = impl.answerQuestion;
-export const CHANNEL = REVIEW_CHANNEL;

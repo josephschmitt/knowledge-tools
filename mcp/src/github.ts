@@ -4,17 +4,12 @@
 // config.ts / review.ts). Answering posts a comment and adds the `vault:answered` label, which
 // is exactly the manual GitHub action the host's /resolve job acts on — so the loop is identical
 // whether I answer on github.com or from chat.
-import { GITHUB_API_URL, GITHUB_REPO, GITHUB_TOKEN, MAX_RESULT_CHARS } from './config.js';
-import type { QuestionStatus, QuestionSummary } from './vault.js';
+import { GITHUB_API_URL, GITHUB_REPO, GITHUB_TOKEN } from './config.js';
+import { cap, type QuestionStatus, type QuestionSummary } from './vault.js';
 
 // The labels the synthesize job files calls under, and the go-signal the human adds.
 const KIND_LABELS = ['vault:judgment-call', 'vault:needs-verification'] as const;
 const ANSWERED_LABEL = 'vault:answered';
-
-function cap(text: string): string {
-  if (text.length <= MAX_RESULT_CHARS) return text;
-  return text.slice(0, MAX_RESULT_CHARS) + `\n\n…[truncated — result exceeded ${MAX_RESULT_CHARS} characters]`;
-}
 
 /** A GitHub issue number, with or without a leading '#'. Throws on anything else. */
 function issueNumber(id: string): number {
@@ -99,8 +94,11 @@ export async function listQuestions(status?: string): Promise<QuestionSummary[]>
 /** Full context of one judgment call: the issue body and its comment thread, as markdown. */
 export async function getQuestion(id: string): Promise<string> {
   const num = issueNumber(id);
-  const issue = await gh<GhIssue>(`/repos/${GITHUB_REPO}/issues/${num}`);
-  const comments = await gh<GhComment[]>(`/repos/${GITHUB_REPO}/issues/${num}/comments?per_page=100`);
+  // The issue and its comments are independent reads — fetch them concurrently.
+  const [issue, comments] = await Promise.all([
+    gh<GhIssue>(`/repos/${GITHUB_REPO}/issues/${num}`),
+    gh<GhComment[]>(`/repos/${GITHUB_REPO}/issues/${num}/comments?per_page=100`),
+  ]);
   const labels = labelNames(issue).join(', ') || '(none)';
   let md = `# #${issue.number} ${issue.title ?? ''}\n\n`;
   md += `- state: ${issue.state} (${issueStatus(issue, labelNames(issue))})\n`;
@@ -123,13 +121,16 @@ export async function getQuestion(id: string): Promise<string> {
  */
 export async function answerQuestion(id: string, answer: string): Promise<QuestionStatus> {
   const num = issueNumber(id);
-  await gh(`/repos/${GITHUB_REPO}/issues/${num}/comments`, {
-    method: 'POST',
-    body: JSON.stringify({ body: answer.trim() }),
-  });
-  await gh(`/repos/${GITHUB_REPO}/issues/${num}/labels`, {
-    method: 'POST',
-    body: JSON.stringify({ labels: [ANSWERED_LABEL] }),
-  });
+  // Posting the comment and adding the label are independent writes — issue them concurrently.
+  await Promise.all([
+    gh(`/repos/${GITHUB_REPO}/issues/${num}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ body: answer.trim() }),
+    }),
+    gh(`/repos/${GITHUB_REPO}/issues/${num}/labels`, {
+      method: 'POST',
+      body: JSON.stringify({ labels: [ANSWERED_LABEL] }),
+    }),
+  ]);
   return 'answered';
 }
