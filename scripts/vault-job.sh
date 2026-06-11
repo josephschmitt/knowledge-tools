@@ -64,6 +64,10 @@ log() { printf '%s %s\n' "$(date -Is)" "$*" | tee -a "$LOG"; }
 # Serialize against compile + the other issue job — they all edit wiki/ and commit.
 acquire_vault_lock
 
+# Catch up to origin before we edit + commit, so the push at the end fast-forwards. Aborts
+# (loudly) only if origin has diverged in a way we must not commit on top of.
+sync_from_origin || exit 1
+
 log "$JOB starting ($SLASH)"
 
 # resolve is the consumer side and acts ONLY on issues I've marked answered (the vault:answered
@@ -90,7 +94,11 @@ fi
 
 # The wrapper owns git: commit ONLY wiki/ + index.md + log.md and push — never the raw inbox/
 # captures compile hasn't processed. resolve is often a no-op (issues read but no edit applied)
-# — commit_and_push handles "nothing staged" cleanly.
-commit_and_push "$COMMIT_MSG_PREFIX ($STAMP)" wiki index.md log.md
+# — commit_and_push handles "nothing staged" cleanly. A push failure is surfaced as a non-zero
+# exit (the commit is preserved locally) so systemd flags the unit instead of rotting silently.
+if ! commit_and_push "$COMMIT_MSG_PREFIX ($STAMP)" wiki index.md log.md; then
+  log "$JOB done (with push failure)."
+  exit 1
+fi
 
 log "$JOB done."

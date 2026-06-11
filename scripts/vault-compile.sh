@@ -59,6 +59,13 @@ EOF
 # hand-run script). systemd already serializes this service's own timer vs path triggers.
 acquire_vault_lock
 
+# Catch up to origin before we compile + commit, so the push at the end fast-forwards. Aborts
+# (loudly) only if origin has diverged in a way we must not commit on top of.
+if ! sync_from_origin; then
+  write_status false "aborted: local diverged from origin"
+  exit 1
+fi
+
 # Manual if the MCP dropped a request sentinel; consume it so the .path unit can re-arm.
 if [ -f "$REQUEST" ]; then
   MODE=manual
@@ -110,11 +117,20 @@ done
 log "archived processed captures to $ARCHIVE"
 
 # Commit if anything changed; push only if an origin remote exists (shared with the other jobs).
-commit_and_push "Vault compile ($STAMP)"
+# Defer a push failure so the cooldown/status bookkeeping below still runs (the compile itself
+# succeeded locally); we re-raise it as a non-zero exit at the end so systemd flags the run.
+PUSH_FAILED=
+commit_and_push "Vault compile ($STAMP)" || PUSH_FAILED=1
 
 # Record completion timestamps for the cooldown + status surface.
 date +%s >"$LAST_COMPILED_FILE"
 [ "$MODE" = manual ] && date +%s >"$LAST_MANUAL_FILE"
+
+if [ -n "$PUSH_FAILED" ]; then
+  write_status false "compiled ${#ITEMS[@]} item(s) but push failed"
+  log "done (with push failure)."
+  exit 1
+fi
 write_status false "compiled ${#ITEMS[@]} item(s)"
 
 log "done."
