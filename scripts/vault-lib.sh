@@ -75,8 +75,9 @@ sync_from_origin() {
     return 0
   fi
   git rebase --abort >>"$LOG" 2>&1 || true
-  log "ERROR: rebase onto origin/$branch hit a real conflict — tree restored, no commits added."
-  log "       This shouldn't happen given disjoint edit paths; reconcile by hand, then re-run."
+  log "ERROR: rebase onto origin/$branch failed — tree restored, no commits added (see log for cause)."
+  log "       Likely a real conflict (shouldn't happen given disjoint edit paths) or a dirty tree from a"
+  log "       crashed prior run; reconcile by hand, then re-run."
   return 1
 }
 
