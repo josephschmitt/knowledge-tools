@@ -51,6 +51,36 @@ advertises the authorization server and Claude Code walks the flow (run `/mcp` i
 (re)authenticate). The vault must already be deployed and reachable at that URL — see
 [`mcp/README.md`](mcp/README.md).
 
+### If your IdP doesn't support Dynamic Client Registration
+
+The auto-negotiation above relies on your authorization server supporting **OAuth Dynamic
+Client Registration** (DCR) — Cloudflare Access does, so Claude Code registers a client on the
+fly and there's nothing to configure. Some self-hosted IdPs (e.g. **Authelia**) don't support
+DCR. There, Claude Code can't auto-register and the plugin's server will fail to authenticate.
+
+The fix lives entirely on *your* side, not in the plugin: pre-register a **public client with
+PKCE** in your IdP (no client secret — it's a CLI), giving it a fixed loopback redirect URI,
+then point Claude Code at that client with a user-scoped server instead of relying on
+auto-negotiation:
+
+```sh
+claude mcp add-json --scope user knowledge-vault \
+  '{"type":"http","url":"https://knowledge.example.com/mcp","oauth":{"clientId":"<your-client-id>","callbackPort":47832}}'
+```
+
+Then run `/mcp` → **Authorize**. Notes:
+
+- `--scope user` makes it available in every project on that machine; it's a one-time setup
+  per machine (the token then persists and refreshes automatically).
+- `callbackPort` must match the port registered in your client's redirect URI
+  (`http://localhost:<port>/callback`). Because IdPs do exact redirect-URI matching and native
+  OAuth clients disagree on the loopback host, register **both** `http://localhost:<port>/callback`
+  and `http://127.0.0.1:<port>/callback`.
+- This user-scoped entry takes precedence over the plugin's auto-negotiated server of the same
+  name, so the bundled skill keeps working — now against the authenticated connection.
+- The plugin manifest deliberately carries **no** OAuth config: DCR deployments stay zero-config,
+  and non-DCR client details live in your own machine config, never in the shared plugin.
+
 **claude.ai** — download the `knowledge-vault.zip` asset from the latest
 [release](https://github.com/josephschmitt/knowledge-tools/releases) and upload it as a
 skill. CI builds these zips on every skill change merged to `main`.
