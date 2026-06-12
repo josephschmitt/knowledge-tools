@@ -71,7 +71,17 @@ export async function listQuestions(status?: string): Promise<QuestionSummary[]>
   const state = status === 'applied' ? 'closed' : 'open';
   // GitHub's label filter ANDs, but a call carries only ONE kind label — so fetch the issues in
   // this state and filter client-side for ours (and skip PRs, which this endpoint also returns).
-  const issues = await gh<GhIssue[]>(`/repos/${GITHUB_REPO}/issues?state=${state}&per_page=100`);
+  // Page through 100 at a time: a personal vault rarely exceeds one page, but truncating at 100
+  // would silently drop the rest. A short page (fewer than per_page) means we've reached the end.
+  const PER_PAGE = 100;
+  const issues: GhIssue[] = [];
+  for (let page = 1; ; page++) {
+    const batch = await gh<GhIssue[]>(
+      `/repos/${GITHUB_REPO}/issues?state=${state}&per_page=${PER_PAGE}&page=${page}`,
+    );
+    issues.push(...batch);
+    if (batch.length < PER_PAGE) break;
+  }
   const out: QuestionSummary[] = [];
   for (const it of issues) {
     if (it.pull_request) continue;
@@ -121,16 +131,17 @@ export async function getQuestion(id: string): Promise<string> {
  */
 export async function answerQuestion(id: string, answer: string): Promise<QuestionStatus> {
   const num = issueNumber(id);
-  // Posting the comment and adding the label are independent writes — issue them concurrently.
-  await Promise.all([
-    gh(`/repos/${GITHUB_REPO}/issues/${num}/comments`, {
-      method: 'POST',
-      body: JSON.stringify({ body: answer.trim() }),
-    }),
-    gh(`/repos/${GITHUB_REPO}/issues/${num}/labels`, {
-      method: 'POST',
-      body: JSON.stringify({ labels: [ANSWERED_LABEL] }),
-    }),
-  ]);
+  // Post the comment first, then add the label. Sequential order matters: if the label step
+  // fails the caller sees an error before the issue is marked answered, and can retry. Running
+  // them concurrently risks a half-applied state (comment live, no vault:answered label) that
+  // /resolve will silently skip on every future pass.
+  await gh(`/repos/${GITHUB_REPO}/issues/${num}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ body: answer.trim() }),
+  });
+  await gh(`/repos/${GITHUB_REPO}/issues/${num}/labels`, {
+    method: 'POST',
+    body: JSON.stringify({ labels: [ANSWERED_LABEL] }),
+  });
   return 'answered';
 }

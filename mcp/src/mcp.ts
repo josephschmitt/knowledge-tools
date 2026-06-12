@@ -31,6 +31,19 @@ function text(s: string) {
   return { content: [{ type: 'text' as const, text: s }] };
 }
 
+// A review-tool error is genuinely "no such question" only when the file is missing (files
+// backend) or the issue is absent / its id unparseable (GitHub backend). Anything else — auth,
+// rate-limit, network, a partially-applied write — is real and must surface verbatim, not be
+// flattened into "Question not found" (which invites a destructive re-answer).
+function questionError(id: string, err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  const notFound =
+    (err as NodeJS.ErrnoException)?.code === 'ENOENT' ||
+    /\bnot a GitHub issue number\b/.test(msg) ||
+    /->\s*404\b/.test(msg);
+  return text(notFound ? `Question not found: ${id}` : `Could not reach the review queue for ${id}: ${msg}`);
+}
+
 export function buildMcpServer(): McpServer {
   const server = new McpServer(
     { name: 'knowledge-vault', version: '0.1.0' },
@@ -224,8 +237,8 @@ export function buildMcpServer(): McpServer {
     async ({ id }) => {
       try {
         return text(await getQuestion(id));
-      } catch {
-        return text(`Question not found: ${id}`);
+      } catch (err) {
+        return questionError(id, err);
       }
     },
   );
@@ -246,8 +259,8 @@ export function buildMcpServer(): McpServer {
     async ({ id, answer }) => {
       try {
         await answerQuestion(id, answer);
-      } catch {
-        return text(`Question not found: ${id}`);
+      } catch (err) {
+        return questionError(id, err);
       }
       return text(
         `Answer recorded for ${id} and marked answered. The next maintenance pass will apply it ` +
