@@ -36,11 +36,10 @@ export function buildMcpServer(): McpServer {
     {
       instructions:
         'Personal knowledge vault, split on purpose: capture is dumb, compilation is smart. ' +
-        'To answer questions, read the compiled wiki (search_wiki / get_note / list_index / ' +
-        'list_notes) and prefer it over general knowledge. To save material, dump it raw with ' +
-        'append_to_inbox — never pre-organize, dedupe, or filter at capture time; a scheduled ' +
-        'compiler curates the inbox into the wiki with the whole vault in view. compile_run ' +
-        'triggers that compile on demand (rate-limited); vault_status reports its progress.',
+        'Answer questions from the compiled wiki (search_wiki / get_note / list_index / ' +
+        'list_notes), preferring it over general knowledge. Save material raw with ' +
+        'append_to_inbox; a scheduled compiler curates the inbox into the wiki. ' +
+        'compile_run / vault_status trigger and track that compile.',
     },
   );
 
@@ -107,10 +106,10 @@ export function buildMcpServer(): McpServer {
     {
       title: 'Capture to inbox',
       description:
-        'Append a raw capture (a thought, link, or clipping) to the vault inbox; the scheduled ' +
-        'compile turns captures into durable wiki notes. Capture takes zero decisions: do NOT ' +
-        'search the wiki for duplicates first and do NOT judge whether the item is worth ' +
-        'keeping — dedup and curation happen at compile time. When in doubt, capture.',
+        'Append a raw capture (a thought, link, or clipping) to the vault inbox. Capture takes ' +
+        'zero decisions: do NOT search the wiki for duplicates first and do NOT judge whether ' +
+        'the item is worth keeping — dedup and curation happen at compile time. When in doubt, ' +
+        'capture.',
       inputSchema: {
         text: z
           .string()
@@ -133,12 +132,10 @@ export function buildMcpServer(): McpServer {
     {
       title: 'Trigger a compile',
       description:
-        'Request an on-demand compile of the inbox into the wiki on the home server. ' +
-        'Asynchronous: kicks off the compile and returns immediately — poll vault_status to ' +
-        'see when it finishes; captures stay safe in the inbox meanwhile. Rate-limited to one ' +
-        'manual compile per hour: a call within the cooldown is refused (the scheduled ' +
-        'compile still runs regardless). Only needed to process the inbox sooner than the ' +
-        'next scheduled compile; capturing alone does not require it.',
+        'Request an on-demand compile of the inbox into the wiki. Asynchronous: returns ' +
+        'immediately — poll vault_status to see when it finishes. Rate-limited to one manual ' +
+        'compile per hour. Only needed to process the inbox sooner than the next scheduled ' +
+        'compile; capturing alone does not require it.',
       inputSchema: {},
     },
     async () => {
@@ -175,12 +172,10 @@ export function buildMcpServer(): McpServer {
     {
       title: 'Vault status',
       description:
-        'Pollable status of the vault as JSON. Returns last_compiled_at (when the most ' +
-        'recent compile *finished* — a value newer than your compile_run trigger time means ' +
-        'that run completed and the wiki is caught up), pending_inbox_count (captures not yet ' +
-        'compiled), manual_compile_available_at (when the next manual compile_run is allowed; ' +
-        'null/past = now, future = wait for the hourly cooldown), and running (a compile is in ' +
-        'progress). Cheap to call repeatedly to poll for a compile to finish.',
+        'Pollable vault status as JSON: last_compiled_at (when the most recent compile ' +
+        '*finished* — newer than your compile_run trigger time means that run is done), ' +
+        'pending_inbox_count, manual_compile_available_at (when the next manual compile_run ' +
+        'is allowed; null/past = now), and running. Cheap to poll for a compile to finish.',
       inputSchema: {},
     },
     async () => text(JSON.stringify(await getVaultStatus(), null, 2)),
