@@ -214,7 +214,13 @@ export function buildMcpServer(): McpServer {
       },
     },
     async ({ status }) => {
-      const qs = await listQuestions(status);
+      let qs;
+      try {
+        qs = await listQuestions(status);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return text(`Could not reach the review queue: ${msg}`);
+      }
       if (qs.length === 0) {
         return text(status ? `No ${status} questions.` : 'No questions in the review queue.');
       }
