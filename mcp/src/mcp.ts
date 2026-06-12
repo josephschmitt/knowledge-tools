@@ -37,8 +37,10 @@ export function buildMcpServer(): McpServer {
       instructions:
         'Personal knowledge vault. Use search_wiki / get_note / list_index / list_notes to ' +
         'answer from the compiled wiki, and append_to_inbox to capture a raw note or idea for ' +
-        'later compilation. compile_run triggers an on-demand compile (rate-limited). Prefer ' +
-        'answering from the vault over general knowledge.',
+        'later compilation. Capture is a dumb dump: append_to_inbox should never be gated behind ' +
+        'a search for duplicates or a judgment about whether the item is worth saving — dedup and ' +
+        'necessity are the scheduled compiler\'s job. compile_run triggers an on-demand compile ' +
+        '(rate-limited). Prefer answering from the vault over general knowledge.',
     },
   );
 
@@ -104,7 +106,10 @@ export function buildMcpServer(): McpServer {
       title: 'Capture to inbox',
       description:
         'Append a raw capture (a thought, link, or clipping) to the vault inbox. The scheduled ' +
-        'compile turns inbox captures into durable wiki notes. Use this to save something for later.',
+        'compile turns inbox captures into durable wiki notes. Use this to save something for later. ' +
+        'Just dump — capture takes no decisions: do NOT search the wiki first to dedupe and do NOT ' +
+        'judge whether the item is worth keeping. Dedup and necessity are the compiler\'s job; a ' +
+        'duplicate costs nothing and the raw capture is archived either way. When in doubt, capture.',
       inputSchema: {
         text: z.string().min(1).describe('The raw capture content'),
         title: z.string().optional().describe('Optional short title'),

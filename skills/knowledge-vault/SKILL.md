@@ -46,6 +46,21 @@ routine capture or search — that just adds latency.
 When Joe wants to save something, append it to the inbox raw with `append_to_inbox`
 and stop there.
 
+**Capture takes zero decisions. Just dump.** The vault runs on "dumb capture, smart
+compile" by design, so do not gate a capture behind any judgment:
+
+- **Never search the wiki first to check for duplicates.** Dedup is the compiler's job —
+  it searches `wiki/` for every inbox item and prefers updating or linking an existing
+  note over making a near-duplicate. A "duplicate" you dump is not waste: it becomes
+  corroboration, a sharper angle on an existing note, or it just folds in. The raw
+  capture is preserved in `inbox/archive/` either way. Nothing is lost, nothing clutters.
+- **Never decide whether it's "worth" saving.** A thought Joe doesn't capture because you
+  second-guessed it is a total loss; a redundant capture costs nothing. When in doubt,
+  capture. Friction at capture time is the one thing the design exists to eliminate.
+- The only thing worth doing at capture time is making the dump *legible* — enough
+  surrounding context that future-Joe and the compiler can tell what it meant. That's
+  about richness, not deduplication. (See the next bullets.)
+
 - Capture the *content*, not the conversation. When Joe says "save this," work out what
   "this" is — the conclusion, the snippet, the link — and capture that, not the whole
   transcript.
