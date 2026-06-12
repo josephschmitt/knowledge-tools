@@ -44,9 +44,15 @@ acquire_vault_lock() {
 #     local state; if origin really moved the push will fail loudly and next run re-syncs).
 #   - local already ahead of / equal to origin (the normal case) → "already up to date", return 0.
 #   - origin moved ahead and local hasn't                        → fast-forward, return 0.
-#   - histories DIVERGED                                         → ERROR, return 1 WITHOUT mutating
-#     anything. Adding commits on top would only deepen the split and guarantee a rejected push,
-#     so callers must abort and let a human reconcile rather than pile on.
+#   - histories DIVERGED                                         → REBASE local (unpushed) commits
+#     onto origin/<branch> and return 0. Divergence is now routine: the phone commits task-file
+#     edits to origin (Working Copy auto-push) while the homelab may carry an unpushed commit from
+#     a prior failed push. The agent and the phone touch DISJOINT paths (agent: inbox/, wiki/,
+#     index.md, log.md, new tasks/*.md, tasks/_dashboard.md, tasks/_completed.md; the human: the
+#     lifecycle frontmatter of EXISTING tasks/*.md), so the rebase replays cleanly. Only a GENUINE
+#     content conflict aborts the rebase (leaving the tree clean) and returns 1 for a human to
+#     reconcile — that stays a real-race alarm rather than a routine block. Rewriting the local
+#     commits is safe because they're unpushed (that's why local diverged in the first place).
 sync_from_origin() {
   git remote get-url origin >/dev/null 2>&1 || { log "no origin remote — skipping sync."; return 0; }
   local branch
@@ -63,8 +69,14 @@ sync_from_origin() {
     log "synced: $branch is up to date with origin/$branch."
     return 0
   fi
-  log "ERROR: local '$branch' has DIVERGED from origin/$branch — refusing to add commits on top."
-  log "       Reconcile by hand (inspect both, e.g. 'git -C $REPO pull --rebase'), then re-run."
+  log "local '$branch' diverged from origin/$branch — rebasing local commits on top."
+  if git rebase "origin/$branch" >>"$LOG" 2>&1; then
+    log "reconciled: rebased local commits onto origin/$branch."
+    return 0
+  fi
+  git rebase --abort >>"$LOG" 2>&1 || true
+  log "ERROR: rebase onto origin/$branch hit a real conflict — tree restored, no commits added."
+  log "       This shouldn't happen given disjoint edit paths; reconcile by hand, then re-run."
   return 1
 }
 
