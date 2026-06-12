@@ -20,8 +20,10 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   delegating heavy compilation to the host. Ships two ways — as a Claude Code plugin (see
   [Installing the skill](#installing-the-skill)) and as per-skill release zips for claude.ai.
 - **`scripts/`** — the host-side automation. `vault-compile.sh` runs an ephemeral Claude
-  Code pass (`/compile-inbox`) over the vault; `vault-job.sh` runs the two GitHub-issue jobs
-  (`/synthesize` and `/resolve`); `vault-lib.sh` holds the config, shared cross-job lock, and
+  Code pass (`/compile-inbox`) over the vault; `vault-job.sh` runs the two judgment-call jobs
+  (`/synthesize` and `/resolve`), carrying their judgment calls over either GitHub issues or a
+  git-free file queue (`KNOWLEDGE_REVIEW_CHANNEL`, see [below](#judgment-call-channel-github-or-files));
+  `vault-lib.sh` holds the config, shared cross-job lock, and
   git side effects all three share; `install.sh` generates the systemd *user* units from the
   `knowledge-*.in` templates; `init-vault.sh` seeds a brand-new vault from `template/`;
   `validate_skills.py` is used by CI.
@@ -76,8 +78,13 @@ reconcile. To reset a single file back to the seed, delete it and re-run.
 Three vault jobs run on the host as systemd *user* units. They all edit `wiki/` and commit,
 so they share **one lockfile** (`~/.local/state/knowledge-tools/vault.lock`, overridable with
 `KNOWLEDGE_VAULT_LOCK`) and never run concurrently. In every case Claude only edits files (and,
-for the issue jobs, runs scoped `gh` calls) — the **wrapper** owns git: it commits any
+in the GitHub review channel, runs scoped `gh` calls) — the **wrapper** owns git: it commits any
 `wiki/` + `index.md` + `log.md` changes and pushes if an `origin` remote exists.
+
+The vault **need not be a git repo**: when the wrapper finds no work tree it skips the commit
+and leaves history to whatever syncs the folder (Dropbox, Syncthing, …). Combined with the
+file-based review channel below, that lets the whole system run on a plain synced folder with
+no git and no GitHub.
 
 **Compile** — turn fresh captures into notes:
 
@@ -88,30 +95,49 @@ for the issue jobs, runs scoped `gh` calls) — the **wrapper** owns git: it com
 - `knowledge-compile.path` — runs it on demand when the MCP server's `compile_run` tool drops
   `inbox/.compile/request` into the vault. Both triggers start the same service.
 
-**Synthesize** (heavy, infrequent) and **Resolve** (light, frequent) — the GitHub-issue loop:
+**Synthesize** (heavy, infrequent) and **Resolve** (light, frequent) — the judgment-call loop:
 
 - `knowledge-synthesize.{service,timer}` — a whole-corpus `/synthesize` pass (default **weekly,
   ~4:30am local**, `KNOWLEDGE_SYNTHESIZE_ONCALENDAR`). Reconciles drift/contradictions and finds
-  new cross-note connections, **opening** judgment-call issues for anything only you can decide.
+  new cross-note connections, **opening** judgment calls for anything only you can decide.
 - `knowledge-resolve.{service,timer}` — a `/resolve` pass (default **daily, ~3:30am local**,
-  `KNOWLEDGE_RESOLVE_ONCALENDAR`). Reads your answers on open issues, applies the decisions to
-  `wiki/`, and **closes** them. Short-circuits cheaply when no issues are open.
+  `KNOWLEDGE_RESOLVE_ONCALENDAR`). Reads your answers to open calls, applies the decisions to
+  `wiki/`, and **closes** them. Short-circuits cheaply when nothing is answered.
 
 Both default to the middle of the night (pinned to `America/Detroit` so they track local night
 through DST even on a UTC host) to land on off-peak Claude Max capacity, staggered an hour apart
 and off the top of the hour so they don't collide with the hourly compile on the shared lock.
 
-> **`gh` auth required for synthesize/resolve** (not compile). These two run `gh issue ...`
-> from *inside* the Claude run — that's how issues get filed and closed — so the host needs the
-> GitHub CLI installed, on PATH, and authenticated once with `gh auth login` (stored in
-> `~/.config/gh`). The generated service units put `~/.nix-profile/bin` and `~/.local/bin` on
-> PATH and rely on `HOME` for the auth; the run is granted only the exact `gh issue`
-> subcommands each command's frontmatter declares (via `--allowedTools`), never a blanket
-> skip-permissions. The required labels (`vault:judgment-call`, `vault:needs-verification`,
-> and `vault:answered`) must exist on the repo — create them once with `gh label create`.
-> `/synthesize` opens issues under the first two; you mark a settled one `vault:answered` and
-> `/resolve` then applies it (or asks a follow-up and clears the label), so `/resolve`'s grant
-> includes `gh issue edit` to manage that label.
+#### Judgment-call channel (GitHub or files)
+
+Where a judgment call lives — and whether you need GitHub at all — is set by
+`KNOWLEDGE_REVIEW_CHANNEL`. Unset, it **auto-detects**: `github` when `gh` is authed *and* an
+`origin` remote exists, otherwise `files`.
+
+- **`github`** — calls are GitHub issues. `/synthesize` and `/resolve` run `gh issue ...` from
+  *inside* the Claude run, so the host needs the GitHub CLI installed, on PATH, and authenticated
+  once with `gh auth login` (stored in `~/.config/gh`). The generated service units put
+  `~/.nix-profile/bin` and `~/.local/bin` on PATH and rely on `HOME` for the auth; the run is
+  granted only the exact `gh issue` subcommands each command's frontmatter declares (via
+  `--allowedTools`), never a blanket skip-permissions. The required labels
+  (`vault:judgment-call`, `vault:needs-verification`, and `vault:answered`) must exist on the
+  repo — create them once with `gh label create`. `/synthesize` opens issues under the first
+  two; you mark a settled one `vault:answered` and `/resolve` then applies it (or asks a
+  follow-up and clears the label).
+- **`files`** — calls are markdown files in `inbox/.review/`, each with a `status` of
+  `open → answered → applied`. `/synthesize-files` opens them; you answer from chat through the
+  MCP connector (`list_questions` / `get_question` / `answer_question`), which flips `status` to
+  `answered`; `/resolve-files` applies answered calls and marks them `applied`. **No `gh`, no
+  GitHub, no git** — the run only edits files, so this is the channel for a vault synced as a
+  plain folder.
+
+Either way you can answer **from chat**: the MCP connector's `list_questions` / `get_question` /
+`answer_question` tools work against both backends — the `inbox/.review/` queue by default, or the
+GitHub issues directly when the server is configured with a token (`MCP_GITHUB_TOKEN` +
+`MCP_GITHUB_REPO`; see [`mcp/README.md`](mcp/README.md#review-channel)). On the GitHub backend,
+answering from chat comments and labels the issue `vault:answered` just as you would on
+github.com, so `/resolve` closes it — handy when you don't feel like opening GitHub. Point the
+connector at the same channel the host uses.
 
 To set this up from scratch (idempotent — safe to re-run), point `KNOWLEDGE_REPO` at your
 vault repo — either inline as below, or by copying `.env.example` to `.env` and setting it

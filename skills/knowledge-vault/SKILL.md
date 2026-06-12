@@ -1,6 +1,6 @@
 ---
 name: knowledge-vault
-description: Capture raw material into Joe's personal knowledge vault and answer questions from it, through the vault's MCP connector. Use this whenever Joe wants to SAVE something for later — "save this to my knowledge base", "add this to my second brain", "capture this", "remember this", "file this away", "dump this in the vault" — or wants to RECALL what he already knows — "what do I know about X", "do I have notes on Y", "check my vault", "look this up in my notes", "what did we figure out about Z". Use it even when Joe doesn't name the vault explicitly but is clearly trying to stash a finding or pull up prior knowledge. Capture writes raw, unorganized material to the inbox and does NOT synthesize or categorize it; querying searches and reads the compiled wiki and answers from Joe's own notes. Heavy compilation and wiki maintenance run automatically on homelab and are out of scope here — do not attempt them from this interface.
+description: Capture raw material into Joe's personal knowledge vault and answer questions from it, through the vault's MCP connector. Use this whenever Joe wants to SAVE something for later — "save this to my knowledge base", "add this to my second brain", "capture this", "remember this", "file this away" — or wants to RECALL what he already knows — "what do I know about X", "do I have notes on Y", "check my vault", "look this up in my notes" — or wants to handle the judgment calls the vault is waiting on — "what's my vault waiting on", "any open questions in my vault", "answer that vault question". Use it even when Joe doesn't name the vault explicitly but is clearly trying to stash a finding, pull up prior knowledge, or settle a question the vault raised. Capture writes raw material to the inbox and does NOT synthesize or categorize it; querying reads the compiled wiki and answers from Joe's own notes. Heavy compilation and wiki maintenance run automatically on homelab and are out of scope here.
 ---
 
 # Knowledge Vault
@@ -27,13 +27,15 @@ just fights that.
 
 ## MCP operations
 
-The connector exposes seven tools, and each one arrives with its own name, description,
+The connector exposes ten tools, and each one arrives with its own name, description,
 and input schema already — so **you don't need to read anything before calling them.**
 Just call the right tool for what Joe wants. At a high level:
 `append_to_inbox` to capture, `search_wiki` to find notes, `get_note` to read one,
 `list_index` to read the navigation map, `list_notes` to enumerate every note,
-`compile_run` to trigger an on-demand compile (rate-limited; see below), and
-`vault_status` to poll whether a compile has finished and the wiki is caught up.
+`compile_run` to trigger an on-demand compile (rate-limited; see below),
+`vault_status` to poll whether a compile has finished and the wiki is caught up, and
+`list_questions` / `get_question` / `answer_question` to review and settle the
+judgment calls the vault has raised (see below).
 
 The sections below already give you everything you need for the common paths —
 capturing and querying in particular. Only open `references/mcp-operations.md` when you
@@ -111,6 +113,32 @@ vault and the `CLAUDE.md` conventions live.
   **Don't** retry.
 - **Busy:** a compile is already running. Let him know; **don't** trigger another.
 - **Empty:** the inbox has nothing to compile. Say so; nothing to do.
+
+## Answering judgment calls
+
+When the vault's weekly maintenance pass hits something only Joe can decide — two notes
+that contradict each other, or a time-sensitive claim it can't verify on its own — it
+files a **judgment call** for him. When the vault is configured for the file-based review
+channel (no GitHub), those calls surface here, and Joe answers them in chat.
+
+- When Joe asks what the vault needs from him ("what's my vault waiting on", "any open
+  questions"), call `list_questions` with `status: "open"` and relay them briefly — each
+  has an id, a kind (`judgment-call` or `needs-verification`), and a one-line summary.
+- To dig into one, `get_question` with its id returns the full context: the contradiction
+  or claim, the notes involved, and any prior back-and-forth.
+- When Joe gives his decision, record it with `answer_question` (the question `id` plus his
+  decision as `answer`). That marks it answered; the next maintenance pass on homelab
+  applies it to the wiki and closes it out. If his answer is ambiguous, that pass comes
+  back with a sharper follow-up, which shows up as an open question again.
+- Don't apply the decision to the wiki yourself — recording the answer is all this
+  interface does; homelab does the editing under `CLAUDE.md`.
+
+This works whichever channel the vault uses: if it routes judgment calls through GitHub
+issues, the connector can be wired to that repo, and `list_questions`/`answer_question`
+operate on the issues instead (answering comments and labels the issue for the vault to
+close). Either way the flow here is the same — list, read, answer. If a vault keeps its
+calls on GitHub and the connector isn't wired to them, `list_questions` simply comes up
+empty and Joe handles them on GitHub directly.
 
 ## Conventions
 

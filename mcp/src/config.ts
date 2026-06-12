@@ -41,6 +41,40 @@ if (authParts.some(Boolean) && !authParts.every(Boolean)) {
   process.exit(1);
 }
 
+// --- Judgment-call review channel ---
+// The list_questions / get_question / answer_question tools operate over one of two backends,
+// matching whichever channel the host's synthesize/resolve jobs use:
+//   files  — the queue under inbox/.review/ (default; needs no external creds, writes only inbox/).
+//   github — the vault's GitHub issues, reached through the REST API. Set MCP_GITHUB_TOKEN (a PAT
+//            with issues:read+write) and MCP_GITHUB_REPO ("owner/repo") to enable it, so the same
+//            tools work — and answering one here comments + labels the issue vault:answered, which
+//            is exactly what the host's /resolve then applies and closes.
+// This adds outbound GitHub access + a token to the server, so it's OFF unless configured.
+export const GITHUB_TOKEN = process.env.MCP_GITHUB_TOKEN ?? '';
+export const GITHUB_REPO = process.env.MCP_GITHUB_REPO ?? ''; // "owner/repo"
+export const GITHUB_API_URL = (process.env.MCP_GITHUB_API_URL ?? 'https://api.github.com').replace(/\/+$/, '');
+
+const githubConfigured = Boolean(GITHUB_TOKEN && GITHUB_REPO);
+// Half-set GitHub creds are a silent misconfig — fail fast (mirrors the auth check above).
+if (Boolean(GITHUB_TOKEN) !== Boolean(GITHUB_REPO)) {
+  console.error('FATAL: set both MCP_GITHUB_TOKEN and MCP_GITHUB_REPO to back the review tools with GitHub, or neither.');
+  process.exit(1);
+}
+
+// 'files' | 'github'. Explicit MCP_REVIEW_CHANNEL wins; otherwise auto-detect from the creds.
+const reviewChannelEnv = (process.env.MCP_REVIEW_CHANNEL ?? '').toLowerCase();
+export const REVIEW_CHANNEL: 'files' | 'github' =
+  reviewChannelEnv === 'github' || reviewChannelEnv === 'files'
+    ? reviewChannelEnv
+    : githubConfigured
+      ? 'github'
+      : 'files';
+
+if (REVIEW_CHANNEL === 'github' && !githubConfigured) {
+  console.error('FATAL: MCP_REVIEW_CHANNEL=github needs both MCP_GITHUB_TOKEN and MCP_GITHUB_REPO.');
+  process.exit(1);
+}
+
 // Max characters returned in a single tool result (claude.ai caps near 150k).
 export const MAX_RESULT_CHARS = Number(process.env.MAX_RESULT_CHARS ?? 140_000);
 

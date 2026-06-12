@@ -24,7 +24,11 @@ working in the repo.
   capture/query against the vault. Auth is **optional, off by default** (`src/auth.ts`): run it
   authless behind an authenticating proxy, or set `MCP_AUTH_*` to validate JWT access tokens
   against any OIDC issuer (the homelab uses Cloudflare Access + Managed OAuth). Reads/writes the
-  vault via `VAULT_ROOT`. Built into a GHCR image by CI; deployed separately. See `mcp/README.md`.
+  vault via `VAULT_ROOT`. The judgment-call tools (`list_questions`/`get_question`/
+  `answer_question`, in `src/review.ts`) dispatch to a files backend (`inbox/.review/`, in
+  `src/vault.ts`) or a GitHub-issues backend (`src/github.ts`, opt-in via `MCP_GITHUB_TOKEN`+
+  `MCP_GITHUB_REPO`) — match `MCP_REVIEW_CHANNEL` to the host's `KNOWLEDGE_REVIEW_CHANNEL`. Built
+  into a GHCR image by CI; deployed separately. See `mcp/README.md`.
 - `scripts/` — host-side vault automation and the skill validator. Three vault-mutating jobs
   run as systemd *user* units; all three share one flock (`vault-lib.sh`) so they never run
   concurrently, and in each the **wrapper** owns git (Claude only edits files + runs scoped
@@ -32,14 +36,21 @@ working in the repo.
   - `vault-compile.sh` runs an ephemeral `/compile-inbox` pass (inbox→wiki). Cadence
     `KNOWLEDGE_COMPILE_ONCALENDAR` (default hourly); also triggered on demand via a `.path`
     unit when the MCP drops `inbox/.compile/request`.
-  - `vault-job.sh <synthesize|resolve>` runs the two GitHub-issue jobs: `/synthesize` (heavy
-    weekly whole-corpus reconcile + connect, **opens** judgment-call issues) and `/resolve`
-    (light daily pass that applies answered issues and **closes** them). Unlike compile these
-    run `gh` from *inside* the Claude run, granted via `--allowedTools` (no skip-permissions);
-    the service units put `gh` on PATH and rely on `HOME` for `~/.config/gh` auth. Cadences:
-    `KNOWLEDGE_SYNTHESIZE_ONCALENDAR` / `KNOWLEDGE_RESOLVE_ONCALENDAR`.
+  - `vault-job.sh <synthesize|resolve>` runs the two judgment-call jobs: `/synthesize` (heavy
+    weekly whole-corpus reconcile + connect, **opens** judgment calls) and `/resolve` (light
+    daily pass that applies answered calls and **closes** them). `KNOWLEDGE_REVIEW_CHANNEL`
+    picks where calls live (auto-detected when unset: `github` if gh+origin are present, else
+    `files`). **github** runs `/synthesize`+`/resolve`, opening/closing GitHub issues via `gh`
+    from *inside* the Claude run (granted via `--allowedTools`, no skip-permissions; the service
+    units put `gh` on PATH and rely on `HOME` for `~/.config/gh` auth). **files** runs
+    `/synthesize-files`+`/resolve-files`, which carry calls as `inbox/.review/*.md` answered from
+    chat via the MCP (`list_questions`/`get_question`/`answer_question`) — no gh, no GitHub, no
+    git, so it works on a bare synced folder. Cadences: `KNOWLEDGE_SYNTHESIZE_ONCALENDAR` /
+    `KNOWLEDGE_RESOLVE_ONCALENDAR`.
   - `vault-lib.sh` is sourced by all three — config, the shared lock, and the commit/push
-    side effect (issue jobs commit only `wiki/ index.md log.md`; compile stages everything).
+    side effect (issue jobs commit `wiki/ index.md log.md`, plus `inbox/.review/` in the files
+    channel; compile stages everything). `commit_and_push` no-ops cleanly when the vault is not
+    a git repo (history left to external sync), so a bare folder works too.
   - `install.sh` generates the systemd *user* units from the `knowledge-*.in` templates
     (worker = this repo; vault = the required `KNOWLEDGE_REPO`) — re-run after changing a
     template or a cadence. Idempotent.
@@ -52,7 +63,8 @@ working in the repo.
     `Environment=` override `.env`.
   - `validate_skills.py` — the skill linter CI runs (see constraints below).
 - `template/` — the **starting point** of a vault's own librarian, mirroring the vault layout:
-  `CLAUDE.md` (the librarian spec), `.claude/commands/{compile-inbox,synthesize,resolve}.md`,
+  `CLAUDE.md` (the librarian spec), `.claude/commands/{compile-inbox,synthesize,resolve}.md`
+  plus the git/GitHub-free `{synthesize,resolve}-files.md` variants,
   `.claude/settings.json`, `.gitignore`, the folder skeleton (`inbox/`, `inbox/archive/`,
   `wiki/`, `outputs/`), and empty `index.md`/`log.md`. `scripts/init-vault.sh` copies these
   into a new vault. This is a seed, **not** a source of truth: the commands and `CLAUDE.md`
