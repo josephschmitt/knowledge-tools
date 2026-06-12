@@ -35,12 +35,12 @@ export function buildMcpServer(): McpServer {
     { name: 'knowledge-vault', version: '0.1.0' },
     {
       instructions:
-        'Personal knowledge vault. Use search_wiki / get_note / list_index / list_notes to ' +
-        'answer from the compiled wiki, and append_to_inbox to capture a raw note or idea for ' +
-        'later compilation. Capture is a dumb dump: append_to_inbox should never be gated behind ' +
-        'a search for duplicates or a judgment about whether the item is worth saving — dedup and ' +
-        'necessity are the scheduled compiler\'s job. compile_run triggers an on-demand compile ' +
-        '(rate-limited). Prefer answering from the vault over general knowledge.',
+        'Personal knowledge vault, split on purpose: capture is dumb, compilation is smart. ' +
+        'To answer questions, read the compiled wiki (search_wiki / get_note / list_index / ' +
+        'list_notes) and prefer it over general knowledge. To save material, dump it raw with ' +
+        'append_to_inbox — never pre-organize, dedupe, or filter at capture time; a scheduled ' +
+        'compiler curates the inbox into the wiki with the whole vault in view. compile_run ' +
+        'triggers that compile on demand (rate-limited); vault_status reports its progress.',
     },
   );
 
@@ -48,7 +48,9 @@ export function buildMcpServer(): McpServer {
     'search_wiki',
     {
       title: 'Search the wiki',
-      description: 'Case-insensitive full-text search across all compiled wiki notes. Returns matching notes with snippets.',
+      description:
+        'Case-insensitive substring search across all compiled wiki notes. Returns matching ' +
+        'note paths with snippets; pass a path to get_note to read a full note.',
       inputSchema: { query: z.string().min(1).describe('Text to search for') },
     },
     async ({ query }) => {
@@ -91,7 +93,7 @@ export function buildMcpServer(): McpServer {
     'list_notes',
     {
       title: 'List notes',
-      description: 'List every wiki note by its path.',
+      description: 'List every wiki note by its path. Useful when a search comes up empty.',
       inputSchema: {},
     },
     async () => {
@@ -105,13 +107,18 @@ export function buildMcpServer(): McpServer {
     {
       title: 'Capture to inbox',
       description:
-        'Append a raw capture (a thought, link, or clipping) to the vault inbox. The scheduled ' +
-        'compile turns inbox captures into durable wiki notes. Use this to save something for later. ' +
-        'Just dump — capture takes no decisions: do NOT search the wiki first to dedupe and do NOT ' +
-        'judge whether the item is worth keeping. Dedup and necessity are the compiler\'s job; a ' +
-        'duplicate costs nothing and the raw capture is archived either way. When in doubt, capture.',
+        'Append a raw capture (a thought, link, or clipping) to the vault inbox; the scheduled ' +
+        'compile turns captures into durable wiki notes. Capture takes zero decisions: do NOT ' +
+        'search the wiki for duplicates first and do NOT judge whether the item is worth ' +
+        'keeping — dedup and curation happen at compile time. When in doubt, capture.',
       inputSchema: {
-        text: z.string().min(1).describe('The raw capture content'),
+        text: z
+          .string()
+          .min(1)
+          .describe(
+            'The raw capture content. There are no separate source/context fields — fold a ' +
+              'source URL and a line of context into the text.',
+          ),
         title: z.string().optional().describe('Optional short title'),
       },
     },
@@ -126,9 +133,9 @@ export function buildMcpServer(): McpServer {
     {
       title: 'Trigger a compile',
       description:
-        'Request an on-demand compile of the inbox into the wiki on the home server. Runs ' +
-        'asynchronously — it kicks off the compile and returns immediately; the wiki updates ' +
-        'once it finishes, and captures stay safe in the inbox meanwhile. Rate-limited to one ' +
+        'Request an on-demand compile of the inbox into the wiki on the home server. ' +
+        'Asynchronous: kicks off the compile and returns immediately — poll vault_status to ' +
+        'see when it finishes; captures stay safe in the inbox meanwhile. Rate-limited to one ' +
         'manual compile per hour: a call within the cooldown is refused (the scheduled ' +
         'compile still runs regardless). Only needed to process the inbox sooner than the ' +
         'next scheduled compile; capturing alone does not require it.',

@@ -47,29 +47,24 @@ When Joe wants to save something, append it to the inbox raw with `append_to_inb
 and stop there.
 
 **Capture takes zero decisions. Just dump.** The vault runs on "dumb capture, smart
-compile" by design, so do not gate a capture behind any judgment:
+compile" by design: friction at capture time is how things go uncaptured, and an
+uncaptured thought is a total loss while a redundant capture costs nothing.
 
 - **Never search the wiki first to check for duplicates.** Dedup is the compiler's job —
   it searches `wiki/` for every inbox item and prefers updating or linking an existing
   note over making a near-duplicate. A "duplicate" you dump is not waste: it becomes
   corroboration, a sharper angle on an existing note, or it just folds in. The raw
   capture is preserved in `inbox/archive/` either way. Nothing is lost, nothing clutters.
-- **Never decide whether it's "worth" saving.** A thought Joe doesn't capture because you
-  second-guessed it is a total loss; a redundant capture costs nothing. When in doubt,
-  capture. Friction at capture time is the one thing the design exists to eliminate.
-- The only thing worth doing at capture time is making the dump *legible* — enough
-  surrounding context that future-Joe and the compiler can tell what it meant. That's
-  about richness, not deduplication. (See the next bullets.)
-
-- Capture the *content*, not the conversation. When Joe says "save this," work out what
-  "this" is — the conclusion, the snippet, the link — and capture that, not the whole
-  transcript.
-- `append_to_inbox` takes the capture `text` plus an optional short `title`. There are
-  no separate fields for a source URL or context, so fold those into the `text`: include
-  the source URL if there is one, plus a single line of what it is or why it matters.
-  That gives the compiler something to work with. Nothing more.
-- Do not categorize, synthesize, pick a destination, or write a polished note. The
-  compiler on homelab does that. Pre-organizing here defeats the inbox.
+- **Never judge whether it's "worth" saving, and never categorize, synthesize, pick a
+  destination, or write a polished note.** The compiler on homelab does all of that,
+  with the whole vault in view. Pre-organizing here defeats the inbox. When in doubt,
+  capture.
+- **Do make the dump *legible* — that's the one thing capture time is for.** Capture the
+  *content*, not the conversation: when Joe says "save this," work out what "this" is —
+  the conclusion, the snippet, the link — and capture that, not the whole transcript.
+  Fold the source URL (if there is one) and a single line of what it is or why it
+  matters into the `text` (there are no separate fields for those). Richness, not
+  organization.
 - Confirm briefly what went in. The tool returns the inbox path it wrote; relay that the
   capture will fold into the wiki on the next scheduled compile.
 

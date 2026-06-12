@@ -76,6 +76,35 @@ Run it before pushing a skill change:
 python3 scripts/validate_skills.py
 ```
 
+## Where instructions live (MCP vs skill)
+
+Agent-facing guidance is split across three layers by **who is guaranteed to see it**,
+and additions must keep each fact at one altitude. The MCP layers reach *every* caller
+(claude.ai, the Claude Code plugin, headless homelab agents, any future client) and sit
+in context on every turn, so they must stay terse; the skill is lazy-loaded and only
+exists on skill-aware surfaces, so it can afford length — but can't be relied on to be
+present.
+
+- **Tool descriptions + field schemas** (`mcp/src/mcp.ts`) — per-tool invariants any
+  caller must obey: what the tool does, hard usage rules (e.g. capture takes zero
+  decisions), field-level facts (e.g. no separate source-URL field — fold it into
+  `text`), and one-clause pointers to companion tools (`search_wiki` → `get_note`,
+  `compile_run` → `vault_status`). Rules only, no rationale.
+- **Server `instructions`** (same file) — cross-tool policy and architecture only: the
+  dumb-capture/smart-compile split, prefer-the-vault-over-general-knowledge, which tools
+  serve which side. Never restate a per-tool rule here.
+- **The skill** (`skills/knowledge-vault/SKILL.md`) — everything tools can't express:
+  *when* to invoke (intent-matching in the frontmatter description), multi-tool
+  choreography, conversational policy and voice, examples, and the **why** behind the
+  tool-level rules.
+
+Duplication across altitudes is deliberate (rule in the tool, rationale in the skill);
+duplication at the same altitude is drift waiting to happen. When a *rule* changes,
+update the tool description and the skill's treatment of it together — and remember the
+tool-description change only ships when the MCP image is rebuilt and redeployed, while
+the skill ships via the plugin/zip path. `references/mcp-operations.md` mirrors the
+server's exact I/O shapes; keep it in sync when shapes change.
+
 ## Shipping skills
 
 **Claude Code (plugin marketplace).** `.claude-plugin/marketplace.json` defines a
