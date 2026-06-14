@@ -16,10 +16,13 @@ working in the repo.
 
 ## Layout
 
-- `skills/` — Claude skills, one per `skills/<name>/SKILL.md`. Currently just
-  `knowledge-vault`, the conversational front-door skill (capture + query via the MCP
-  connector). Shipped two ways: zipped per-skill for claude.ai, and as a Claude Code
-  plugin via the marketplace in `.claude-plugin/` (see below).
+- `skills/` — Claude skills, one per `skills/<name>/SKILL.md`. Two of them:
+  `knowledge-vault`, the conversational front-door skill (capture-on-request + query via the
+  MCP connector); and `auto-capture`, an **optional, opt-in** always-on skill that
+  proactively captures capture-worthy material to the inbox *without* being asked (it reuses
+  the same connector's `append_to_inbox`; it never queries or compiles). Shipped two ways:
+  zipped per-skill for claude.ai, and as Claude Code plugins via the marketplace in
+  `.claude-plugin/` — one plugin per skill, so each installs independently (see below).
 - `mcp/` — the claude.ai connector. A Streamable-HTTP MCP server (TypeScript) that
   capture/query against the vault. Auth is **optional, off by default** (`src/auth.ts`): run it
   authless behind an authenticating proxy, or set `MCP_AUTH_*` to validate JWT access tokens
@@ -120,34 +123,44 @@ server's exact I/O shapes; keep it in sync when shapes change.
 ## Shipping skills
 
 **Claude Code (plugin marketplace).** `.claude-plugin/marketplace.json` defines a
-marketplace named `tools` with a single plugin named `knowledge` whose source is the repo
-root (`"."`), so the `skills/` directory is auto-discovered. Users install with:
+marketplace named `knowledge-tools` with **one plugin per skill**, each `source`d at its own
+skill directory: `vault` → `./skills/knowledge-vault`, `auto-capture` →
+`./skills/auto-capture`. Splitting them into separate plugins is deliberate — it makes
+`auto-capture` (the always-on proactive skill) a separate, opt-in install rather than
+something that activates the moment you install the core skill. Users install with:
 
 ```text
 /plugin marketplace add josephschmitt/knowledge-tools
-/plugin install knowledge@tools
+/plugin install vault@knowledge-tools          # core: capture-on-request + query
+/plugin install auto-capture@knowledge-tools   # optional: autonomous capture
 ```
 
-The skill is then invocable as `/knowledge:knowledge-vault`. After editing the manifests,
-validate locally:
+The skills are then invocable as `/vault:knowledge-vault` and `/auto-capture:auto-capture`.
+After editing the manifests, validate locally:
 
 ```sh
 claude plugin validate .
 ```
 
-Adding a new skill needs no manifest change — drop it under `skills/<name>/` and the plugin
-picks it up. The plugin pulls from the repo's default branch, so `/plugin update` tracks
+Because each plugin's `source` is its own skill dir (not the repo root), **adding a skill
+now requires a marketplace entry** — drop it under `skills/<name>/`, give it its own
+`.claude-plugin/plugin.json`, and add a `plugins[]` entry pointing at it. A plugin's
+`plugin.json` lives at `<source>/.claude-plugin/plugin.json`; the `marketplace.json` stays
+at the repo root. Plugins pull from the repo's default branch, so `/plugin update` tracks
 `main`.
 
-The `knowledge-vault` skill drives the vault through its **MCP connector**, which the
-plugin now bundles: `plugin.json` declares a `userConfig.mcp_url` field, so enabling the
-plugin prompts the user for their self-hosted MCP endpoint, and an inline `mcpServers`
-entry wires `${user_config.mcp_url}` into a remote HTTP server named `knowledge-vault`.
-OAuth is auto-negotiated against whatever authenticating proxy fronts the endpoint (the
-homelab uses Cloudflare Access, which serves `/.well-known/oauth-protected-resource` + 401),
-so no secret lives in the manifest. The
-config is inlined in `plugin.json` rather than a repo-root `.mcp.json` on purpose: source
-is `"."`, so a root `.mcp.json` would also act as this repo's *project* MCP config.
+The `knowledge-vault` skill drives the vault through its **MCP connector**, declared in the
+`vault` plugin's `plugin.json` (`skills/knowledge-vault/.claude-plugin/plugin.json`): a
+`userConfig.mcp_url` field prompts the user for their self-hosted MCP endpoint, and an inline
+`mcpServers` entry wires `${user_config.mcp_url}` into a remote HTTP server named
+`knowledge-vault`. OAuth is auto-negotiated against whatever authenticating proxy fronts the
+endpoint (the homelab uses Cloudflare Access, which serves
+`/.well-known/oauth-protected-resource` + 401), so no secret lives in the manifest. The
+`auto-capture` plugin declares **no** MCP config of its own — it reuses the `knowledge-vault`
+server the `vault` plugin connects, so it depends on `vault` being installed too (this also
+avoids a duplicate `mcp_url` prompt). Keeping each plugin's MCP config inside its own
+skill-dir `plugin.json` (rather than a repo-root `.mcp.json`) avoids that file also acting as
+this repo's *project* MCP config.
 
 > The plugin only points Claude Code at the connector — the user still has to deploy the
 > MCP server (see `mcp/README.md`) and reach it at the URL they enter.
