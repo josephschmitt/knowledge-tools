@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Validate the SKILL.md files under skills/.
+"""Validate the SKILL.md files shipped by the plugins.
 
-Checks, for every `skills/*/SKILL.md` on disk:
+Checks, for every `plugins/*/skills/*/SKILL.md` on disk:
 
 - YAML frontmatter parses.
 - `name`: present, 1-64 chars, lowercase [a-z0-9-], matches the directory name.
@@ -23,7 +23,7 @@ except ImportError:
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SKILLS_DIR = REPO_ROOT / "skills"
+PLUGINS_DIR = REPO_ROOT / "plugins"
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 NAME_MAX = 64
@@ -103,9 +103,9 @@ def validate_skill(skill_md: Path, report: Report, expected_name: str) -> str | 
 def main() -> int:
     report = Report()
 
-    skill_files = sorted(SKILLS_DIR.glob("*/SKILL.md")) if SKILLS_DIR.is_dir() else []
+    skill_files = sorted(PLUGINS_DIR.glob("*/skills/*/SKILL.md")) if PLUGINS_DIR.is_dir() else []
     if not skill_files:
-        report.error("skills/", "no SKILL.md files found under skills/*/")
+        report.error("plugins/", "no SKILL.md files found under plugins/*/skills/*/")
 
     seen_names: set[str] = set()
     for skill_md in skill_files:
