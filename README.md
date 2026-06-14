@@ -19,6 +19,10 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
 - **`skills/knowledge-vault/`** — the conversational front-door skill: capture and query,
   delegating heavy compilation to the host. Ships two ways — as a Claude Code plugin (see
   [Installing the skill](#installing-the-skill)) and as per-skill release zips for claude.ai.
+- **`skills/auto-capture/`** — an optional, opt-in always-on skill that proactively captures
+  capture-worthy material to the inbox *without* being asked, so nothing is lost just because
+  you forgot to say "save this". Reuses the same connector's `append_to_inbox`; it never
+  queries or compiles. Ships as a separate Claude Code plugin and its own release zip.
 - **`scripts/`** — the host-side automation. `vault-compile.sh` runs an ephemeral Claude
   Code pass (`/compile-inbox`) over the vault; `vault-job.sh` runs the two judgment-call jobs
   (`/synthesize` and `/resolve`), carrying their judgment calls over either GitHub issues or a
@@ -34,16 +38,19 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
 
 ## Installing the skill
 
-**Claude Code** — this repo is a plugin marketplace (`tools`) holding one plugin
-(`knowledge`) that bundles the `skills/` directory:
+**Claude Code** — this repo is a plugin marketplace (`knowledge-tools`) with one plugin per
+skill, so each installs independently:
 
 ```text
 /plugin marketplace add josephschmitt/knowledge-tools
-/plugin install knowledge@tools
+/plugin install vault@knowledge-tools          # core: capture-on-request + query
+/plugin install auto-capture@knowledge-tools   # optional: autonomous capture (needs vault)
 ```
 
-The skill is then invocable as `/knowledge:knowledge-vault`, and `/plugin update` tracks
-`main`. The plugin bundles the skill's MCP connector: enabling it prompts for your
+The skills are then invocable as `/vault:knowledge-vault` and `/auto-capture:auto-capture`,
+and `/plugin update` tracks `main`. `auto-capture` is opt-in and reuses the `vault` plugin's
+connector, so install `vault` too (or on its own it has nothing to capture through). The
+`vault` plugin bundles the skill's MCP connector: enabling it prompts for your
 self-hosted MCP URL (including the `/mcp` path, e.g. `https://knowledge.example.com/mcp`)
 and wires it up as a remote HTTP server. OAuth is negotiated automatically on first
 connect — the authenticating proxy in front of the server (Cloudflare Access in the homelab)
@@ -81,7 +88,8 @@ Then run `/mcp` → **Authorize**. Notes:
 - The plugin manifest deliberately carries **no** OAuth config: DCR deployments stay zero-config,
   and non-DCR client details live in your own machine config, never in the shared plugin.
 
-**claude.ai** — download the `knowledge-vault.zip` asset from the latest
+**claude.ai** — download the `knowledge-vault.zip` asset (and, optionally,
+`auto-capture.zip`) from the latest
 [release](https://github.com/josephschmitt/knowledge-tools/releases) and upload it as a
 skill. CI builds these zips on every skill change merged to `main`.
 

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "auto-capture",
+  "description": "Autonomously capture knowledge and tasks to your knowledge vault inbox during any conversation. Requires the vault plugin for the connector.",
+  "author": {
+    "name": "Joe Schmitt",
+    "email": "dev@joe.sh"
+  },
+  "homepage": "https://github.com/josephschmitt/knowledge-tools",
+  "repository": "https://github.com/josephschmitt/knowledge-tools"
+}
