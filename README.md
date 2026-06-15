@@ -10,12 +10,14 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
 
 ## Components
 
-- **`mcp/`** — the claude.ai connector. A Streamable-HTTP MCP server that lets claude.ai
-  capture raw material into the vault's `inbox/` and query the compiled `wiki/`. Auth is
-  **optional, off by default**: run it authless behind an authenticating proxy, or enable
+- **`service/`** — the vault service. One server exposing the vault over **two protocols**: a
+  Streamable-HTTP **MCP** endpoint at `/mcp` (the claude.ai connector) and a **REST API** at
+  `/api/v1` that mirrors the same operations for scripts and other tooling. Both let you capture
+  raw material into the vault's `inbox/` and query the compiled `wiki/`. Auth is **optional, off
+  by default** and gates both surfaces: run it authless behind an authenticating proxy, or enable
   built-in OAuth token validation against any OIDC issuer (the homelab uses Cloudflare Access +
   Managed OAuth). Reads/writes the vault via the `VAULT_ROOT` env var (bind-mounted into the
-  container). Deployed separately — see [`mcp/README.md`](mcp/README.md).
+  container). Deployed separately — see [`service/README.md`](service/README.md).
 - **`skills/knowledge-vault/`** — the conversational front-door skill: capture and query,
   delegating heavy compilation to the host. Ships two ways — as a Claude Code plugin (see
   [Installing the skill](#installing-the-skill)) and as per-skill release zips for claude.ai.
@@ -49,7 +51,7 @@ and wires it up as a remote HTTP server. OAuth is negotiated automatically on fi
 connect — the authenticating proxy in front of the server (Cloudflare Access in the homelab)
 advertises the authorization server and Claude Code walks the flow (run `/mcp` if you need to
 (re)authenticate). The vault must already be deployed and reachable at that URL — see
-[`mcp/README.md`](mcp/README.md).
+[`service/README.md`](service/README.md).
 
 ### If your IdP doesn't support Dynamic Client Registration
 
@@ -164,7 +166,7 @@ Where a judgment call lives — and whether you need GitHub at all — is set by
 Either way you can answer **from chat**: the MCP connector's `list_questions` / `get_question` /
 `answer_question` tools work against both backends — the `inbox/.review/` queue by default, or the
 GitHub issues directly when the server is configured with a token (`MCP_GITHUB_TOKEN` +
-`MCP_GITHUB_REPO`; see [`mcp/README.md`](mcp/README.md#review-channel)). On the GitHub backend,
+`MCP_GITHUB_REPO`; see [`service/README.md`](service/README.md#review-channel)). On the GitHub backend,
 answering from chat comments and labels the issue `vault:answered` just as you would on
 github.com, so `/resolve` closes it — handy when you don't feel like opening GitHub. Point the
 connector at the same channel the host uses.

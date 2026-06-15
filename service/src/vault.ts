@@ -247,6 +247,39 @@ export async function requestCompile(): Promise<void> {
   await fs.writeFile(COMPILE_REQUEST, `${new Date().toISOString()}\n`);
 }
 
+/** Outcome of an on-demand compile request. `throttled` carries when the next one is allowed. */
+export type CompileTrigger =
+  | { status: 'triggered' }
+  | { status: 'empty' }
+  | { status: 'busy' }
+  | { status: 'throttled'; available_at: string };
+
+/**
+ * Orchestrate an on-demand compile: refuse when the inbox is empty, a compile is already
+ * running, or the hourly cooldown is still active; otherwise drop the request sentinel. Shared
+ * by the MCP `compile_run` tool and the REST `POST /compile` route so the guard logic lives in
+ * one place. The host script remains the authoritative guard; this mirrors it so the caller can
+ * refuse early with a clear outcome.
+ */
+export async function triggerCompile(): Promise<CompileTrigger> {
+  if ((await countInboxCaptures()) === 0) return { status: 'empty' };
+
+  const status = await readCompileStatus();
+  if (status?.running) return { status: 'busy' };
+
+  const cooldownMs = (status?.cooldown_seconds ?? DEFAULT_COOLDOWN_SECONDS) * 1000;
+  const last = nonEmpty(status?.last_manual_compile_at);
+  if (last) {
+    const t = Date.parse(last);
+    if (!Number.isNaN(t) && Date.now() - t < cooldownMs) {
+      return { status: 'throttled', available_at: new Date(t + cooldownMs).toISOString() };
+    }
+  }
+
+  await requestCompile();
+  return { status: 'triggered' };
+}
+
 // --- Review queue (judgment-call Q&A channel) -------------------------------------------
 //
 // A question is one markdown file under inbox/.review/ with a small `key: value` frontmatter

@@ -1,12 +1,14 @@
-// Entry point: an Express app serving the Streamable HTTP MCP endpoint. Authentication is
-// optional and OFF by default — the server trusts the network it is deployed on, so run it
-// behind an authenticating proxy. Set MCP_AUTH_* to make it validate tokens itself (see auth.ts
-// and mcp/README.md).
+// Entry point: an Express app serving the vault over two protocols — a Streamable HTTP MCP
+// endpoint (/mcp) and a REST API (/api/v1) — both backed by the same in-process vault core.
+// Authentication is optional and OFF by default — the server trusts the network it is deployed
+// on, so run it behind an authenticating proxy. Set MCP_AUTH_* to make it validate tokens
+// itself (see auth.ts and service/README.md).
 import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { buildMcpServer } from './mcp.js';
+import { apiRouter } from './rest.js';
 import { requireToken, mountAuthMetadata } from './auth.js';
 import { logger } from './logger.js';
 import {
@@ -34,6 +36,10 @@ app.get('/healthz', (_req, res) => {
 
 // Advertise the authorization server for client discovery (no-op unless auth is enabled).
 mountAuthMetadata(app);
+
+// --- REST API (/api/v1) — the same vault operations as the MCP tools, as plain JSON. ---
+// Gated by the same `requireToken` as /mcp (pass-through when auth is disabled).
+app.use('/api/v1', requireToken, express.json(), apiRouter);
 
 // --- Streamable HTTP MCP endpoint (stateful: one transport+server per session) ---
 // `requireToken` gates every /mcp route; it is a pass-through when auth is disabled.
@@ -91,7 +97,12 @@ app.delete('/mcp', requireToken, replaySession);
 
 app.listen(PORT, '0.0.0.0', () => {
   logger.info(
-    { port: PORT, publicUrl: PUBLIC_URL, mcpEndpoint: `${PUBLIC_URL}/mcp` },
-    'knowledge-vault MCP server listening',
+    {
+      port: PORT,
+      publicUrl: PUBLIC_URL,
+      mcpEndpoint: `${PUBLIC_URL}/mcp`,
+      restEndpoint: `${PUBLIC_URL}/api/v1`,
+    },
+    'knowledge-service listening',
   );
 });

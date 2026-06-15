@@ -1,16 +1,16 @@
-name: Build & push knowledge-mcp image
+name: Build & push knowledge-service image
 
-# Builds the MCP server image and pushes it to GHCR so the homelab pulls a published
-# image instead of building from a source checkout on disk. The published package is
-# public (set once in the package settings after the first push) even though this repo
-# is private — the image holds only server code, no vault content or secrets.
+# Builds the knowledge-service image (MCP /mcp + REST /api/v1) and pushes it to GHCR so the
+# homelab pulls a published image instead of building from a source checkout on disk. The
+# published package is public (set once in the package settings after the first push) even
+# though this repo is private — the image holds only server code, no vault content or secrets.
 
 on:
   push:
     branches: [main]
     paths:
-      - 'mcp/**'
-      - '.github/workflows/build-mcp.yml'
+      - 'service/**'
+      - '.github/workflows/build-service.yml'
   workflow_dispatch:
 
 permissions:
@@ -18,7 +18,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ghcr.io/josephschmitt/knowledge-mcp
+  IMAGE: ghcr.io/josephschmitt/knowledge-service
 
 jobs:
   build:
@@ -49,7 +49,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ./mcp
+          context: ./service
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

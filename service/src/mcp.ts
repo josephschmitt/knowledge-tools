@@ -7,16 +7,10 @@ import {
   getNote,
   searchWiki,
   appendToInbox,
-  countInboxCaptures,
-  readCompileStatus,
-  requestCompile,
+  triggerCompile,
   getVaultStatus,
 } from './vault.js';
 import { listQuestions, getQuestion, answerQuestion } from './review.js';
-
-// Manual compiles are rate-limited to one per hour. The host script is the authoritative
-// guard; this mirrors its default so the tool can refuse early with a clear message.
-const COOLDOWN_SECONDS = 3600;
 
 function fmtWhen(iso: string): string {
   const t = Date.parse(iso);
@@ -155,31 +149,24 @@ export function buildMcpServer(): McpServer {
       inputSchema: {},
     },
     async () => {
-      if ((await countInboxCaptures()) === 0) {
-        return text('Inbox is empty — nothing to compile. (No cooldown consumed.)');
+      const result = await triggerCompile();
+      switch (result.status) {
+        case 'empty':
+          return text('Inbox is empty — nothing to compile. (No cooldown consumed.)');
+        case 'busy':
+          return text('A compile is already running. Your captures are safe; no need to trigger another.');
+        case 'throttled':
+          return text(
+            `Refused — a manual compile ran recently and the hourly cooldown is still active. ` +
+              `Next manual compile available ${fmtWhen(result.available_at)}. Your captures are safe ` +
+              `in the inbox; the scheduled compile will process them regardless.`,
+          );
+        case 'triggered':
+          return text(
+            'Compile triggered. It runs on the home server and the wiki updates once it finishes; ' +
+              'your captures are safe in the inbox until then.',
+          );
       }
-
-      const status = await readCompileStatus();
-      if (status?.running) {
-        return text('A compile is already running. Your captures are safe; no need to trigger another.');
-      }
-
-      const cooldown = (status?.cooldown_seconds ?? COOLDOWN_SECONDS) * 1000;
-      const last = status?.last_manual_compile_at ? Date.parse(status.last_manual_compile_at) : NaN;
-      if (!Number.isNaN(last) && Date.now() - last < cooldown) {
-        const next = new Date(last + cooldown).toISOString();
-        return text(
-          `Refused — a manual compile ran recently and the hourly cooldown is still active. ` +
-            `Next manual compile available ${fmtWhen(next)}. Your captures are safe in the inbox; ` +
-            `the scheduled compile will process them regardless.`,
-        );
-      }
-
-      await requestCompile();
-      return text(
-        'Compile triggered. It runs on the home server and the wiki updates once it finishes; ' +
-          'your captures are safe in the inbox until then.',
-      );
     },
   );
 

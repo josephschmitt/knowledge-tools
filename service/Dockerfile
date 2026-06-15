@@ -1,4 +1,4 @@
-# Multi-stage build for the knowledge-vault MCP server.
+# Multi-stage build for the knowledge-service (MCP /mcp + REST /api/v1).
 # node:sqlite is built into Node 24 (no native module), so a slim base is enough.
 FROM node:24-slim AS build
 WORKDIR /app
