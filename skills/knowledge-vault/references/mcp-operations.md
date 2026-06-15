@@ -1,10 +1,17 @@
 # MCP Operations (claude.ai-facing)
 
-The vault's MCP server runs on homelab and is connected to claude.ai as a custom
+The vault's service runs on homelab and is connected to claude.ai as a custom MCP
 connector. It exposes the ten tools below. These shapes mirror the server
-(`mcp/src/mcp.ts`); if the server changes, update this file and `SKILL.md` to match.
+(`service/src/mcp.ts`); if the server changes, update this file and `SKILL.md` to match.
 
 All tools return their result as plain text content. Paths are relative to `wiki/`.
+
+> The same service also exposes these operations as a **REST API** under `/api/v1` (for
+> scripts/tooling that don't speak MCP), returning JSON instead of text — e.g.
+> `search_wiki` → `GET /api/v1/wiki/search?q=`, `append_to_inbox` → `POST /api/v1/inbox`,
+> `answer_question` → `POST /api/v1/questions/<id>/answer`. The REST routes call the same
+> in-process core, so behavior matches the tools 1:1. Full route table in
+> `service/README.md`; keep both in sync with the server when shapes change.
 
 ## Operations
 
