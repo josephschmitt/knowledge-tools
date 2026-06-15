@@ -36,6 +36,12 @@ app.get('/healthz', (_req, res) => {
   res.json({ ok: true });
 });
 
+// Advertise the authorization server (RFC 9728 discovery) for any client that auto-discovers it.
+// Served whenever built-in auth is on (no-op otherwise), independent of which surface is enabled —
+// a REST-only deployment with auth still needs to point clients at the issuer. (The advertised
+// resource id is `${PUBLIC_URL}/mcp`; auth uses one shared audience across both surfaces.)
+mountAuthMetadata(app);
+
 // --- REST API (/api/v1) — the same vault operations as the MCP tools, as plain JSON. ---
 // Gated by the same `requireToken` (and audience) as /mcp; pass-through when auth is disabled.
 // Per-route least-privilege scope checks (vault.read/vault.write) live in rest.ts.
@@ -44,13 +50,9 @@ if (ENABLE_REST) {
 }
 
 // --- Streamable HTTP MCP endpoint (stateful: one transport+server per session) ---
-// `requireToken` gates every /mcp route; it is a pass-through when auth is disabled. The whole
-// surface — routes plus the RFC 9728 discovery metadata, which only MCP connectors use — is
-// mounted only when MCP is enabled.
+// `requireToken` gates every /mcp route; it is a pass-through when auth is disabled. The routes
+// are mounted only when MCP is enabled (discovery metadata is handled above, for either surface).
 if (ENABLE_MCP) {
-  // Advertise the authorization server for client discovery (no-op unless auth is enabled).
-  mountAuthMetadata(app);
-
   const transports: Record<string, StreamableHTTPServerTransport> = {};
 
   app.post('/mcp', requireToken, express.json(), async (req, res) => {
