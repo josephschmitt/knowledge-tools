@@ -20,8 +20,8 @@ export const VAULT_ROOT = process.env.VAULT_ROOT ?? '/vault';
 
 // --- Optional built-in auth (OAuth 2.1 resource server) ---
 // OFF by default: with these unset the server does NO auth and trusts the network it runs on —
-// deploy it behind an authenticating proxy (see mcp/README.md). Set all three to make the server
-// validate a JWT access token on every /mcp request and advertise its authorization server for
+// deploy it behind an authenticating proxy (see service/README.md). Set all three to make the server
+// validate a JWT access token on every /mcp and /api/v1 request and advertise its authorization server for
 // client discovery (RFC 9728). Vendor-neutral: point them at ANY OIDC issuer (Cloudflare Access,
 // Auth0, Keycloak, ...). The server is only a resource server — an external issuer mints tokens.
 export const AUTH_ISSUER = (process.env.MCP_AUTH_ISSUER ?? '').replace(/\/+$/, '');

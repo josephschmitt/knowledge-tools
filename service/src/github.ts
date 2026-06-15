@@ -44,7 +44,7 @@ async function gh<T>(path: string, init?: RequestInit): Promise<T> {
       Authorization: `Bearer ${GITHUB_TOKEN}`,
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'knowledge-vault-mcp',
+      'User-Agent': 'knowledge-service',
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
       ...(init?.headers ?? {}),
     },

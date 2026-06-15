@@ -20,15 +20,19 @@ working in the repo.
   `knowledge-vault`, the conversational front-door skill (capture + query via the MCP
   connector). Shipped two ways: zipped per-skill for claude.ai, and as a Claude Code
   plugin via the marketplace in `.claude-plugin/` (see below).
-- `mcp/` — the claude.ai connector. A Streamable-HTTP MCP server (TypeScript) that
-  capture/query against the vault. Auth is **optional, off by default** (`src/auth.ts`): run it
-  authless behind an authenticating proxy, or set `MCP_AUTH_*` to validate JWT access tokens
-  against any OIDC issuer (the homelab uses Cloudflare Access + Managed OAuth). Reads/writes the
-  vault via `VAULT_ROOT`. The judgment-call tools (`list_questions`/`get_question`/
-  `answer_question`, in `src/review.ts`) dispatch to a files backend (`inbox/.review/`, in
-  `src/vault.ts`) or a GitHub-issues backend (`src/github.ts`, opt-in via `MCP_GITHUB_TOKEN`+
-  `MCP_GITHUB_REPO`) — match `MCP_REVIEW_CHANNEL` to the host's `KNOWLEDGE_REVIEW_CHANNEL`. Built
-  into a GHCR image by CI; deployed separately. See `mcp/README.md`.
+- `service/` — the vault service (TypeScript). One Express app exposing the vault over **two
+  protocols** off a shared in-process core (`src/vault.ts` / `src/review.ts`): a Streamable-HTTP
+  **MCP** endpoint at `/mcp` (the claude.ai connector, `src/mcp.ts`) and a **REST API** at
+  `/api/v1` (`src/rest.ts`) that mirrors the MCP tools 1:1 for scripts/automation. Auth is
+  **optional, off by default** (`src/auth.ts`) and gates both surfaces: run it authless behind an
+  authenticating proxy, or set `MCP_AUTH_*` to validate JWT access tokens against any OIDC issuer
+  (the homelab uses Cloudflare Access + Managed OAuth). Reads/writes the vault via `VAULT_ROOT`.
+  The judgment-call tools (`list_questions`/`get_question`/`answer_question`, in `src/review.ts`)
+  dispatch to a files backend (`inbox/.review/`, in `src/vault.ts`) or a GitHub-issues backend
+  (`src/github.ts`, opt-in via `MCP_GITHUB_TOKEN`+`MCP_GITHUB_REPO`) — match `MCP_REVIEW_CHANNEL`
+  to the host's `KNOWLEDGE_REVIEW_CHANNEL`. Built into a GHCR image by CI; deployed separately.
+  See `service/README.md`. (The MCP *protocol* server name stays `knowledge-vault` — only the
+  image/package is `knowledge-service`.)
 - `scripts/` — host-side vault automation and the skill validator. Three vault-mutating jobs
   run as systemd *user* units; all three share one flock (`vault-lib.sh`) so they never run
   concurrently, and in each the **wrapper** owns git (Claude only edits files + runs scoped
@@ -97,7 +101,7 @@ in context on every turn, so they must stay terse; the skill is lazy-loaded and 
 exists on skill-aware surfaces, so it can afford length — but can't be relied on to be
 present.
 
-- **Tool descriptions + field schemas** (`mcp/src/mcp.ts`) — per-tool invariants any
+- **Tool descriptions + field schemas** (`service/src/mcp.ts`) — per-tool invariants any
   caller must obey: what the tool does, hard usage rules (e.g. capture takes zero
   decisions), field-level facts (e.g. no separate source-URL field — fold it into
   `text`), and one-clause pointers to companion tools (`search_wiki` → `get_note`,
@@ -150,7 +154,7 @@ config is inlined in `plugin.json` rather than a repo-root `.mcp.json` on purpos
 is `"."`, so a root `.mcp.json` would also act as this repo's *project* MCP config.
 
 > The plugin only points Claude Code at the connector — the user still has to deploy the
-> MCP server (see `mcp/README.md`) and reach it at the URL they enter.
+> service (see `service/README.md`) and reach it at the URL they enter.
 
 **claude.ai (zip releases).** CI (`.github/workflows/package-skills.yml`) zips each skill
 as `<name>/...` for manual upload to claude.ai. Two paths trigger it: a skill change merged
@@ -161,7 +165,7 @@ touching skills — it's independent of the Claude Code plugin path.
 ## Commits
 
 Use [Conventional Commits](https://www.conventionalcommits.org/) titles: `type(scope): summary`
-(e.g. `feat(skills): add ...`, `fix(mcp): ...`, `docs: ...`, `chore: ...`). This isn't just
+(e.g. `feat(skills): add ...`, `fix(service): ...`, `docs: ...`, `chore: ...`). This isn't just
 style — `package-skills.yml` derives the next release version from the landed commits' prefixes:
 `feat` → minor, `fix` → patch, and a `!` or `BREAKING CHANGE` → major. Write commit titles
 accordingly when touching `skills/`.
@@ -170,5 +174,5 @@ accordingly when touching `skills/`.
 
 - `validate-skills.yml` — runs `validate_skills.py` on skill/script changes and pushes.
 - `package-skills.yml` — builds per-skill zips and cuts/updates releases (above).
-- `build-mcp.yml` — builds and pushes the multi-arch `ghcr.io/josephschmitt/knowledge-mcp`
-  image on `mcp/**` changes.
+- `build-service.yml` — builds and pushes the multi-arch `ghcr.io/josephschmitt/knowledge-service`
+  image on `service/**` changes.

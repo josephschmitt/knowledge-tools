@@ -1,10 +1,24 @@
-# Knowledge Vault MCP Server
+# Knowledge Vault Service
 
-A remote [MCP](https://modelcontextprotocol.io) server that exposes this knowledge vault to
-**claude.ai as a custom connector** over the **Streamable HTTP** transport. Authentication is
-**optional and off by default**: out of the box the server does no auth and trusts its network
-(run it behind an authenticating proxy), or you can switch on built-in OAuth token validation
-pointed at any OIDC issuer. See [Authentication](#authentication).
+One server that exposes this knowledge vault over **two protocols**, both backed by the same
+in-process vault core:
+
+- **MCP** at `/mcp` — a remote [MCP](https://modelcontextprotocol.io) endpoint over the
+  **Streamable HTTP** transport, used by **claude.ai as a custom connector** (and the Claude
+  Code plugin). The MCP *protocol* server name is `knowledge-vault`.
+- **REST** at `/api/v1` — a plain JSON HTTP API mirroring the MCP tools 1:1, for scripts,
+  automation, and any other tooling that doesn't speak MCP. See [REST API](#rest-api).
+
+Authentication is **optional and off by default** and gates **both** surfaces: out of the box
+the server does no auth and trusts its network (run it behind an authenticating proxy), or you
+can switch on built-in OAuth token validation pointed at any OIDC issuer. See
+[Authentication](#authentication).
+
+> **Renamed from `knowledge-mcp`.** This service used to be MCP-only and shipped as the image
+> `ghcr.io/josephschmitt/knowledge-mcp`. Now that it serves REST too, the directory, package,
+> and **image are `knowledge-service`**. This is a breaking change for existing deployments:
+> point your compose at `ghcr.io/josephschmitt/knowledge-service` — the old `knowledge-mcp` tag
+> no longer updates.
 
 ## Tools
 
@@ -68,6 +82,47 @@ scheduled and on-demand), so a `last_compiled_at` newer than your trigger time m
 finished. It also reports `pending_inbox_count` and `manual_compile_available_at` (when the
 cooldown next clears) — poll it after a `compile_run` to know when the wiki is caught up.
 
+## REST API
+
+The same operations as the MCP tools, as plain JSON HTTP under `/api/v1` — for scripts and
+tooling that don't speak MCP. Both surfaces call the same in-process vault core, so behavior is
+identical; the REST layer just returns JSON with proper HTTP status codes. It's gated by the
+**same optional auth** as `/mcp` (authless behind a proxy by default; `MCP_AUTH_*` validates a
+token on every request).
+
+| Method & path | MCP tool | Success |
+|---|---|---|
+| `GET /api/v1/wiki/search?q=` | `search_wiki` | `200 {query, hits:[{note,snippets}]}` |
+| `GET /api/v1/wiki/notes` | `list_notes` | `200 {notes:[...]}` |
+| `GET /api/v1/wiki/notes/<path>` | `get_note` | `200 {path, content}` / `404` |
+| `GET /api/v1/index` | `list_index` | `200 {content}` |
+| `POST /api/v1/inbox` | `append_to_inbox` | `201 {path}` |
+| `POST /api/v1/compile` | `compile_run` | `200 {status, available_at?}` |
+| `GET /api/v1/status` | `vault_status` | `200` (the `vault_status` JSON) |
+| `GET /api/v1/questions?status=` | `list_questions` | `200 {questions:[...]}` |
+| `GET /api/v1/questions/<id>` | `get_question` | `200 {id, content}` / `404` |
+| `POST /api/v1/questions/<id>/answer` | `answer_question` | `200 {id, status}` |
+
+Notes:
+- The note path is taken from the rest of the URL (`/wiki/notes/sub/note.md`); the `.md`
+  extension is optional. Paths are confined to the vault — traversal attempts get `400`.
+- `POST /inbox` body is `{ "text": "...", "title": "..."? }`; `POST .../answer` body is
+  `{ "answer": "..." }`.
+- `POST /compile` always returns `200` with a discriminated `status`
+  (`triggered` | `empty` | `busy` | `throttled`); `throttled` includes `available_at`. A refused
+  manual compile is informational (your captures are safe regardless), so it isn't an error code.
+- Errors are JSON `{ "error": "..." }`: `400` for bad/missing input, `404` for a missing
+  note/question, `502` when the review-queue backend (GitHub) can't be reached.
+
+```sh
+curl -s localhost:3000/api/v1/status
+curl -s 'localhost:3000/api/v1/wiki/search?q=homelab'
+curl -s localhost:3000/api/v1/wiki/notes/homelab-infrastructure
+curl -s -XPOST localhost:3000/api/v1/inbox \
+  -H 'content-type: application/json' -d '{"text":"a thought","title":"My Note"}'
+curl -s -XPOST localhost:3000/api/v1/compile
+```
+
 ## Authentication
 
 Two models, and you can combine them:
@@ -101,26 +156,27 @@ Set all three to enable; set none to stay authless. (Half-set → the server ref
 ## Local development
 
 ```sh
-cd mcp
+cd service
 npm install
 npm run build
 cp .env.example .env        # point VAULT_ROOT at a vault; no auth config needed
 node --env-file=.env dist/index.js
 ```
 
-There is no gate locally, so `/mcp` is reachable directly — drive it with the MCP Inspector or
-curl:
+There is no gate locally, so both `/mcp` and `/api/v1` are reachable directly — drive MCP with
+the MCP Inspector or curl, and the REST API with curl:
 
 ```sh
-npx @modelcontextprotocol/inspector      # connect to http://localhost:3000/mcp
-curl -s localhost:3000/healthz           # {"ok":true}
+npx @modelcontextprotocol/inspector        # connect to http://localhost:3000/mcp
+curl -s localhost:3000/healthz             # {"ok":true}
+curl -s localhost:3000/api/v1/status       # the vault_status JSON
 ```
 
 ## Image (CI)
 
-Pushes to `main` that touch `mcp/**` trigger `.github/workflows/build-mcp.yml`, which builds
-the image (linux/amd64 + arm64) and pushes it to
-**`ghcr.io/josephschmitt/knowledge-mcp:latest`** (also tagged with the commit SHA). The
+Pushes to `main` that touch `service/**` trigger `.github/workflows/build-service.yml`, which
+builds the image (linux/amd64 + arm64) and pushes it to
+**`ghcr.io/josephschmitt/knowledge-service:latest`** (also tagged with the commit SHA). The
 homelab pulls this published image — it does not build from a source checkout. The package
 is **public** (set once in the GHCR package settings after the first push), so the host
 pulls without authenticating; the image carries only server code, no vault content.
@@ -163,7 +219,7 @@ MCP_AUTH_TOKEN_HEADER=cf-access-jwt-assertion
 - **Tunnel.** Add a public hostname `knowledge.example.com` → `https://localhost:443`; set
   cloudflared's **Origin Server Name** to the host (or **No TLS Verify**), since traefik
   terminates TLS on a loopback hop. Adding the hostname creates the DNS record.
-- **Start it.** `cd ~/example.com && docker compose pull knowledge-mcp && docker compose up -d knowledge-mcp`
+- **Start it.** `cd ~/example.com && docker compose pull knowledge-service && docker compose up -d knowledge-service`
 - **The bypass.** Without built-in validation, Access guards only the *public* path — a LAN
   client or neighbouring container could hit the origin directly. Either enable built-in
   validation (above) or keep the port off the host and the origin off shared networks.

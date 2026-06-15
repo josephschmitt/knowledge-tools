@@ -1,9 +1,9 @@
 {
-  "name": "knowledge-vault-mcp",
+  "name": "knowledge-service",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Remote MCP server exposing the knowledge vault to claude.ai over Streamable HTTP. Performs no auth itself — deploy it behind an authenticating reverse proxy.",
+  "description": "Knowledge vault service: exposes the vault over both a Streamable HTTP MCP endpoint (/mcp) and a REST API (/api/v1). Performs no auth itself by default — deploy it behind an authenticating reverse proxy, or enable built-in token validation.",
   "engines": {
     "node": ">=24"
   },
