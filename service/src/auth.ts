@@ -13,6 +13,8 @@ import {
   AUTH_JWKS_URL,
   AUTH_AUDIENCE,
   API_REQUIRE_SCOPES,
+  API_SCOPE_READ,
+  API_SCOPE_WRITE,
   AUTH_TOKEN_HEADER,
   RESOURCE_URL,
 } from './config.js';
@@ -94,10 +96,14 @@ export function requireScope(scope: string): RequestHandler {
 export function mountAuthMetadata(app: Express): void {
   if (!AUTH_ENABLED) return;
   // Point clients at the issuer; they fetch its OAuth/OIDC metadata (and run the flow) directly.
+  // Advertise the REST least-privilege scopes too when they're enforced, so a client using
+  // discovery knows to request them (otherwise it can't build a valid token for /api/v1).
+  const scopes_supported = ['openid', 'email', 'profile'];
+  if (API_REQUIRE_SCOPES) scopes_supported.push(API_SCOPE_READ, API_SCOPE_WRITE);
   const metadata = {
     resource: RESOURCE_URL.href,
     authorization_servers: [AUTH_ISSUER],
-    scopes_supported: ['openid', 'email', 'profile'],
+    scopes_supported,
     resource_name: 'Knowledge Vault',
   };
   app.get(prmPath, (_req, res) => res.json(metadata));
