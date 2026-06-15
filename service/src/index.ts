@@ -17,6 +17,8 @@ import {
   ALLOWED_HOSTS,
   ALLOWED_ORIGINS,
   ENABLE_DNS_REBINDING,
+  ENABLE_MCP,
+  ENABLE_REST,
 } from './config.js';
 
 const app = express();
@@ -34,75 +36,83 @@ app.get('/healthz', (_req, res) => {
   res.json({ ok: true });
 });
 
-// Advertise the authorization server for client discovery (no-op unless auth is enabled).
+// Advertise the authorization server (RFC 9728 discovery) for any client that auto-discovers it.
+// Served whenever built-in auth is on (no-op otherwise), independent of which surface is enabled —
+// a REST-only deployment with auth still needs to point clients at the issuer. (The advertised
+// resource id is `${PUBLIC_URL}/mcp`; auth uses one shared audience across both surfaces.)
 mountAuthMetadata(app);
 
 // --- REST API (/api/v1) — the same vault operations as the MCP tools, as plain JSON. ---
 // Gated by the same `requireToken` (and audience) as /mcp; pass-through when auth is disabled.
 // Per-route least-privilege scope checks (vault.read/vault.write) live in rest.ts.
-app.use('/api/v1', requireToken, express.json(), apiRouter);
+if (ENABLE_REST) {
+  app.use('/api/v1', requireToken, express.json(), apiRouter);
+}
 
 // --- Streamable HTTP MCP endpoint (stateful: one transport+server per session) ---
-// `requireToken` gates every /mcp route; it is a pass-through when auth is disabled.
-const transports: Record<string, StreamableHTTPServerTransport> = {};
+// `requireToken` gates every /mcp route; it is a pass-through when auth is disabled. The routes
+// are mounted only when MCP is enabled (discovery metadata is handled above, for either surface).
+if (ENABLE_MCP) {
+  const transports: Record<string, StreamableHTTPServerTransport> = {};
 
-app.post('/mcp', requireToken, express.json(), async (req, res) => {
-  const sid = req.headers['mcp-session-id'] as string | undefined;
-  logger.debug({ sessionId: sid, rpcMethod: req.body?.method }, 'mcp request');
-  let transport = sid ? transports[sid] : undefined;
+  app.post('/mcp', requireToken, express.json(), async (req, res) => {
+    const sid = req.headers['mcp-session-id'] as string | undefined;
+    logger.debug({ sessionId: sid, rpcMethod: req.body?.method }, 'mcp request');
+    let transport = sid ? transports[sid] : undefined;
 
-  if (!transport && !sid && isInitializeRequest(req.body)) {
-    transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-      enableDnsRebindingProtection: ENABLE_DNS_REBINDING,
-      allowedHosts: ALLOWED_HOSTS,
-      allowedOrigins: ALLOWED_ORIGINS,
-      onsessioninitialized: (id) => {
-        transports[id] = transport!;
-      },
-    });
-    transport.onclose = () => {
-      if (transport!.sessionId) delete transports[transport!.sessionId];
-    };
-    await buildMcpServer().connect(transport);
-  } else if (!transport) {
-    // Unknown/expired session (e.g. after a redeploy wiped the in-memory `transports` map):
-    // answer 404, not 400. The MCP Streamable-HTTP spec says a client that gets 404 for a
-    // request carrying an Mcp-Session-Id MUST transparently re-initialize. A 400 reads as a
-    // hard failure and forces a manual reconnect in claude.ai.
-    res.status(404).json({
-      jsonrpc: '2.0',
-      error: { code: -32001, message: 'Session not found' },
-      id: null,
-    });
-    return;
-  }
+    if (!transport && !sid && isInitializeRequest(req.body)) {
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        enableDnsRebindingProtection: ENABLE_DNS_REBINDING,
+        allowedHosts: ALLOWED_HOSTS,
+        allowedOrigins: ALLOWED_ORIGINS,
+        onsessioninitialized: (id) => {
+          transports[id] = transport!;
+        },
+      });
+      transport.onclose = () => {
+        if (transport!.sessionId) delete transports[transport!.sessionId];
+      };
+      await buildMcpServer().connect(transport);
+    } else if (!transport) {
+      // Unknown/expired session (e.g. after a redeploy wiped the in-memory `transports` map):
+      // answer 404, not 400. The MCP Streamable-HTTP spec says a client that gets 404 for a
+      // request carrying an Mcp-Session-Id MUST transparently re-initialize. A 400 reads as a
+      // hard failure and forces a manual reconnect in claude.ai.
+      res.status(404).json({
+        jsonrpc: '2.0',
+        error: { code: -32001, message: 'Session not found' },
+        id: null,
+      });
+      return;
+    }
 
-  await transport.handleRequest(req, res, req.body);
-});
+    await transport.handleRequest(req, res, req.body);
+  });
 
-// GET (server->client SSE) and DELETE (session teardown) reuse the existing session.
-const replaySession: express.RequestHandler = async (req, res) => {
-  const sid = req.headers['mcp-session-id'] as string | undefined;
-  const transport = sid ? transports[sid] : undefined;
-  if (!transport) {
-    // 404 (not 400) so a stale session ID — e.g. left over after a redeploy — triggers a
-    // clean client-side re-initialize rather than a manual reconnect.
-    res.status(404).send('Session not found');
-    return;
-  }
-  await transport.handleRequest(req, res);
-};
-app.get('/mcp', requireToken, replaySession);
-app.delete('/mcp', requireToken, replaySession);
+  // GET (server->client SSE) and DELETE (session teardown) reuse the existing session.
+  const replaySession: express.RequestHandler = async (req, res) => {
+    const sid = req.headers['mcp-session-id'] as string | undefined;
+    const transport = sid ? transports[sid] : undefined;
+    if (!transport) {
+      // 404 (not 400) so a stale session ID — e.g. left over after a redeploy — triggers a
+      // clean client-side re-initialize rather than a manual reconnect.
+      res.status(404).send('Session not found');
+      return;
+    }
+    await transport.handleRequest(req, res);
+  };
+  app.get('/mcp', requireToken, replaySession);
+  app.delete('/mcp', requireToken, replaySession);
+}
 
 app.listen(PORT, '0.0.0.0', () => {
   logger.info(
     {
       port: PORT,
       publicUrl: PUBLIC_URL,
-      mcpEndpoint: `${PUBLIC_URL}/mcp`,
-      restEndpoint: `${PUBLIC_URL}/api/v1`,
+      mcpEndpoint: ENABLE_MCP ? `${PUBLIC_URL}/mcp` : null,
+      restEndpoint: ENABLE_REST ? `${PUBLIC_URL}/api/v1` : null,
     },
     'knowledge-service listening',
   );
