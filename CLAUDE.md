@@ -127,7 +127,22 @@ duplication at the same altitude is drift waiting to happen. When a *rule* chang
 update the tool description and the skill's treatment of it together — and remember the
 tool-description change only ships when the MCP image is rebuilt and redeployed, while
 the skill ships via the plugin/zip path. `references/mcp-operations.md` mirrors the
-server's exact I/O shapes; keep it in sync when shapes change.
+server's exact I/O shapes (inputs/outputs/return format only — no rules, no rationale);
+keep it in sync when shapes change.
+
+Two practical corollaries:
+
+- **Context budget.** The MCP layers have no progressive disclosure — every token sits in
+  *every* turn's context — so keep them lean and push prose *down* into the lazy-loaded skill
+  rather than *up* into a tool description. A new hard rule earns a place in a tool only if
+  it's short and every caller needs it; the *why*, the craft, and examples belong in the skill.
+- **Two skills, one rule.** There are now two skills — `knowledge-vault` (capture-on-request +
+  query + judgment calls) and `auto-capture` (proactive capture) — and each must stand alone,
+  since either can load without the other. They can't share prose by reference, but they don't
+  need to duplicate *rules*: a connector-driven skill always runs with the tool descriptions
+  co-present, so both defer hard capture rules to the tool (one canonical home) and carry only
+  their own concern + rationale. Minimal, rule-deferring overlap between the two skills is fine;
+  restating a tool's rule verbatim in either is not.
 
 ## Shipping skills
 

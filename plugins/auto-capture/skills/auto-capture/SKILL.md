@@ -33,10 +33,9 @@ Capture proactively, as a rule of thumb, whenever the conversation produces:
 - **A task** — something Joe needs to *do*: a follow-up, a thing to buy, a bug to fix, a
   person to contact, a decision to revisit — anything with a verb pointed at Joe.
 
-Both go through the **same** tool; there's no separate task-vs-knowledge field. The only
-difference is how you word the `text`: for a task, lead with `TODO:` (or `Task:`) and make
-the action — and any deadline — explicit, so the compiler files it as actionable rather
-than reference.
+Both go through the **same** tool, `append_to_inbox` — there's no separate task-vs-knowledge
+field. The tool carries the rule for wording a task capture (lead with `TODO:`, include any
+deadline) so the compiler files it as actionable rather than reference.
 
 Lean toward capturing. Skip only the genuinely throwaway: small talk and passing chatter, a
 fact already obviously and durably Joe's, or something purely transient to the current turn
@@ -44,19 +43,14 @@ fact already obviously and durably Joe's, or something purely transient to the c
 
 ## How to capture
 
-Drop it into the inbox raw with `append_to_inbox` and stop there.
-
-**Capture takes zero decisions — just dump.** Do not search the wiki for duplicates, do not
-judge whether it's "really" worth it past the lean-toward-capture bar above, and do not
-categorize, synthesize, pick a destination, or write a polished note. The homelab compiler
-does all of that later, with the whole vault in view ("dumb capture, smart compile").
-Pre-organizing here just fights it.
+Drop it into the inbox raw with `append_to_inbox` and stop there — the tool's own rules apply
+(capture takes zero decisions: no dup-searching, no judging worth past the bar above, no
+categorizing or pre-organizing; the homelab compiler does all of that later with the whole
+vault in view). Your job is to make the dump legible:
 
 - **Capture the *content*, not the transcript.** Work out the actual durable thing — the
   decision, the link, the conclusion, the action — and capture that, not the back-and-forth
-  that produced it.
-- **Make the dump legible.** Fold the source URL (if there is one) and a single line of what
-  it is or why it matters into the `text` — there are no separate fields for those.
+  that produced it. Fold any source URL and a line of what it is into the `text`.
 - **One capture per distinct item.** If a turn surfaced two unrelated things, that's two
   `append_to_inbox` calls.
 
