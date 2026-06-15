@@ -25,12 +25,13 @@ working in the repo.
   **MCP** endpoint at `/mcp` (the claude.ai connector, `src/mcp.ts`) and a **REST API** at
   `/api/v1` (`src/rest.ts`) that mirrors the MCP tools 1:1 for scripts/automation. Auth is
   **optional, off by default** (`src/auth.ts`) and gates both surfaces: run it authless behind an
-  authenticating proxy, or set `MCP_AUTH_*` to validate JWT access tokens against any OIDC issuer
+  authenticating proxy, or set `KNOWLEDGE_AUTH_*` to validate JWT access tokens against any OIDC issuer
   (the homelab uses Cloudflare Access + Managed OAuth). Reads/writes the vault via `VAULT_ROOT`.
   The judgment-call tools (`list_questions`/`get_question`/`answer_question`, in `src/review.ts`)
   dispatch to a files backend (`inbox/.review/`, in `src/vault.ts`) or a GitHub-issues backend
-  (`src/github.ts`, opt-in via `MCP_GITHUB_TOKEN`+`MCP_GITHUB_REPO`) — match `MCP_REVIEW_CHANNEL`
-  to the host's `KNOWLEDGE_REVIEW_CHANNEL`. Built into a GHCR image by CI; deployed separately.
+  (`src/github.ts`, opt-in via `KNOWLEDGE_GITHUB_TOKEN`+`KNOWLEDGE_GITHUB_REPO`) — set the container's
+  `KNOWLEDGE_REVIEW_CHANNEL` to match the host's same-named `KNOWLEDGE_REVIEW_CHANNEL`. Built into a
+  GHCR image by CI; deployed separately.
   See `service/README.md`. (The MCP *protocol* server name stays `knowledge-vault` — only the
   image/package is `knowledge-service`.)
 - `scripts/` — host-side vault automation and the skill validator. Three vault-mutating jobs

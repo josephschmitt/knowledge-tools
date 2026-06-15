@@ -165,8 +165,8 @@ Where a judgment call lives — and whether you need GitHub at all — is set by
 
 Either way you can answer **from chat**: the MCP connector's `list_questions` / `get_question` /
 `answer_question` tools work against both backends — the `inbox/.review/` queue by default, or the
-GitHub issues directly when the server is configured with a token (`MCP_GITHUB_TOKEN` +
-`MCP_GITHUB_REPO`; see [`service/README.md`](service/README.md#review-channel)). On the GitHub backend,
+GitHub issues directly when the server is configured with a token (`KNOWLEDGE_GITHUB_TOKEN` +
+`KNOWLEDGE_GITHUB_REPO`; see [`service/README.md`](service/README.md#review-channel)). On the GitHub backend,
 answering from chat comments and labels the issue `vault:answered` just as you would on
 github.com, so `/resolve` closes it — handy when you don't feel like opening GitHub. Point the
 connector at the same channel the host uses.

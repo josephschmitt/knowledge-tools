@@ -1,4 +1,4 @@
-// Optional OAuth 2.1 resource-server auth. Active only when MCP_AUTH_* is configured (see
+// Optional OAuth 2.1 resource-server auth. Active only when KNOWLEDGE_AUTH_* is configured (see
 // config.ts); otherwise every export here is a no-op and the server runs authless behind a
 // trusted proxy. When enabled the server (Tier 1) validates a JWT access token on each /mcp
 // request and (Tier 2) advertises its authorization server via RFC 9728 protected-resource

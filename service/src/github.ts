@@ -1,6 +1,6 @@
 // GitHub-issues backend for the judgment-call review tools — the same list/get/answer
 // operations as the file queue (vault.ts), but against the vault's GitHub issues via the REST
-// API. Selected when the server is configured with MCP_GITHUB_TOKEN + MCP_GITHUB_REPO (see
+// API. Selected when the server is configured with KNOWLEDGE_GITHUB_TOKEN + KNOWLEDGE_GITHUB_REPO (see
 // config.ts / review.ts). Answering posts a comment and adds the `vault:answered` label, which
 // is exactly the manual GitHub action the host's /resolve job acts on — so the loop is identical
 // whether I answer on github.com or from chat.

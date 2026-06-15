@@ -24,19 +24,19 @@ export const VAULT_ROOT = process.env.VAULT_ROOT ?? '/vault';
 // validate a JWT access token on every /mcp and /api/v1 request and advertise its authorization server for
 // client discovery (RFC 9728). Vendor-neutral: point them at ANY OIDC issuer (Cloudflare Access,
 // Auth0, Keycloak, ...). The server is only a resource server — an external issuer mints tokens.
-export const AUTH_ISSUER = (process.env.MCP_AUTH_ISSUER ?? '').replace(/\/+$/, '');
-export const AUTH_JWKS_URL = process.env.MCP_AUTH_JWKS_URL ?? '';
-export const AUTH_AUDIENCE = process.env.MCP_AUTH_AUDIENCE ?? '';
+export const AUTH_ISSUER = (process.env.KNOWLEDGE_AUTH_ISSUER ?? '').replace(/\/+$/, '');
+export const AUTH_JWKS_URL = process.env.KNOWLEDGE_AUTH_JWKS_URL ?? '';
+export const AUTH_AUDIENCE = process.env.KNOWLEDGE_AUTH_AUDIENCE ?? '';
 // Request header carrying the token. Default is the standard `Authorization: Bearer`; override
 // for a proxy-injected header (e.g. `cf-access-jwt-assertion`).
-export const AUTH_TOKEN_HEADER = (process.env.MCP_AUTH_TOKEN_HEADER ?? 'authorization').toLowerCase();
+export const AUTH_TOKEN_HEADER = (process.env.KNOWLEDGE_AUTH_TOKEN_HEADER ?? 'authorization').toLowerCase();
 export const AUTH_ENABLED = Boolean(AUTH_ISSUER && AUTH_JWKS_URL && AUTH_AUDIENCE);
 
 // Half-configured auth is a silent hole (validates nothing but looks intentional) — fail fast.
 const authParts = [AUTH_ISSUER, AUTH_JWKS_URL, AUTH_AUDIENCE];
 if (authParts.some(Boolean) && !authParts.every(Boolean)) {
   console.error(
-    'FATAL: set all of MCP_AUTH_ISSUER, MCP_AUTH_JWKS_URL, MCP_AUTH_AUDIENCE to enable auth, or none to run authless.',
+    'FATAL: set all of KNOWLEDGE_AUTH_ISSUER, KNOWLEDGE_AUTH_JWKS_URL, KNOWLEDGE_AUTH_AUDIENCE to enable auth, or none to run authless.',
   );
   process.exit(1);
 }
@@ -45,24 +45,24 @@ if (authParts.some(Boolean) && !authParts.every(Boolean)) {
 // The list_questions / get_question / answer_question tools operate over one of two backends,
 // matching whichever channel the host's synthesize/resolve jobs use:
 //   files  — the queue under inbox/.review/ (default; needs no external creds, writes only inbox/).
-//   github — the vault's GitHub issues, reached through the REST API. Set MCP_GITHUB_TOKEN (a PAT
-//            with issues:read+write) and MCP_GITHUB_REPO ("owner/repo") to enable it, so the same
+//   github — the vault's GitHub issues, reached through the REST API. Set KNOWLEDGE_GITHUB_TOKEN (a PAT
+//            with issues:read+write) and KNOWLEDGE_GITHUB_REPO ("owner/repo") to enable it, so the same
 //            tools work — and answering one here comments + labels the issue vault:answered, which
 //            is exactly what the host's /resolve then applies and closes.
 // This adds outbound GitHub access + a token to the server, so it's OFF unless configured.
-export const GITHUB_TOKEN = process.env.MCP_GITHUB_TOKEN ?? '';
-export const GITHUB_REPO = process.env.MCP_GITHUB_REPO ?? ''; // "owner/repo"
-export const GITHUB_API_URL = (process.env.MCP_GITHUB_API_URL ?? 'https://api.github.com').replace(/\/+$/, '');
+export const GITHUB_TOKEN = process.env.KNOWLEDGE_GITHUB_TOKEN ?? '';
+export const GITHUB_REPO = process.env.KNOWLEDGE_GITHUB_REPO ?? ''; // "owner/repo"
+export const GITHUB_API_URL = (process.env.KNOWLEDGE_GITHUB_API_URL ?? 'https://api.github.com').replace(/\/+$/, '');
 
 const githubConfigured = Boolean(GITHUB_TOKEN && GITHUB_REPO);
 // Half-set GitHub creds are a silent misconfig — fail fast (mirrors the auth check above).
 if (Boolean(GITHUB_TOKEN) !== Boolean(GITHUB_REPO)) {
-  console.error('FATAL: set both MCP_GITHUB_TOKEN and MCP_GITHUB_REPO to back the review tools with GitHub, or neither.');
+  console.error('FATAL: set both KNOWLEDGE_GITHUB_TOKEN and KNOWLEDGE_GITHUB_REPO to back the review tools with GitHub, or neither.');
   process.exit(1);
 }
 
-// 'files' | 'github'. Explicit MCP_REVIEW_CHANNEL wins; otherwise auto-detect from the creds.
-const reviewChannelEnv = (process.env.MCP_REVIEW_CHANNEL ?? '').toLowerCase();
+// 'files' | 'github'. Explicit KNOWLEDGE_REVIEW_CHANNEL wins; otherwise auto-detect from the creds.
+const reviewChannelEnv = (process.env.KNOWLEDGE_REVIEW_CHANNEL ?? '').toLowerCase();
 export const REVIEW_CHANNEL: 'files' | 'github' =
   reviewChannelEnv === 'github' || reviewChannelEnv === 'files'
     ? reviewChannelEnv
@@ -71,7 +71,7 @@ export const REVIEW_CHANNEL: 'files' | 'github' =
       : 'files';
 
 if (REVIEW_CHANNEL === 'github' && !githubConfigured) {
-  console.error('FATAL: MCP_REVIEW_CHANNEL=github needs both MCP_GITHUB_TOKEN and MCP_GITHUB_REPO.');
+  console.error('FATAL: KNOWLEDGE_REVIEW_CHANNEL=github needs both KNOWLEDGE_GITHUB_TOKEN and KNOWLEDGE_GITHUB_REPO.');
   process.exit(1);
 }
 
