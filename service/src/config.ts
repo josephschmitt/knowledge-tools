@@ -52,6 +52,16 @@ export const API_REQUIRE_SCOPES = (process.env.KNOWLEDGE_API_REQUIRE_SCOPES ?? '
 export const API_SCOPE_READ = 'vault.read';
 export const API_SCOPE_WRITE = 'vault.write';
 
+// Scope enforcement rides on top of token validation — with built-in auth off there's no token to
+// read scopes from, so the checks silently no-op. Warn (don't fail) so an operator who set this
+// expecting enforcement isn't left with a false sense of least-privilege.
+if (API_REQUIRE_SCOPES && !AUTH_ENABLED) {
+  console.warn(
+    'WARNING: KNOWLEDGE_API_REQUIRE_SCOPES=true has no effect without built-in auth — set ' +
+      'KNOWLEDGE_AUTH_ISSUER/JWKS_URL/AUDIENCE, or the /api/v1 scope checks are skipped.',
+  );
+}
+
 // --- Judgment-call review channel ---
 // The list_questions / get_question / answer_question tools operate over one of two backends,
 // matching whichever channel the host's synthesize/resolve jobs use:

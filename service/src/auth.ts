@@ -88,6 +88,12 @@ export function requireScope(scope: string): RequestHandler {
     if (!AUTH_ENABLED || !API_REQUIRE_SCOPES) return next();
     const scopes = res.locals.scopes as Set<string> | undefined;
     if (scopes?.has(scope)) return next();
+    // RFC 6750 §3 / 3.1: a 403 for an under-scoped token advertises the failure and the scope the
+    // client needs, so it can request a better token (and discover where via resource_metadata).
+    res.setHeader(
+      'WWW-Authenticate',
+      `Bearer error="insufficient_scope", scope="${scope}", resource_metadata="${prmUrl}"`,
+    );
     res.status(403).json({ error: `insufficient scope: ${scope} required` });
   };
 }
