@@ -17,8 +17,8 @@ All tools return their result as plain text content. Wiki paths are relative to 
 ## Shapes
 
 ### append_to_inbox
-- **Inputs:** `text` (required; raw capture content — for a task, lead with `TODO:`). `title`
-  (optional). No separate `source_url`/`note` field.
+- **Inputs:** `text` (required; raw capture content). `title` (optional). No separate
+  `source_url`/`note` field.
 - **Output:** confirmation naming the inbox path, e.g. `Captured to
   inbox/2026-06-07T…-<slug>.md. It will be compiled into the wiki on the next scheduled compile.`
 
