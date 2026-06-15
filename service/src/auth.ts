@@ -6,12 +6,13 @@
 // it never issues tokens or logs anyone in; an external authorization server (the issuer) does.
 import type { Express, RequestHandler } from 'express';
 import { getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js';
-import { createRemoteJWKSet, jwtVerify, errors as joseErrors } from 'jose';
+import { createRemoteJWKSet, jwtVerify, errors as joseErrors, type JWTPayload } from 'jose';
 import {
   AUTH_ENABLED,
   AUTH_ISSUER,
   AUTH_JWKS_URL,
   AUTH_AUDIENCE,
+  API_REQUIRE_SCOPES,
   AUTH_TOKEN_HEADER,
   RESOURCE_URL,
 } from './config.js';
@@ -33,7 +34,19 @@ function extractToken(value: string | string[] | undefined): string | undefined 
   return AUTH_TOKEN_HEADER === 'authorization' ? raw.replace(/^Bearer\s+/i, '') : raw;
 }
 
-/** Tier 1 — reject any /mcp request lacking a valid token. No-op when auth is disabled. */
+/** OAuth scopes from a verified token — `scope` (space-delimited, OAuth2) or `scp` (array/string). */
+function scopesFromPayload(payload: JWTPayload): Set<string> {
+  const raw = (payload as Record<string, unknown>).scope ?? (payload as Record<string, unknown>).scp;
+  if (typeof raw === 'string') return new Set(raw.split(/\s+/).filter(Boolean));
+  if (Array.isArray(raw)) return new Set(raw.map(String));
+  return new Set();
+}
+
+/**
+ * Tier 1 — reject any request lacking a valid token. No-op when auth is disabled. Gates both /mcp
+ * and /api/v1 against the same KNOWLEDGE_AUTH_AUDIENCE. On success it stashes the verified scopes
+ * on `res.locals` so requireScope (used on /api/v1) can enforce least-privilege.
+ */
 export const requireToken: RequestHandler = async (req, res, next) => {
   if (!AUTH_ENABLED) return next();
 
@@ -46,6 +59,7 @@ export const requireToken: RequestHandler = async (req, res, next) => {
   }
   try {
     const { payload } = await jwtVerify(token, jwks!, { issuer: AUTH_ISSUER, audience: AUTH_AUDIENCE });
+    res.locals.scopes = scopesFromPayload(payload);
     logger.debug({ sub: payload.sub, email: payload.email, aud: payload.aud }, 'token verified');
     next();
   } catch (err) {
@@ -61,6 +75,20 @@ export const requireToken: RequestHandler = async (req, res, next) => {
     res.status(401).json({ error: reason });
   }
 };
+
+/**
+ * Require an OAuth `scope` on the request, read from the token verified by requireToken. No-op when
+ * auth is disabled or KNOWLEDGE_API_REQUIRE_SCOPES is off (so deployments that don't issue these
+ * scopes are unaffected). 403 when the scope is absent.
+ */
+export function requireScope(scope: string): RequestHandler {
+  return (_req, res, next) => {
+    if (!AUTH_ENABLED || !API_REQUIRE_SCOPES) return next();
+    const scopes = res.locals.scopes as Set<string> | undefined;
+    if (scopes?.has(scope)) return next();
+    res.status(403).json({ error: `insufficient scope: ${scope} required` });
+  };
+}
 
 /** Tier 2 — advertise the authorization server (RFC 9728). No-op when auth is disabled. */
 export function mountAuthMetadata(app: Express): void {

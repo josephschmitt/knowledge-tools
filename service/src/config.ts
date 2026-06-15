@@ -41,6 +41,17 @@ if (authParts.some(Boolean) && !authParts.every(Boolean)) {
   process.exit(1);
 }
 
+// --- REST API (/api/v1) least-privilege scopes ---
+// Opt-in. When true (and built-in auth is on), every /api/v1 request must carry an OAuth scope:
+// `vault.read` for GETs, `vault.write` for writes. /api/v1 validates against the SAME
+// KNOWLEDGE_AUTH_AUDIENCE as /mcp — scopes, not a separate audience, are the least-privilege lever
+// (both surfaces front the same vault, so a per-surface audience would buy little). OFF by default
+// so tokens that don't carry these scopes (e.g. the interactive MCP login) keep working on REST —
+// turn it on once your IdP issues the scopes to the calling client.
+export const API_REQUIRE_SCOPES = (process.env.KNOWLEDGE_API_REQUIRE_SCOPES ?? 'false') === 'true';
+export const API_SCOPE_READ = 'vault.read';
+export const API_SCOPE_WRITE = 'vault.write';
+
 // --- Judgment-call review channel ---
 // The list_questions / get_question / answer_question tools operate over one of two backends,
 // matching whichever channel the host's synthesize/resolve jobs use:

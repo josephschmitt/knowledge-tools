@@ -14,8 +14,17 @@ import {
   getVaultStatus,
 } from './vault.js';
 import { listQuestions, getQuestion, answerQuestion } from './review.js';
+import { requireScope } from './auth.js';
+import { API_SCOPE_READ, API_SCOPE_WRITE } from './config.js';
 
 export const apiRouter = Router();
+
+// Least-privilege: reads (GET) need vault.read, writes (POST) need vault.write. Enforced only when
+// KNOWLEDGE_API_REQUIRE_SCOPES is on and built-in auth is enabled; otherwise requireScope is a
+// no-op. All write routes here are POST and all reads GET, so method is a faithful proxy.
+apiRouter.use((req, res, next) =>
+  requireScope(req.method === 'GET' ? API_SCOPE_READ : API_SCOPE_WRITE)(req, res, next),
+);
 
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

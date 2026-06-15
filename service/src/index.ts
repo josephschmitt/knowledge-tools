@@ -38,7 +38,8 @@ app.get('/healthz', (_req, res) => {
 mountAuthMetadata(app);
 
 // --- REST API (/api/v1) — the same vault operations as the MCP tools, as plain JSON. ---
-// Gated by the same `requireToken` as /mcp (pass-through when auth is disabled).
+// Gated by the same `requireToken` (and audience) as /mcp; pass-through when auth is disabled.
+// Per-route least-privilege scope checks (vault.read/vault.write) live in rest.ts.
 app.use('/api/v1', requireToken, express.json(), apiRouter);
 
 // --- Streamable HTTP MCP endpoint (stateful: one transport+server per session) ---
