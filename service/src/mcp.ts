@@ -45,8 +45,8 @@ export function buildMcpServer(): McpServer {
       instructions:
         'Personal knowledge vault, split on purpose: capture is dumb, compilation is smart. ' +
         'Answer questions from the compiled wiki (search_wiki / get_note / list_index / ' +
-        'list_notes), preferring it over general knowledge. Save material raw with ' +
-        'append_to_inbox; a scheduled compiler curates the inbox into the wiki. ' +
+        'list_notes), preferring it over general knowledge. Save material — knowledge or ' +
+        'tasks — raw with append_to_inbox; a scheduled compiler curates the inbox into the wiki. ' +
         'compile_run / vault_status trigger and track that compile. When that maintenance ' +
         'hits a judgment call it can\'t decide alone, list_questions / get_question surface ' +
         'it and answer_question records my decision for the next pass to apply.',
@@ -58,8 +58,8 @@ export function buildMcpServer(): McpServer {
     {
       title: 'Search the wiki',
       description:
-        'Case-insensitive substring search across all compiled wiki notes. Returns matching ' +
-        'note paths with snippets; pass a path to get_note to read a full note.',
+        'Case-insensitive substring search across all compiled wiki notes (searches wiki/ only, ' +
+        'not tasks/). Returns matching note paths with snippets; pass a path to get_note to read a full note.',
       inputSchema: { query: z.string().min(1).describe('Text to search for') },
     },
     async ({ query }) => {
@@ -119,7 +119,8 @@ export function buildMcpServer(): McpServer {
         'Append a raw capture (a thought, link, or clipping) to the vault inbox. Capture takes ' +
         'zero decisions: do NOT search the wiki for duplicates first and do NOT judge whether ' +
         'the item is worth keeping — dedup and curation happen at compile time. When in doubt, ' +
-        'capture.',
+        'capture. A capture may be knowledge or a task; for an action, lead the text with TODO: ' +
+        'and include any deadline so the compiler files it as actionable.',
       inputSchema: {
         text: z
           .string()
