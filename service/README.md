@@ -113,7 +113,8 @@ Notes:
   (`triggered` | `empty` | `busy` | `throttled`); `throttled` includes `available_at`. A refused
   manual compile is informational (your captures are safe regardless), so it isn't an error code.
 - Errors are JSON `{ "error": "..." }`: `400` for bad/missing input, `404` for a missing
-  note/question, `502` when the review-queue backend (GitHub) can't be reached.
+  note/question, `403` for a missing scope (see below), `502` when the review-queue backend
+  (GitHub) can't be reached.
 
 ```sh
 curl -s localhost:3000/api/v1/status
@@ -123,6 +124,23 @@ curl -s -XPOST localhost:3000/api/v1/inbox \
   -H 'content-type: application/json' -d '{"text":"a thought","title":"My Note"}'
 curl -s -XPOST localhost:3000/api/v1/compile
 ```
+
+### Auth & least-privilege scopes
+
+`/api/v1` is gated by the same built-in auth as `/mcp`, validated against the **same**
+`KNOWLEDGE_AUTH_AUDIENCE` (one identifier for the whole service — see
+[Authentication](#authentication)). Pick the OAuth grant by who's calling: an interactive client
+uses **authorization_code + PKCE** (the same user token that works on `/mcp` works here), and an
+unattended machine uses **client_credentials** (a confidential client mints a service JWT — the
+standard M2M grant). Send the token as `Authorization: Bearer …` (or whatever
+`KNOWLEDGE_AUTH_TOKEN_HEADER` is set to).
+
+For least-privilege, set **`KNOWLEDGE_API_REQUIRE_SCOPES=true`** and the REST routes require an
+OAuth scope per request — **`vault.read`** for the GETs, **`vault.write`** for the writes
+(`/inbox`, `/compile`, `/questions/:id/answer`); a missing scope is `403`. So a capture-only cron
+gets a `vault.write` token, a read-only dashboard gets `vault.read`. It's **off by default** so
+tokens that don't carry these scopes (e.g. an interactive login) keep working; turn it on once
+your IdP issues the scopes to the calling client. (Enforced only when built-in auth is on.)
 
 ## Authentication
 
@@ -134,8 +152,8 @@ sure the origin can't be reached *around* it (don't publish the container port; 
 workloads off its network). Portable — bring whatever identity layer you already run.
 
 **2. Built-in token validation (optional).** Set the `KNOWLEDGE_AUTH_*` env and the server becomes an
-OAuth 2.1 *resource server*: it validates a JWT access token on every `/mcp` request and
-advertises its authorization server for client discovery (RFC 9728). Vendor-neutral — point it
+OAuth 2.1 *resource server*: it validates a JWT access token on every `/mcp` **and `/api/v1`** request
+and advertises its authorization server for client discovery (RFC 9728). Vendor-neutral — point it
 at any OIDC issuer. It validates tokens but never issues them, so you still need an authorization
 server (the issuer). This is what lets the origin protect *itself*, so it's safe even if
 something can reach it directly.
@@ -143,9 +161,15 @@ something can reach it directly.
 ```sh
 KNOWLEDGE_AUTH_ISSUER=https://your-idp.example.com          # the OIDC issuer (authorization server)
 KNOWLEDGE_AUTH_JWKS_URL=https://your-idp.example.com/jwks    # its signing keys
-KNOWLEDGE_AUTH_AUDIENCE=https://knowledge.example.com/mcp    # expected `aud` claim
+KNOWLEDGE_AUTH_AUDIENCE=https://knowledge.example.com        # expected `aud` claim — see note below
 # KNOWLEDGE_AUTH_TOKEN_HEADER=authorization                  # or e.g. cf-access-jwt-assertion
 ```
+
+`KNOWLEDGE_AUTH_AUDIENCE` is an opaque identifier the server string-matches the token's `aud`
+against — it can be any value, as long as your IdP stamps the same one. Since it now covers **both**
+`/mcp` and `/api/v1`, prefer a generic, path-less id for the whole service (e.g.
+`https://knowledge.example.com`) rather than a `…/mcp` value. (It's independent of the `/mcp`
+discovery document, which keeps advertising the MCP endpoint for connector discovery.)
 
 Set all three to enable; set none to stay authless. (Half-set → the server refuses to start.)
 
