@@ -1,7 +1,7 @@
 // Entry point: an Express app serving the vault over two protocols — a Streamable HTTP MCP
 // endpoint (/mcp) and a REST API (/api/v1) — both backed by the same in-process vault core.
 // Authentication is optional and OFF by default — the server trusts the network it is deployed
-// on, so run it behind an authenticating proxy. Set MCP_AUTH_* to make it validate tokens
+// on, so run it behind an authenticating proxy. Set KNOWLEDGE_AUTH_* to make it validate tokens
 // itself (see auth.ts and service/README.md).
 import express from 'express';
 import { randomUUID } from 'node:crypto';

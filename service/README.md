@@ -57,12 +57,13 @@ See the root README's
 
 `list_questions` / `get_question` / `answer_question` default to the **files** backend
 (`inbox/.review/`), which needs nothing beyond the vault mount. To back them with **GitHub
-issues** instead, set `MCP_GITHUB_TOKEN` (a PAT with `issues:read`+`write` on the vault repo) and
-`MCP_GITHUB_REPO` (`owner/repo`); the server then reaches the GitHub REST API over the network.
-The channel auto-detects (`github` when both are set, else `files`) and `MCP_REVIEW_CHANNEL`
-forces it. **Match it to the host's `KNOWLEDGE_REVIEW_CHANNEL`** so both halves of the loop share
-one surface. This is the only feature that gives the server outbound network access and a
-credential, so it stays off until you configure it.
+issues** instead, set `KNOWLEDGE_GITHUB_TOKEN` (a PAT with `issues:read`+`write` on the vault repo) and
+`KNOWLEDGE_GITHUB_REPO` (`owner/repo`); the server then reaches the GitHub REST API over the network.
+The channel auto-detects (`github` when both are set, else `files`) and `KNOWLEDGE_REVIEW_CHANNEL`
+forces it. The host's synthesize/resolve jobs read a same-named `KNOWLEDGE_REVIEW_CHANNEL`, so
+**set it to the same value in both places** and both halves of the loop share one surface. This is
+the only feature that gives the server outbound network access and a credential, so it stays off
+until you configure it.
 
 ### Manual compile (`compile_run`)
 
@@ -87,7 +88,7 @@ cooldown next clears) — poll it after a `compile_run` to know when the wiki is
 The same operations as the MCP tools, as plain JSON HTTP under `/api/v1` — for scripts and
 tooling that don't speak MCP. Both surfaces call the same in-process vault core, so behavior is
 identical; the REST layer just returns JSON with proper HTTP status codes. It's gated by the
-**same optional auth** as `/mcp` (authless behind a proxy by default; `MCP_AUTH_*` validates a
+**same optional auth** as `/mcp` (authless behind a proxy by default; `KNOWLEDGE_AUTH_*` validates a
 token on every request).
 
 | Method & path | MCP tool | Success |
@@ -132,7 +133,7 @@ auth and trusts its network. Put an authenticating reverse proxy in front of `/m
 sure the origin can't be reached *around* it (don't publish the container port; keep untrusted
 workloads off its network). Portable — bring whatever identity layer you already run.
 
-**2. Built-in token validation (optional).** Set the `MCP_AUTH_*` env and the server becomes an
+**2. Built-in token validation (optional).** Set the `KNOWLEDGE_AUTH_*` env and the server becomes an
 OAuth 2.1 *resource server*: it validates a JWT access token on every `/mcp` request and
 advertises its authorization server for client discovery (RFC 9728). Vendor-neutral — point it
 at any OIDC issuer. It validates tokens but never issues them, so you still need an authorization
@@ -140,10 +141,10 @@ server (the issuer). This is what lets the origin protect *itself*, so it's safe
 something can reach it directly.
 
 ```sh
-MCP_AUTH_ISSUER=https://your-idp.example.com          # the OIDC issuer (authorization server)
-MCP_AUTH_JWKS_URL=https://your-idp.example.com/jwks    # its signing keys
-MCP_AUTH_AUDIENCE=https://knowledge.example.com/mcp    # expected `aud` claim
-# MCP_AUTH_TOKEN_HEADER=authorization                  # or e.g. cf-access-jwt-assertion
+KNOWLEDGE_AUTH_ISSUER=https://your-idp.example.com          # the OIDC issuer (authorization server)
+KNOWLEDGE_AUTH_JWKS_URL=https://your-idp.example.com/jwks    # its signing keys
+KNOWLEDGE_AUTH_AUDIENCE=https://knowledge.example.com/mcp    # expected `aud` claim
+# KNOWLEDGE_AUTH_TOKEN_HEADER=authorization                  # or e.g. cf-access-jwt-assertion
 ```
 
 Set all three to enable; set none to stay authless. (Half-set → the server refuses to start.)
@@ -203,10 +204,10 @@ JWT on every request it forwards. Point the server's built-in auth at it so the 
 *itself* — then you don't need network isolation to stop LAN/sibling-container access:
 
 ```sh
-MCP_AUTH_ISSUER=https://<team>.cloudflareaccess.com
-MCP_AUTH_JWKS_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/certs
-MCP_AUTH_AUDIENCE=<your Access application's AUD tag>
-MCP_AUTH_TOKEN_HEADER=cf-access-jwt-assertion
+KNOWLEDGE_AUTH_ISSUER=https://<team>.cloudflareaccess.com
+KNOWLEDGE_AUTH_JWKS_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/certs
+KNOWLEDGE_AUTH_AUDIENCE=<your Access application's AUD tag>
+KNOWLEDGE_AUTH_TOKEN_HEADER=cf-access-jwt-assertion
 ```
 
 <details><summary>Homelab specifics (traefik + cloudflared)</summary>
@@ -230,7 +231,7 @@ MCP_AUTH_TOKEN_HEADER=cf-access-jwt-assertion
 
 Two ways to use your own IdP:
 
-- **Built-in validation** — set `MCP_AUTH_ISSUER`/`MCP_AUTH_JWKS_URL`/`MCP_AUTH_AUDIENCE` to the
+- **Built-in validation** — set `KNOWLEDGE_AUTH_ISSUER`/`KNOWLEDGE_AUTH_JWKS_URL`/`KNOWLEDGE_AUTH_AUDIENCE` to the
   IdP's values; the server validates tokens and advertises the issuer for discovery itself. For
   the claude.ai connector the IdP must support dynamic client registration (Auth0/Keycloak do)
   or let you preconfigure claude.ai's client.
