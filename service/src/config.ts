@@ -18,6 +18,22 @@ export const RESOURCE_URL = new URL(`${PUBLIC_URL}/mcp`);
 // Vault filesystem root (the knowledge repo). Mounted at /vault in the container.
 export const VAULT_ROOT = process.env.VAULT_ROOT ?? '/vault';
 
+// --- Which surfaces to serve ---
+// The server can expose the MCP endpoint (/mcp), the REST API (/api/v1), or both. Both are ON by
+// default; set either to 'false' to run a single-surface deployment (e.g. a headless host that
+// only wants REST, or a claude.ai connector that only wants MCP). A disabled surface's paths 404.
+export const ENABLE_MCP = (process.env.KNOWLEDGE_ENABLE_MCP ?? 'true') !== 'false';
+export const ENABLE_REST = (process.env.KNOWLEDGE_ENABLE_REST ?? 'true') !== 'false';
+
+// A server serving neither surface is a misconfiguration — fail fast rather than start a process
+// that only answers /healthz.
+if (!ENABLE_MCP && !ENABLE_REST) {
+  console.error(
+    'FATAL: both KNOWLEDGE_ENABLE_MCP and KNOWLEDGE_ENABLE_REST are false — nothing to serve. Enable at least one.',
+  );
+  process.exit(1);
+}
+
 // --- Optional built-in auth (OAuth 2.1 resource server) ---
 // OFF by default: with these unset the server does NO auth and trusts the network it runs on —
 // deploy it behind an authenticating proxy (see service/README.md). Set all three to make the server

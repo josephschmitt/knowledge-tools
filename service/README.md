@@ -9,6 +9,10 @@ in-process vault core:
 - **REST** at `/api/v1` — a plain JSON HTTP API mirroring the MCP tools 1:1, for scripts,
   automation, and any other tooling that doesn't speak MCP. See [REST API](#rest-api).
 
+Both surfaces are on by default; each can be turned off independently with
+`KNOWLEDGE_ENABLE_MCP=false` / `KNOWLEDGE_ENABLE_REST=false` (a disabled surface's paths 404; the
+server refuses to start if both are off). See [Choosing which surfaces to serve](#choosing-which-surfaces-to-serve).
+
 Authentication is **optional and off by default** and gates **both** surfaces: out of the box
 the server does no auth and trusts its network (run it behind an authenticating proxy), or you
 can switch on built-in OAuth token validation pointed at any OIDC issuer. See
@@ -82,6 +86,19 @@ signal: the host records `last_compiled_at` at the *end* of every successful com
 scheduled and on-demand), so a `last_compiled_at` newer than your trigger time means the run
 finished. It also reports `pending_inbox_count` and `manual_compile_available_at` (when the
 cooldown next clears) — poll it after a `compile_run` to know when the wiki is caught up.
+
+## Choosing which surfaces to serve
+
+Both protocols run by default. To run a single-surface deployment, set one of:
+
+```sh
+KNOWLEDGE_ENABLE_MCP=false     # REST only (e.g. a headless host with no claude.ai connector)
+KNOWLEDGE_ENABLE_REST=false    # MCP only (e.g. only the claude.ai/Claude Code connector)
+```
+
+A disabled surface isn't mounted, so its paths return `404` (and for MCP, the RFC 9728 discovery
+metadata isn't advertised either). `/healthz` is always served. Setting **both** to `false` is a
+misconfiguration — the server logs `FATAL … nothing to serve` and exits non-zero.
 
 ## REST API
 
