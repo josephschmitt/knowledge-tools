@@ -10,7 +10,7 @@
     {
       "name": "vault",
       "source": "./plugins/vault",
-      "description": "The knowledge-vault skill: capture raw material into a personal LLM wiki and query the compiled notes, through the vault's MCP connector."
+      "description": "The knowledge-vault skill: capture knowledge and tasks into a personal LLM wiki and query the compiled notes, through the vault's MCP connector."
     },
     {
       "name": "auto-capture",
