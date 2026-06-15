@@ -16,10 +16,16 @@ working in the repo.
 
 ## Layout
 
-- `skills/` — Claude skills, one per `skills/<name>/SKILL.md`. Currently just
-  `knowledge-vault`, the conversational front-door skill (capture + query via the MCP
-  connector). Shipped two ways: zipped per-skill for claude.ai, and as a Claude Code
-  plugin via the marketplace in `.claude-plugin/` (see below).
+- `plugins/` — Claude Code plugins, one per `plugins/<plugin>/`, each bundling a single skill
+  (`plugins/<plugin>/skills/<name>/SKILL.md`) and its own `.claude-plugin/plugin.json`. Two of
+  them: `vault` (skill `knowledge-vault`), the conversational front-door skill
+  (capture-on-request + query via the MCP connector, whose config the plugin carries); and
+  `auto-capture` (skill `auto-capture`), an **optional, opt-in** always-on skill that
+  proactively captures capture-worthy material to the inbox *without* being asked (it reuses
+  the `vault` plugin's `append_to_inbox` connector; it never queries or compiles). Shipped two
+  ways: zipped per-skill for claude.ai, and as the Claude Code plugins listed in the
+  marketplace at `.claude-plugin/marketplace.json` — one plugin per skill, so each installs
+  independently (see below).
 - `service/` — the vault service (TypeScript). One Express app exposing the vault over **two
   protocols** off a shared in-process core (`src/vault.ts` / `src/review.ts`): a Streamable-HTTP
   **MCP** endpoint at `/mcp` (the claude.ai connector, `src/mcp.ts`) and a **REST API** at
@@ -80,7 +86,8 @@ working in the repo.
 
 ## Skills
 
-Every `skills/<name>/SKILL.md` must satisfy `scripts/validate_skills.py` (CI gate):
+Every `plugins/<plugin>/skills/<name>/SKILL.md` must satisfy `scripts/validate_skills.py`
+(CI gate):
 
 - YAML frontmatter with `name` and `description`.
 - `name`: lowercase `[a-z0-9-]`, ≤64 chars, and **must equal the directory name**.
@@ -110,7 +117,7 @@ present.
 - **Server `instructions`** (same file) — cross-tool policy and architecture only: the
   dumb-capture/smart-compile split, prefer-the-vault-over-general-knowledge, which tools
   serve which side. Never restate a per-tool rule here.
-- **The skill** (`skills/knowledge-vault/SKILL.md`) — everything tools can't express:
+- **The skill** (`plugins/vault/skills/knowledge-vault/SKILL.md`) — everything tools can't express:
   *when* to invoke (intent-matching in the frontmatter description), multi-tool
   choreography, conversational policy and voice, examples, and the **why** behind the
   tool-level rules.
@@ -125,34 +132,47 @@ server's exact I/O shapes; keep it in sync when shapes change.
 ## Shipping skills
 
 **Claude Code (plugin marketplace).** `.claude-plugin/marketplace.json` defines a
-marketplace named `tools` with a single plugin named `knowledge` whose source is the repo
-root (`"."`), so the `skills/` directory is auto-discovered. Users install with:
+marketplace named `knowledge-tools` with **one plugin per skill**, each `source`d at its own
+plugin directory: `vault` → `./plugins/vault`, `auto-capture` → `./plugins/auto-capture`.
+Each plugin dir holds its own `.claude-plugin/plugin.json` and the skill it ships under
+`skills/<name>/` (a plugin can only bundle skills inside its own `source` tree, which is why
+the skill dirs live under the plugin rather than at the repo root). Splitting them into
+separate plugins is deliberate — it makes `auto-capture` (the always-on proactive skill) a
+separate, opt-in install rather than something that activates the moment you install the core
+skill. Users install with:
 
 ```text
 /plugin marketplace add josephschmitt/knowledge-tools
-/plugin install knowledge@tools
+/plugin install vault@knowledge-tools          # core: capture-on-request + query
+/plugin install auto-capture@knowledge-tools   # optional: autonomous capture
 ```
 
-The skill is then invocable as `/knowledge:knowledge-vault`. After editing the manifests,
-validate locally:
+The skills are then invocable as `/vault:knowledge-vault` and `/auto-capture:auto-capture`.
+After editing the manifests, validate locally:
 
 ```sh
 claude plugin validate .
 ```
 
-Adding a new skill needs no manifest change — drop it under `skills/<name>/` and the plugin
-picks it up. The plugin pulls from the repo's default branch, so `/plugin update` tracks
-`main`.
+Because each plugin's `source` is its own plugin dir (not the repo root), **adding a skill
+now requires a marketplace entry** — create `plugins/<plugin>/` with the skill at
+`skills/<name>/SKILL.md` and a `.claude-plugin/plugin.json`, then add a `plugins[]` entry
+pointing at it. A plugin's `plugin.json` lives at `<source>/.claude-plugin/plugin.json`; the
+`marketplace.json` stays at the repo root. Plugins pull from the repo's default branch, so
+`/plugin update` tracks `main`.
 
-The `knowledge-vault` skill drives the vault through its **MCP connector**, which the
-plugin now bundles: `plugin.json` declares a `userConfig.mcp_url` field, so enabling the
-plugin prompts the user for their self-hosted MCP endpoint, and an inline `mcpServers`
-entry wires `${user_config.mcp_url}` into a remote HTTP server named `knowledge-vault`.
-OAuth is auto-negotiated against whatever authenticating proxy fronts the endpoint (the
-homelab uses Cloudflare Access, which serves `/.well-known/oauth-protected-resource` + 401),
-so no secret lives in the manifest. The
-config is inlined in `plugin.json` rather than a repo-root `.mcp.json` on purpose: source
-is `"."`, so a root `.mcp.json` would also act as this repo's *project* MCP config.
+The `knowledge-vault` skill drives the vault through its **MCP connector**, declared in the
+`vault` plugin's `plugin.json` (`plugins/vault/.claude-plugin/plugin.json`): a
+`userConfig.mcp_url` field prompts the user for their self-hosted MCP endpoint, and an inline
+`mcpServers` entry wires `${user_config.mcp_url}` into a remote HTTP server named
+`knowledge-vault`. OAuth is auto-negotiated against whatever authenticating proxy fronts the
+endpoint (the homelab uses Cloudflare Access, which serves
+`/.well-known/oauth-protected-resource` + 401), so no secret lives in the manifest. The
+`auto-capture` plugin declares **no** MCP config of its own — it reuses the `knowledge-vault`
+server the `vault` plugin connects, so it depends on `vault` being installed too (this also
+avoids a duplicate `mcp_url` prompt). Keeping each plugin's MCP config inside its own
+plugin-dir `plugin.json` (rather than a repo-root `.mcp.json`) avoids that file also acting as
+this repo's *project* MCP config.
 
 > The plugin only points Claude Code at the connector — the user still has to deploy the
 > service (see `service/README.md`) and reach it at the URL they enter.
@@ -169,7 +189,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) titles: `type(s
 (e.g. `feat(skills): add ...`, `fix(service): ...`, `docs: ...`, `chore: ...`). This isn't just
 style — `package-skills.yml` derives the next release version from the landed commits' prefixes:
 `feat` → minor, `fix` → patch, and a `!` or `BREAKING CHANGE` → major. Write commit titles
-accordingly when touching `skills/`.
+accordingly when touching `plugins/`.
 
 ## CI
 

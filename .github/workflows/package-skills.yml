@@ -13,7 +13,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'skills/**'
+      - 'plugins/**'
   release:
     types: [published]
   workflow_dispatch:
@@ -84,10 +84,11 @@ jobs:
           mkdir -p dist
           # Zip each skill as `<name>/...` at the root of the archive, which is the
           # layout claude.ai expects for skill uploads. Skill folders live at
-          # skills/<name>/.
-          for skill_md in skills/*/SKILL.md; do
-            name="$(basename "$(dirname "$skill_md")")"
-            (cd skills && zip -r "$GITHUB_WORKSPACE/dist/${name}.zip" "$name" -x '*.DS_Store' '*/.DS_Store')
+          # plugins/<plugin>/skills/<name>/.
+          for skill_md in plugins/*/skills/*/SKILL.md; do
+            skill_dir="$(dirname "$skill_md")"
+            name="$(basename "$skill_dir")"
+            (cd "$(dirname "$skill_dir")" && zip -r "$GITHUB_WORKSPACE/dist/${name}.zip" "$name" -x '*.DS_Store' '*/.DS_Store')
             echo "built dist/${name}.zip"
           done
           ls -la dist/

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace-manifest.json",
-  "name": "tools",
+  "name": "knowledge-tools",
   "owner": {
     "name": "Joe Schmitt",
     "email": "dev@joe.sh"
@@ -8,9 +8,14 @@
   "description": "knowledge-tools: skills and plugins for running a personal LLM wiki.",
   "plugins": [
     {
-      "name": "knowledge",
-      "source": ".",
+      "name": "vault",
+      "source": "./plugins/vault",
       "description": "The knowledge-vault skill: capture raw material into a personal LLM wiki and query the compiled notes, through the vault's MCP connector."
+    },
+    {
+      "name": "auto-capture",
+      "source": "./plugins/auto-capture",
+      "description": "Optional always-on skill: autonomously capture knowledge and tasks to the vault inbox during any conversation, without being asked. Requires the vault plugin for the append_to_inbox connector."
     }
   ]
 }
