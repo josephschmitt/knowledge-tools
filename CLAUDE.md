@@ -193,7 +193,8 @@ config; the homelab keeps it in its synced dotfiles `settings.json`. The `oauth`
 fixed port) is emitted for **every** install: a blank `oauth_client_id` interpolates to an empty
 `clientId`, which Claude Code treats as no client and falls through to DCR — fine for a
 DCR-capable proxy (e.g. Cloudflare Access Managed OAuth), whose loopback port is then pinned to
-47832 rather than random (harmless for a fresh registration). The
+47832 rather than random: harmless for a fresh registration, though a DCR install predating this
+`oauth` block re-registers once at 47832 on its next auth. The
 `auto-capture` plugin declares **no** MCP config of its own — it reuses the `knowledge-vault`
 server the `vault` plugin connects, so it depends on `vault` being installed too (this also
 avoids a duplicate `mcp_url` prompt). Keeping each plugin's MCP config inside its own
