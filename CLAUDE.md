@@ -180,9 +180,17 @@ The `knowledge-vault` skill drives the vault through its **MCP connector**, decl
 `vault` plugin's `plugin.json` (`plugins/vault/.claude-plugin/plugin.json`): a
 `userConfig.mcp_url` field prompts the user for their self-hosted MCP endpoint, and an inline
 `mcpServers` entry wires `${user_config.mcp_url}` into a remote HTTP server named
-`knowledge-vault`. OAuth is auto-negotiated against whatever authenticating proxy fronts the
-endpoint (the homelab uses Cloudflare Access, which serves
-`/.well-known/oauth-protected-resource` + 401), so no secret lives in the manifest. The
+`knowledge-vault`. OAuth is negotiated against whatever authenticating proxy/IdP fronts the
+endpoint (RFC 9728 protected-resource metadata + a 401 challenge), so no secret lives in the
+manifest. **No-DCR IdPs:** when the issuer lacks dynamic client registration (the homelab now
+fronts the endpoint with a self-hosted **Authelia** IdP, which has no DCR), Claude Code can't
+self-register and fails with *"Incompatible auth server: does not support dynamic client
+registration."* For that case the manifest carries an optional `userConfig.oauth_client_id`
+field, interpolated into the server's `oauth.clientId` alongside a fixed `oauth.callbackPort`
+(47832) — the user supplies a pre-registered public/PKCE client ID whose loopback redirect
+(`http://127.0.0.1:47832/callback` / `http://localhost:47832/callback`) matches that port.
+Leave it blank for DCR-capable proxies (e.g. Cloudflare Access Managed OAuth), which
+auto-register. The
 `auto-capture` plugin declares **no** MCP config of its own — it reuses the `knowledge-vault`
 server the `vault` plugin connects, so it depends on `vault` being installed too (this also
 avoids a duplicate `mcp_url` prompt). Keeping each plugin's MCP config inside its own
