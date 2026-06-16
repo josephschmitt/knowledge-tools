@@ -59,40 +59,45 @@ connector, so install `vault` too (or on its own it has nothing to capture throu
 `vault` plugin bundles the skill's MCP connector: enabling it prompts for your
 self-hosted MCP URL (including the `/mcp` path, e.g. `https://knowledge.example.com/mcp`)
 and wires it up as a remote HTTP server. OAuth is negotiated automatically on first
-connect — the authenticating proxy in front of the server (Cloudflare Access in the homelab)
-advertises the authorization server and Claude Code walks the flow (run `/mcp` if you need to
-(re)authenticate). The vault must already be deployed and reachable at that URL — see
+connect — the authenticating proxy/IdP in front of the server advertises the authorization
+server and Claude Code walks the flow (run `/mcp` if you need to (re)authenticate). The vault
+must already be deployed and reachable at that URL — see
 [`service/README.md`](service/README.md).
 
 ### If your IdP doesn't support Dynamic Client Registration
 
 The auto-negotiation above relies on your authorization server supporting **OAuth Dynamic
 Client Registration** (DCR) — Cloudflare Access does, so Claude Code registers a client on the
-fly and there's nothing to configure. Some self-hosted IdPs (e.g. **Authelia**) don't support
-DCR. There, Claude Code can't auto-register and the plugin's server will fail to authenticate.
+fly and there's nothing to configure. Some self-hosted IdPs (e.g. **Authelia**, which the
+homelab runs) don't support DCR, so Claude Code can't auto-register and fails with
+*"Incompatible auth server: does not support dynamic client registration."*
 
-The fix lives entirely on *your* side, not in the plugin: pre-register a **public client with
-PKCE** in your IdP (no client secret — it's a CLI), giving it a fixed loopback redirect URI,
-then point Claude Code at that client with a user-scoped server instead of relying on
-auto-negotiation:
+For that case, pre-register a **public client with PKCE** in your IdP (no client secret — it's a
+CLI) and give it the loopback redirect the plugin uses. IdPs match redirect URIs exactly and
+native OAuth clients disagree on the loopback host, so register **both**:
 
-```sh
-claude mcp add-json --scope user knowledge-vault \
-  '{"type":"http","url":"https://knowledge.example.com/mcp","oauth":{"clientId":"<your-client-id>","callbackPort":47832}}'
+```
+http://127.0.0.1:47832/callback
+http://localhost:47832/callback
 ```
 
-Then run `/mcp` → **Authorize**. Notes:
+Then hand the plugin that client's ID. The `vault` plugin declares an optional **OAuth client
+ID** user-config field: enter your pre-registered client ID and the plugin wires it into the
+connector's `oauth.clientId` with the matching fixed callback port (47832). If the plugin is
+already installed and didn't re-prompt, set it directly under `pluginConfigs` in your
+`settings.json`:
 
-- `--scope user` makes it available in every project on that machine; it's a one-time setup
-  per machine (the token then persists and refreshes automatically).
-- `callbackPort` must match the port registered in your client's redirect URI
-  (`http://localhost:<port>/callback`). Because IdPs do exact redirect-URI matching and native
-  OAuth clients disagree on the loopback host, register **both** `http://localhost:<port>/callback`
-  and `http://127.0.0.1:<port>/callback`.
-- This user-scoped entry takes precedence over the plugin's auto-negotiated server of the same
-  name, so the bundled skill keeps working — now against the authenticated connection.
-- The plugin manifest deliberately carries **no** OAuth config: DCR deployments stay zero-config,
-  and non-DCR client details live in your own machine config, never in the shared plugin.
+```json
+"pluginConfigs": { "vault@knowledge-tools": { "options": {
+  "mcp_url": "https://knowledge.example.com/mcp",
+  "oauth_client_id": "<your-client-id>"
+} } }
+```
+
+Then run `/mcp` → **Authenticate**. DCR deployments leave the field blank and stay zero-config:
+a blank value interpolates to an empty client ID, which Claude Code treats as "no client" and
+falls through to DCR. The manifest keeps no deployment-specific client ID — it ships only the
+optional field and the fixed callback port.
 
 **claude.ai** — download the `knowledge-vault.zip` asset (and, optionally,
 `auto-capture.zip`) from the latest
