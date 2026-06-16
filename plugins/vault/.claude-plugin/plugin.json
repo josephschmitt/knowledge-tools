@@ -12,7 +12,7 @@
     "mcp_url": {
       "type": "string",
       "title": "Knowledge vault MCP URL",
-      "description": "Your self-hosted knowledge-vault MCP connector endpoint, including the /mcp path (e.g. https://knowledge.example.com/mcp). The skill drives the vault through this server; OAuth is negotiated automatically on first connect.",
+      "description": "Your self-hosted knowledge-vault MCP connector endpoint, including the /mcp path (e.g. https://knowledge.example.com/mcp). OAuth is negotiated automatically on first connect; IdPs without dynamic client registration need a .mcp.json (see the plugin README).",
       "required": true
     }
   },
