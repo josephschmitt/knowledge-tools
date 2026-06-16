@@ -12,24 +12,14 @@
     "mcp_url": {
       "type": "string",
       "title": "Knowledge vault MCP URL",
-      "description": "Your self-hosted knowledge-vault MCP connector endpoint, including the /mcp path (e.g. https://knowledge.example.com/mcp). The skill drives the vault through this server; OAuth is negotiated automatically on first connect.",
+      "description": "Your self-hosted knowledge-vault MCP connector endpoint, including the /mcp path (e.g. https://knowledge.example.com/mcp). OAuth is negotiated automatically on first connect; IdPs without dynamic client registration need a .mcp.json (see the plugin README).",
       "required": true
-    },
-    "oauth_client_id": {
-      "type": "string",
-      "title": "OAuth client ID (for IdPs without dynamic client registration)",
-      "description": "Pre-registered public/PKCE client ID, set this when your IdP has no dynamic client registration (e.g. self-hosted Authelia); that client must allow the loopback redirects http://127.0.0.1:47832/callback and http://localhost:47832/callback to match the fixed callback port. Leave blank for a DCR-capable proxy (e.g. Cloudflare Access Managed OAuth), which registers the client automatically.",
-      "required": false
     }
   },
   "mcpServers": {
     "knowledge-vault": {
       "type": "http",
-      "url": "${user_config.mcp_url}",
-      "oauth": {
-        "clientId": "${user_config.oauth_client_id}",
-        "callbackPort": 47832
-      }
+      "url": "${user_config.mcp_url}"
     }
   }
 }

@@ -73,31 +73,41 @@ homelab runs) don't support DCR, so Claude Code can't auto-register and fails wi
 *"Incompatible auth server: does not support dynamic client registration."*
 
 For that case, pre-register a **public client with PKCE** in your IdP (no client secret — it's a
-CLI) and give it the loopback redirect the plugin uses. IdPs match redirect URIs exactly and
-native OAuth clients disagree on the loopback host, so register **both**:
+CLI) with a fixed loopback redirect. Then point Claude Code at that client through a
+**`.mcp.json`** entry — *not* the plugin's config. The plugin can't carry the client ID itself:
+its connector is wired from `userConfig`, and Claude Code does **not** interpolate
+`${user_config.*}` into the `oauth` block (only into `url`), so a client ID supplied through the
+plugin reaches the IdP as the literal string `${user_config.oauth_client_id}` and is rejected.
+A `.mcp.json` entry takes literal values and **overrides** the plugin's same-named server, so
+this is the supported path.
 
-```
-http://127.0.0.1:47832/callback
-http://localhost:47832/callback
-```
+1. **Register the client** in your IdP with the loopback redirect the entry below uses. IdPs
+   match redirect URIs exactly and native OAuth clients disagree on the loopback host, so
+   register **both** `http://127.0.0.1:47832/callback` and `http://localhost:47832/callback`.
 
-Then hand the plugin that client's ID. The `vault` plugin declares an optional **OAuth client
-ID** user-config field: enter your pre-registered client ID and the plugin wires it into the
-connector's `oauth.clientId` with the matching fixed callback port (47832). If the plugin is
-already installed and didn't re-prompt, set it directly under `pluginConfigs` in your
-`settings.json`:
+2. **Add the server to a `.mcp.json`** — a project one, or `~/.mcp.json` to cover every project
+   (Claude reads `.mcp.json` from the working directory up to the filesystem root):
 
-```json
-"pluginConfigs": { "vault@knowledge-tools": { "options": {
-  "mcp_url": "https://knowledge.example.com/mcp",
-  "oauth_client_id": "<your-client-id>"
-} } }
-```
+   ```json
+   {
+     "mcpServers": {
+       "knowledge-vault": {
+         "type": "http",
+         "url": "https://knowledge.example.com/mcp",
+         "oauth": { "clientId": "<your-public-client-id>", "callbackPort": 47832 }
+       }
+     }
+   }
+   ```
 
-Then run `/mcp` → **Authenticate**. DCR deployments leave the field blank and stay zero-config:
-a blank value interpolates to an empty client ID, which Claude Code treats as "no client" and
-falls through to DCR. The manifest keeps no deployment-specific client ID — it ships only the
-optional field and the fixed callback port.
+   The `callbackPort` must match the port in the redirect URIs you registered.
+
+3. **Approve + authenticate.** Reload; approve the `knowledge-vault` server when Claude prompts
+   (*"New MCP server found in .mcp.json"*), or set `enableAllProjectMcpServers` /
+   `enabledMcpjsonServers` in `settings.json`. Then `/mcp` → **Authenticate**.
+
+DCR deployments need none of this — leave the plugin's bare server alone and Claude Code
+auto-registers on first connect.
 
 **claude.ai** — download the `knowledge-vault.zip` asset (and, optionally,
 `auto-capture.zip`) from the latest
