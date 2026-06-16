@@ -184,17 +184,18 @@ The `knowledge-vault` skill drives the vault through its **MCP connector**, decl
 endpoint (RFC 9728 protected-resource metadata + a 401 challenge), so no secret lives in the
 manifest. **No-DCR IdPs:** the homelab fronts the endpoint with a self-hosted **Authelia** IdP,
 which has no DCR, so Claude Code can't self-register and fails with *"Incompatible auth server:
-does not support dynamic client registration."* The manifest handles this with an optional
-`userConfig.oauth_client_id` interpolated into the server's `oauth.clientId`, plus a fixed
-`oauth.callbackPort` (47832); the pre-registered public/PKCE client must allow the matching
-loopback redirects (`http://127.0.0.1:47832/callback` / `http://localhost:47832/callback`). The
-value is **not** baked into the manifest (it stays deployment-neutral) — supply it through user
-config; the homelab keeps it in its synced dotfiles `settings.json`. The `oauth` block (and the
-fixed port) is emitted for **every** install: a blank `oauth_client_id` interpolates to an empty
-`clientId`, which Claude Code treats as no client and falls through to DCR — fine for a
-DCR-capable proxy (e.g. Cloudflare Access Managed OAuth), whose loopback port is then pinned to
-47832 rather than random: harmless for a fresh registration, though a DCR install predating this
-`oauth` block re-registers once at 47832 on its next auth. The
+does not support dynamic client registration."* The manifest **cannot** carry the client ID to
+fix this: Claude Code interpolates `${user_config.*}` into a server's `url` but **not** into the
+nested `oauth` block, so a userConfig-supplied client ID reaches the IdP as the literal string
+`${user_config.oauth_client_id}` and is rejected as `invalid_client` (verified against the
+shipped CLI and live). The supported path is a **`.mcp.json`** entry — project-scoped, or
+`~/.mcp.json` to cover every project (Claude reads `.mcp.json` from the cwd up to the filesystem
+root) — that defines `knowledge-vault` with a *literal* `oauth.clientId` + `oauth.callbackPort`
+(47832); a `.mcp.json` server **overrides** the plugin's same-named one. So the manifest ships
+only the bare DCR-capable server: DCR-capable proxies (e.g. Cloudflare Access Managed OAuth)
+auto-register and need nothing; no-DCR IdPs add the `.mcp.json` override (the homelab's is
+`claude-code-knowledge-vault`, public+PKCE, loopback redirects `http://127.0.0.1:47832/callback`
++ `http://localhost:47832/callback`, kept out of the repo). The
 `auto-capture` plugin declares **no** MCP config of its own — it reuses the `knowledge-vault`
 server the `vault` plugin connects, so it depends on `vault` being installed too (this also
 avoids a duplicate `mcp_url` prompt). Keeping each plugin's MCP config inside its own
