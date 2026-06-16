@@ -17,8 +17,9 @@
     },
     "oauth_client_id": {
       "type": "string",
-      "title": "OAuth client ID (only for IdPs without dynamic client registration)",
-      "description": "Leave blank if your auth proxy supports dynamic client registration (e.g. Cloudflare Access Managed OAuth) — Claude Code registers itself automatically. Set it to a pre-registered public/PKCE client ID only when your IdP has no DCR (e.g. self-hosted Authelia): that client must register the loopback redirect http://127.0.0.1:47832/callback (and/or http://localhost:47832/callback) to match the fixed callback port below.",
+      "title": "OAuth client ID (for IdPs without dynamic client registration)",
+      "description": "Pre-registered public/PKCE client ID, used when your IdP has no dynamic client registration (e.g. self-hosted Authelia). The default matches the documented client; that client must allow the loopback redirects http://127.0.0.1:47832/callback and http://localhost:47832/callback to match the fixed callback port. Clear this field only if a DCR-capable proxy (e.g. Cloudflare Access Managed OAuth) fronts your endpoint and registers the client automatically.",
+      "default": "claude-code-knowledge-vault",
       "required": false
     }
   },

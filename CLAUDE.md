@@ -182,15 +182,17 @@ The `knowledge-vault` skill drives the vault through its **MCP connector**, decl
 `mcpServers` entry wires `${user_config.mcp_url}` into a remote HTTP server named
 `knowledge-vault`. OAuth is negotiated against whatever authenticating proxy/IdP fronts the
 endpoint (RFC 9728 protected-resource metadata + a 401 challenge), so no secret lives in the
-manifest. **No-DCR IdPs:** when the issuer lacks dynamic client registration (the homelab now
-fronts the endpoint with a self-hosted **Authelia** IdP, which has no DCR), Claude Code can't
-self-register and fails with *"Incompatible auth server: does not support dynamic client
-registration."* For that case the manifest carries an optional `userConfig.oauth_client_id`
-field, interpolated into the server's `oauth.clientId` alongside a fixed `oauth.callbackPort`
-(47832) — the user supplies a pre-registered public/PKCE client ID whose loopback redirect
-(`http://127.0.0.1:47832/callback` / `http://localhost:47832/callback`) matches that port.
-Leave it blank for DCR-capable proxies (e.g. Cloudflare Access Managed OAuth), which
-auto-register. The
+manifest. **No-DCR IdPs (the default target):** the homelab fronts the endpoint with a
+self-hosted **Authelia** IdP, which has no DCR, so Claude Code can't self-register and fails
+with *"Incompatible auth server: does not support dynamic client registration."* The manifest
+handles this with an optional `userConfig.oauth_client_id` (default `claude-code-knowledge-vault`)
+interpolated into the server's `oauth.clientId`, plus a fixed `oauth.callbackPort` (47832); the
+pre-registered public/PKCE client must allow the matching loopback redirects
+(`http://127.0.0.1:47832/callback` / `http://localhost:47832/callback`). The `oauth` block — the
+default client ID *and* the fixed port — is emitted for **every** install, not just no-DCR ones:
+a DCR-capable proxy (e.g. Cloudflare Access Managed OAuth) needs `oauth_client_id` *cleared* so
+Claude Code registers itself, and its loopback port is then pinned to 47832 rather than random
+(harmless for a fresh registration). The
 `auto-capture` plugin declares **no** MCP config of its own — it reuses the `knowledge-vault`
 server the `vault` plugin connects, so it depends on `vault` being installed too (this also
 avoids a duplicate `mcp_url` prompt). Keeping each plugin's MCP config inside its own
