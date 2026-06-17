@@ -33,9 +33,10 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   Code pass (`/compile-inbox`) over the vault; `vault-job.sh` runs the two judgment-call jobs
   (`/synthesize` and `/resolve`), carrying their judgment calls over either GitHub issues or a
   git-free file queue (`KNOWLEDGE_REVIEW_CHANNEL`, see [below](#judgment-call-channel-github-or-files));
-  `vault-lib.sh` holds the config, shared cross-job lock, and
+  `vault-lib.sh` holds the config, per-vault cross-job lock, and
   git side effects all three share; `install.sh` generates the systemd *user* units from the
-  `knowledge-*.in` templates; `init-vault.sh` seeds a brand-new vault from `template/`;
+  `knowledge-*@.in` templates — one instance per vault, so a host can run several
+  ([below](#vault-automation-host-setup)); `init-vault.sh` seeds a brand-new vault from `template/`;
   `validate_skills.py` is used by CI.
 - **`template/`** — the starting point of a vault's own librarian (`CLAUDE.md`, the
   `/compile-inbox`, `/synthesize`, `/resolve` commands, and the folder skeleton). A seed, not
@@ -134,9 +135,12 @@ reconcile. To reset a single file back to the seed, delete it and re-run.
 
 ## Vault automation (host setup)
 
-Three vault jobs run on the host as systemd *user* units. They all edit `wiki/` and commit,
-so they share **one lockfile** (`~/.local/state/knowledge-tools/vault.lock`, overridable with
-`KNOWLEDGE_VAULT_LOCK`) and never run concurrently. In every case Claude only edits files (and,
+Three vault jobs run on the host as systemd *user* units, as one **template instance per vault**
+(`knowledge-compile@<vault>.service`, …). On a single-vault host the instance is just `default`
+and you can ignore the naming. They all edit `wiki/` and commit, so the three jobs **for a given
+vault** share **one lockfile** (`~/.local/state/knowledge-tools/vault-<vault>.lock`, keyed by the
+instance and overridable with `KNOWLEDGE_VAULT_LOCK`) and never run concurrently — while different
+vaults have different locks and *do* run concurrently. In every case Claude only edits files (and,
 in the GitHub review channel, runs scoped `gh` calls) — the **wrapper** owns git: it commits any
 `wiki/` + `index.md` + `log.md` changes and pushes if an `origin` remote exists.
 
@@ -147,21 +151,21 @@ no git and no GitHub.
 
 **Compile** — turn fresh captures into notes:
 
-- `knowledge-compile.service` — one ephemeral inbox→wiki compile (the worker).
-- `knowledge-compile.timer` — runs it on a schedule (default hourly;
+- `knowledge-compile@<vault>.service` — one ephemeral inbox→wiki compile (the worker).
+- `knowledge-compile@<vault>.timer` — runs it on a schedule (default hourly;
   `KNOWLEDGE_COMPILE_ONCALENDAR`). No-ops cheaply when the inbox is empty, so a tick only does
   real work when there are captures.
-- `knowledge-compile.path` — runs it on demand when the MCP server's `compile_run` tool drops
-  `inbox/.compile/request` into the vault. Both triggers start the same service.
+- `knowledge-compile@<vault>.path` — runs it on demand when the MCP server's `compile_run` tool
+  drops `inbox/.compile/request` into the vault. Both triggers start the same service.
 
 **Synthesize** (heavy, infrequent) and **Resolve** (light, frequent) — the judgment-call loop:
 
-- `knowledge-synthesize.{service,timer}` — a whole-corpus `/synthesize` pass (default **weekly,
-  ~4:30am local**, `KNOWLEDGE_SYNTHESIZE_ONCALENDAR`). Reconciles drift/contradictions and finds
-  new cross-note connections, **opening** judgment calls for anything only you can decide.
-- `knowledge-resolve.{service,timer}` — a `/resolve` pass (default **daily, ~3:30am local**,
-  `KNOWLEDGE_RESOLVE_ONCALENDAR`). Reads your answers to open calls, applies the decisions to
-  `wiki/`, and **closes** them. Short-circuits cheaply when nothing is answered.
+- `knowledge-synthesize@<vault>.{service,timer}` — a whole-corpus `/synthesize` pass (default
+  **weekly, ~4:30am local**, `KNOWLEDGE_SYNTHESIZE_ONCALENDAR`). Reconciles drift/contradictions
+  and finds new cross-note connections, **opening** judgment calls for anything only you can decide.
+- `knowledge-resolve@<vault>.{service,timer}` — a `/resolve` pass (default **daily, ~3:30am
+  local**, `KNOWLEDGE_RESOLVE_ONCALENDAR`). Reads your answers to open calls, applies the decisions
+  to `wiki/`, and **closes** them. Short-circuits cheaply when nothing is answered.
 
 Both default to the middle of the night (pinned to `America/Detroit` so they track local night
 through DST even on a UTC host) to land on off-peak Claude Max capacity, staggered an hour apart
@@ -206,12 +210,26 @@ there (the scripts load the repo-root `.env` automatically; a real env var overr
 KNOWLEDGE_REPO=/path/to/vault ~/development/knowledge-tools/scripts/install.sh
 ```
 
-It generates the units from the `scripts/knowledge-*.in` templates — filling in this repo's
-path for the worker scripts and the **vault** repo's path (from the required `KNOWLEDGE_REPO`)
-— writes them into `~/.config/systemd/user/`, reloads the daemon, enables and starts the three
-timers + the path watcher, and enables linger so they run while you're logged out. Run the
-issue jobs on demand with `systemctl --user start knowledge-{synthesize,resolve}.service`. To
-change a unit, edit its `.in` template and re-run the script.
+It generates the units from the `scripts/knowledge-*@.{service,timer,path}.in` templates —
+filling in this repo's path for the worker scripts and writing this vault's `KNOWLEDGE_REPO` into
+`~/.config/knowledge-tools/<vault>.env` (which the service units load) — installs them into
+`~/.config/systemd/user/`, reloads the daemon, enables and starts the three timers + the path
+watcher, and enables linger so they run while you're logged out. Run the issue jobs on demand with
+`systemctl --user start knowledge-{synthesize,resolve}@<vault>.service`. To change a unit, edit its
+`.in` template and re-run the script.
+
+**Multiple vaults** (e.g. personal vs work) run on one host as separate instances — each its own
+deployment of these units, lock, schedule, and config. Just run `install.sh` again per vault with a
+distinct `KNOWLEDGE_INSTANCE` (the `<vault>` above; the first one defaults to `default`):
+
+```sh
+KNOWLEDGE_INSTANCE=work KNOWLEDGE_REPO=/path/to/work-vault ~/development/knowledge-tools/scripts/install.sh
+```
+
+Each vault is a wholly independent deployment — its own service (one per vault, see
+[`service/README.md`](service/README.md)), its own MCP connector, and its own host jobs — rather than
+one service multiplexing many vaults. Re-running `install.sh` once on an existing single-vault host
+migrates it to the `default` instance (it removes the old non-instanced units).
 
 ### Bot account (optional)
 

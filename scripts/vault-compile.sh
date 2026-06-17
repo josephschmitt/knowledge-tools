@@ -2,10 +2,10 @@
 # Ephemeral inbox->wiki compile: turn inbox/ captures into wiki/ knowledge as a fresh,
 # short-lived Claude run, then archive the processed captures and commit.
 #
-# Triggered two ways, both starting the SAME systemd unit (so systemd's single-instance
-# guarantee serializes them — that's the cross-process lock):
-#   - knowledge-compile.timer  → scheduled run (cadence via KNOWLEDGE_COMPILE_ONCALENDAR)
-#   - knowledge-compile.path   → manual run, when the MCP server drops inbox/.compile/request
+# Triggered two ways, both starting the SAME per-vault systemd unit (so systemd's single-instance
+# guarantee serializes them — that's the cross-process lock for this vault):
+#   - knowledge-compile@<vault>.timer  → scheduled run (cadence via KNOWLEDGE_COMPILE_ONCALENDAR)
+#   - knowledge-compile@<vault>.path   → manual run, when the MCP server drops inbox/.compile/request
 #
 # Design notes:
 #   - Claude only edits files (--permission-mode acceptEdits); it never runs git or

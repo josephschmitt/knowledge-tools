@@ -41,9 +41,12 @@ working in the repo.
   See `service/README.md`. (The MCP *protocol* server name stays `knowledge-vault` — only the
   image/package is `knowledge-service`.)
 - `scripts/` — host-side vault automation and the skill validator. Three vault-mutating jobs
-  run as systemd *user* units; all three share one flock (`vault-lib.sh`) so they never run
-  concurrently, and in each the **wrapper** owns git (Claude only edits files + runs scoped
-  `gh` calls).
+  run as systemd *user* **template** units — **one instance per vault** (`KNOWLEDGE_INSTANCE`,
+  default `default`), so a host can run several vaults as independent deployments (multi-vault is
+  N deployments, not one service multiplexing; see issue #15). The three jobs *within a vault*
+  share one per-instance flock (`vault-lib.sh`, keyed by `KNOWLEDGE_INSTANCE`) so they never run
+  concurrently, while different vaults have different locks and *do*. In each the **wrapper** owns
+  git (Claude only edits files + runs scoped `gh` calls).
   - `vault-compile.sh` runs an ephemeral `/compile-inbox` pass (inbox→wiki). Cadence
     `KNOWLEDGE_COMPILE_ONCALENDAR` (default hourly); also triggered on demand via a `.path`
     unit when the MCP drops `inbox/.compile/request`.
@@ -58,13 +61,18 @@ working in the repo.
     chat via the MCP (`list_questions`/`get_question`/`answer_question`) — no gh, no GitHub, no
     git, so it works on a bare synced folder. Cadences: `KNOWLEDGE_SYNTHESIZE_ONCALENDAR` /
     `KNOWLEDGE_RESOLVE_ONCALENDAR`.
-  - `vault-lib.sh` is sourced by all three — config, the shared lock, and the commit/push
-    side effect (issue jobs commit `wiki/ index.md log.md`, plus `inbox/.review/` in the files
-    channel; compile stages everything). `commit_and_push` no-ops cleanly when the vault is not
-    a git repo (history left to external sync), so a bare folder works too.
-  - `install.sh` generates the systemd *user* units from the `knowledge-*.in` templates
-    (worker = this repo; vault = the required `KNOWLEDGE_REPO`) — re-run after changing a
-    template or a cadence. Idempotent.
+  - `vault-lib.sh` is sourced by all three — config, the per-instance lock (keyed by
+    `KNOWLEDGE_INSTANCE`), and the commit/push side effect (issue jobs commit `wiki/ index.md
+    log.md`, plus `inbox/.review/` in the files channel; compile stages everything).
+    `commit_and_push` no-ops cleanly when the vault is not a git repo (history left to external
+    sync), so a bare folder works too.
+  - `install.sh` generates the systemd *user* units from the `knowledge-*@.{service,timer,path}.in`
+    templates for **one vault per run** (`KNOWLEDGE_INSTANCE`, default `default`). The service units
+    are shared templates that read each vault's `KNOWLEDGE_REPO` from a per-instance env file
+    `~/.config/knowledge-tools/<instance>.env` that install writes; the timer/path units are
+    materialized per instance (carrying that vault's cadence + watched path). Run once per vault to
+    add another. Re-run after changing a template or a cadence; on an existing single-vault host the
+    first re-run migrates it to `default` (removing the old non-instanced units). Idempotent.
   - `init-vault.sh` seeds a fresh vault from `template/` (below). **One-shot scaffold, not
     `install.sh`**: strictly copy-if-absent, no `--force`, leaves git alone. Re-running only
     fills gaps — it never overwrites a tuned `CLAUDE.md` or command, because post-seed drift

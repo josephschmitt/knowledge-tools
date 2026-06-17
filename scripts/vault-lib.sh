@@ -16,10 +16,15 @@ CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
 # One lockfile every vault-mutating job acquires, so compile / synthesize / resolve never run
 # at the same time — they all edit wiki/ and commit, and (say) a resolve commit must not race
 # a compile commit. Kept OUTSIDE the repo on purpose: it's runtime state, not vault content,
-# and synthesize/resolve must not write into inbox/ (where compile keeps its own state). The
-# path is fixed (not XDG-derived) so every job computes the *same* file regardless of how each
-# unit's environment is set up. Override with KNOWLEDGE_VAULT_LOCK if you must.
-VAULT_LOCK="${KNOWLEDGE_VAULT_LOCK:-$HOME/.local/state/knowledge-tools/vault.lock}"
+# and synthesize/resolve must not write into inbox/ (where compile keeps its own state).
+#
+# The lock is keyed by KNOWLEDGE_INSTANCE (the systemd template instance; "default" when unset,
+# i.e. a single-vault host). This is exactly the isolation a multi-vault host needs: jobs for
+# DIFFERENT vaults (different instances → different lock files) run concurrently, while the three
+# jobs WITHIN one vault (same instance → same lock file) still serialize. The path is otherwise
+# fixed (not XDG-derived) so every job for a given instance computes the *same* file regardless
+# of how each unit's environment is set up. Override with KNOWLEDGE_VAULT_LOCK if you must.
+VAULT_LOCK="${KNOWLEDGE_VAULT_LOCK:-$HOME/.local/state/knowledge-tools/vault-${KNOWLEDGE_INSTANCE:-default}.lock}"
 
 # acquire_vault_lock — take the shared lock on fd 9, or exit 0 if another job holds it.
 # The lock is held for the life of the process (released when it exits). Requires log().
