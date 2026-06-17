@@ -2,7 +2,7 @@
 // so externally-supplied note paths can't escape the vault (path traversal).
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { VAULT_ROOT, MAX_RESULT_CHARS } from './config.js';
+import { VAULT_ROOT, VAULT_NAME, MAX_RESULT_CHARS } from './config.js';
 
 const WIKI_DIR = path.join(VAULT_ROOT, 'wiki');
 const INBOX_DIR = path.join(VAULT_ROOT, 'inbox');
@@ -198,6 +198,9 @@ function nonEmpty(s: string | undefined): string | null {
 }
 
 export interface VaultStatus {
+  /** This vault's KNOWLEDGE_VAULT_NAME label, or null when unlabeled — lets a client that
+   *  reaches several vaults tell them apart. Cosmetic; it routes nothing. */
+  vault_name: string | null;
   /** ISO time the most recent *successful* compile finished, or null if none yet. */
   last_compiled_at: string | null;
   /** Captures sitting in inbox/ not yet compiled. */
@@ -231,6 +234,7 @@ export async function getVaultStatus(): Promise<VaultStatus> {
   }
 
   return {
+    vault_name: VAULT_NAME || null,
     last_compiled_at: nonEmpty(status?.last_compiled_at),
     pending_inbox_count: pending,
     manual_compile_available_at: manualAvailableAt,

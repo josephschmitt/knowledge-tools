@@ -11,6 +11,7 @@ import {
   getVaultStatus,
 } from './vault.js';
 import { listQuestions, getQuestion, answerQuestion } from './review.js';
+import { VAULT_NAME } from './config.js';
 
 function fmtWhen(iso: string): string {
   const t = Date.parse(iso);
@@ -38,11 +39,20 @@ function questionError(id: string, err: unknown) {
   return text(notFound ? `Question not found: ${id}` : `Could not reach the review queue for ${id}: ${msg}`);
 }
 
+/** Slug of the vault label for the MCP server name (keeps it token-safe). '' when unlabeled. */
+function nameSlug(): string {
+  const s = VAULT_NAME.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return s ? `-${s}` : '';
+}
+
 export function buildMcpServer(): McpServer {
   const server = new McpServer(
-    { name: 'knowledge-vault', version: '0.1.0' },
+    // Suffix the protocol-stable base name with the vault label so a client connected to several
+    // vaults can tell the servers apart; unlabeled deployments stay exactly 'knowledge-vault'.
+    { name: `knowledge-vault${nameSlug()}`, version: '0.1.0' },
     {
       instructions:
+        (VAULT_NAME ? `This vault is "${VAULT_NAME}". ` : '') +
         'Personal knowledge vault, split on purpose: capture is dumb, compilation is smart. ' +
         'Answer questions from the compiled wiki (search_wiki / get_note / list_index / ' +
         'list_notes), preferring it over general knowledge. Save material — knowledge or ' +

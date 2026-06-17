@@ -18,6 +18,12 @@ export const RESOURCE_URL = new URL(`${PUBLIC_URL}/mcp`);
 // Vault filesystem root (the knowledge repo). Mounted at /vault in the container.
 export const VAULT_ROOT = process.env.VAULT_ROOT ?? '/vault';
 
+// Human-facing label for this vault instance, surfaced in the MCP server name/instructions and
+// the vault_status output so a client connected to SEVERAL vaults (each its own deployment) can
+// tell them apart. Cosmetic only — it does NOT route or scope anything. Unset → behavior is
+// byte-identical to a single-vault deployment.
+export const VAULT_NAME = process.env.KNOWLEDGE_VAULT_NAME ?? '';
+
 // --- Which surfaces to serve ---
 // The server can expose the MCP endpoint (/mcp), the REST API (/api/v1), or both. Both are ON by
 // default; set either to 'false' to run a single-surface deployment (e.g. a headless host that

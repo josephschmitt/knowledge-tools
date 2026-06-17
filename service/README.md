@@ -75,8 +75,9 @@ The server can't compile in-process — the vault is read-only here except `inbo
 synthesis needs the `claude` CLI + git on the host. So `compile_run` *triggers* the host
 compile and reports status; it doesn't wait for the result. It writes a sentinel to
 `inbox/.compile/request` (the one writable path), which a systemd `.path` unit
-(`scripts/knowledge-compile.path.in`) watches to start the same `knowledge-compile.service`
-the scheduled timer uses — so systemd runs one compile at a time (the shared lock). The
+(`scripts/knowledge-compile@.path.in`, one instance per vault) watches to start the same
+`knowledge-compile@<vault>.service` the scheduled timer uses — so systemd runs one compile at a
+time per vault (the per-vault lock). The
 host writes `inbox/.compile/status.json`, which the server reads to return `triggered` /
 `throttled` (refused within the one-hour cooldown) / `busy` / `empty`. The scheduled
 run is never throttled and doesn't consume the manual cooldown.
@@ -99,6 +100,25 @@ KNOWLEDGE_ENABLE_REST=false    # MCP only (e.g. only the claude.ai/Claude Code c
 A disabled surface isn't mounted, so its paths return `404` (and for MCP, the RFC 9728 discovery
 metadata isn't advertised either). `/healthz` is always served. Setting **both** to `false` is a
 misconfiguration — the server logs `FATAL … nothing to serve` and exits non-zero.
+
+## Multiple vaults
+
+This service serves exactly **one** vault (`VAULT_ROOT`). To run several, deploy **one instance
+per vault** — a separate container each with its own `VAULT_ROOT`, port, URL, and auth — rather
+than one server multiplexing many. That keeps the vaults isolated (filesystem, auth, blast radius)
+for free and needs no per-request vault routing.
+
+The only knob for the multi-vault case is a cosmetic label:
+
+```sh
+KNOWLEDGE_VAULT_NAME=work     # optional; default unset → single-vault behavior, unchanged
+```
+
+When set, it's surfaced in the MCP server name (`knowledge-vault-<slug>`), prepended to the
+server instructions, and returned as `vault_name` in `vault_status` / `GET /api/v1/status` — so a
+client connected to several vaults can tell them apart. It routes and scopes nothing. Match it to
+the connector's server name (`knowledge-vault-<label>`); see the
+[vault plugin README](../plugins/vault/README.md#multiple-vaults) for wiring the connectors.
 
 ## REST API
 
