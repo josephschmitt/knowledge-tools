@@ -1,17 +1,20 @@
 # Knowledge Vault Service
 
-One server that exposes this knowledge vault over **two protocols**, both backed by the same
-in-process vault core:
+One server that exposes this knowledge vault over **two protocols** plus an optional **static
+website**, all backed by the same in-process vault core:
 
 - **MCP** at `/mcp` — a remote [MCP](https://modelcontextprotocol.io) endpoint over the
   **Streamable HTTP** transport, used by **claude.ai as a custom connector** (and the Claude
   Code plugin). The MCP *protocol* server name is `knowledge-vault`.
 - **REST** at `/api/v1` — a plain JSON HTTP API mirroring the MCP tools 1:1, for scripts,
   automation, and any other tooling that doesn't speak MCP. See [REST API](#rest-api).
+- **Static site** at `/` — an optional, pre-built [Quartz](https://quartz.jzhao.xyz) rendering of
+  the wiki you can browse in a web browser. **Off by default**; see [Static website](#static-website-).
 
-Both surfaces are on by default; each can be turned off independently with
-`KNOWLEDGE_ENABLE_MCP=false` / `KNOWLEDGE_ENABLE_REST=false` (a disabled surface's paths 404; the
-server refuses to start if both are off). See [Choosing which surfaces to serve](#choosing-which-surfaces-to-serve).
+The two protocols are on by default; the static site is opt-in. Each surface toggles independently
+with `KNOWLEDGE_ENABLE_MCP` / `KNOWLEDGE_ENABLE_REST` / `KNOWLEDGE_ENABLE_SITE` (a disabled
+surface's paths 404; the server refuses to start if all three are off). See
+[Choosing which surfaces to serve](#choosing-which-surfaces-to-serve).
 
 Authentication is **optional and off by default** and gates **both** surfaces: out of the box
 the server does no auth and trusts its network (run it behind an authenticating proxy), or you
@@ -90,16 +93,83 @@ cooldown next clears) — poll it after a `compile_run` to know when the wiki is
 
 ## Choosing which surfaces to serve
 
-Both protocols run by default. To run a single-surface deployment, set one of:
+The two protocols run by default; the static site is opt-in. Toggle each independently:
 
 ```sh
-KNOWLEDGE_ENABLE_MCP=false     # REST only (e.g. a headless host with no claude.ai connector)
-KNOWLEDGE_ENABLE_REST=false    # MCP only (e.g. only the claude.ai/Claude Code connector)
+KNOWLEDGE_ENABLE_MCP=false     # turn off MCP  (e.g. REST/site only)
+KNOWLEDGE_ENABLE_REST=false    # turn off REST (e.g. MCP/site only)
+KNOWLEDGE_ENABLE_SITE=true     # turn ON the static site (off by default; see Static website)
 ```
 
 A disabled surface isn't mounted, so its paths return `404` (and for MCP, the RFC 9728 discovery
-metadata isn't advertised either). `/healthz` is always served. Setting **both** to `false` is a
+metadata isn't advertised either). `/healthz` is always served. Setting **all three** off is a
 misconfiguration — the server logs `FATAL … nothing to serve` and exits non-zero.
+
+## Static website (`/`)
+
+Optionally serve a browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the wiki** at `/`,
+alongside `/mcp` and `/api/v1` — a fast static site with full-text search, backlinks, a graph view,
+and Obsidian-style `[[wikilink]]` navigation. **Off by default**; turn it on with:
+
+```sh
+KNOWLEDGE_ENABLE_SITE=true
+KNOWLEDGE_SITE_ROOT=/site      # where the pre-built site is mounted (default /site)
+```
+
+**Quartz is a build-time generator, not a renderer** — the server only *serves* a pre-built
+directory; it never runs Quartz and carries none of its dependencies. So there are two pieces:
+
+1. **Build the artifact** on the host with [`scripts/vault-site.sh`](../scripts/vault-site.sh). It
+   renders only `index.md` + `wiki/` (a strict allowlist — never `inbox/`, `outputs/`, logs, or
+   task files) and publishes the static output **outside** the vault, swapped in atomically so the
+   server never sees a half-built tree. See [Building the site](#building-the-site).
+2. **Serve it** — bind-mount that output directory into the container at `KNOWLEDGE_SITE_ROOT` and
+   set `KNOWLEDGE_ENABLE_SITE=true`. A single `express.static` serves Quartz's clean URLs
+   (`/wiki/foo`); an unmatched path returns Quartz's `404.html`. The directory needn't exist at
+   startup (the host populates it asynchronously) — the server logs a warning and serves it once it
+   appears.
+
+```sh
+# Add to your `docker run` / compose alongside the existing VAULT_ROOT mount:
+#   -v ~/.local/state/knowledge-tools/site/default:/site:ro   # the built site (read-only)
+#   -e KNOWLEDGE_ENABLE_SITE=true
+```
+
+> **Browser access needs a proxy when built-in auth is on.** The `/` surface is gated by the
+> **same `requireToken`** as the other surfaces. With built-in token validation on
+> ([Authentication](#authentication)), a plain browser sends no `Bearer` token and gets `401` — the
+> server is a pure resource server with no login page. So browse it behind the **same
+> authenticating proxy** that fronts the rest of the service, which logs the browser in and
+> injects the header. With auth off (the default), `requireToken` is
+> a no-op and the proxy in front is the gate, exactly like `/mcp` and `/api/v1`.
+
+### Building the site
+
+`scripts/vault-site.sh` runs on the **host** (where the vault and Node live, not in the container).
+It maintains a pinned Quartz checkout, overlays the config in [`site/`](../site), stages
+`index.md` + `wiki/`, runs `quartz build`, and atomically swaps the result into the output
+directory. It's read-only w.r.t. the vault (no git, no commits), so it's safe to run any time — by
+hand, from cron, or from a systemd timer:
+
+```sh
+# Needs Node >= 20 on the host (for Quartz). Build the default vault's site once:
+KNOWLEDGE_REPO=/path/to/vault scripts/vault-site.sh
+# Output: ~/.local/state/knowledge-tools/site/<instance>/ — bind-mount THAT dir into the container.
+```
+
+Host knobs (set in the repo-root `.env` or the environment):
+
+| Var | Default | What |
+|---|---|---|
+| `KNOWLEDGE_SITE_ROOT` | `~/.local/state/knowledge-tools/site/<instance>` | where the built site is published — bind-mount this into the container |
+| `KNOWLEDGE_SITE_BASE_URL` | `example.com` | public host for absolute URLs in RSS/sitemap (navigation is relative, so cosmetic); set to your real host |
+| `KNOWLEDGE_SITE_TITLE` | `Knowledge Vault` | the site's page title |
+| `KNOWLEDGE_QUARTZ_REF` | `v4.5.2` | pinned Quartz version (a git checkout, not an npm dep) |
+| `KNOWLEDGE_SITE_LOG_RETENTION_DAYS` | `30` | prune `vault-site` build logs older than this |
+
+Re-run it whenever the wiki changes to refresh the published site. (A future host-automation pass
+will wire systemd units to rebuild after each compile and on a timer; until then, schedule it
+yourself or run it on demand.)
 
 ## Multiple vaults
 
@@ -155,8 +225,8 @@ Notes:
 
 ```sh
 curl -s localhost:3000/api/v1/status
-curl -s 'localhost:3000/api/v1/wiki/search?q=homelab'
-curl -s localhost:3000/api/v1/wiki/notes/homelab-infrastructure
+curl -s 'localhost:3000/api/v1/wiki/search?q=networking'
+curl -s localhost:3000/api/v1/wiki/notes/some-note
 curl -s -XPOST localhost:3000/api/v1/inbox \
   -H 'content-type: application/json' -d '{"text":"a thought","title":"My Note"}'
 curl -s -XPOST localhost:3000/api/v1/compile
@@ -199,7 +269,7 @@ something can reach it directly.
 KNOWLEDGE_AUTH_ISSUER=https://your-idp.example.com          # the OIDC issuer (authorization server)
 KNOWLEDGE_AUTH_JWKS_URL=https://your-idp.example.com/jwks    # its signing keys
 KNOWLEDGE_AUTH_AUDIENCE=https://knowledge.example.com        # expected `aud` claim — see note below
-# KNOWLEDGE_AUTH_TOKEN_HEADER=authorization                  # or e.g. cf-access-jwt-assertion
+# KNOWLEDGE_AUTH_TOKEN_HEADER=authorization                  # or a proxy-injected JWT header
 ```
 
 `KNOWLEDGE_AUTH_AUDIENCE` is an opaque identifier the server string-matches the token's `aud`
@@ -238,76 +308,47 @@ curl -s localhost:3000/api/v1/status       # the vault_status JSON
 
 Pushes to `main` that touch `service/**` trigger `.github/workflows/build-service.yml`, which
 builds the image (linux/amd64 + arm64) and pushes it to
-**`ghcr.io/josephschmitt/knowledge-service:latest`** (also tagged with the commit SHA). The
-homelab pulls this published image — it does not build from a source checkout. The package
+**`ghcr.io/josephschmitt/knowledge-service:latest`** (also tagged with the commit SHA).
+Deployments pull this published image — they do not build from a source checkout. The package
 is **public** (set once in the GHCR package settings after the first push), so the host
 pulls without authenticating; the image carries only server code, no vault content.
 
 ## Deploying behind auth
 
-Run the container (only required config is `VAULT_ROOT`), then choose how it's protected.
+Run the container (only required config is `VAULT_ROOT`; add the `KNOWLEDGE_SITE_ROOT` mount +
+`KNOWLEDGE_ENABLE_SITE=true` if you want the [static site](#static-website-)), then protect it.
+**The service doesn't prescribe an identity layer** — that's yours to choose. Pick whichever of the
+two [models](#authentication) suits you, with whatever provider you run; the options below are
+illustrative, not requirements.
 
-### Cloudflare Access + Managed OAuth  *(public; works with claude.ai)*
+### Built-in JWT validation (any OIDC issuer)  *(works with claude.ai)*
 
-Cloudflare runs the whole OAuth flow at the edge and forwards only authenticated requests. This
-is how the homelab runs it.
+Set `KNOWLEDGE_AUTH_ISSUER` / `KNOWLEDGE_AUTH_JWKS_URL` / `KNOWLEDGE_AUTH_AUDIENCE` to your
+issuer's values; the server validates a token on every request and advertises the issuer for
+client discovery (RFC 9728), so the origin protects *itself*. Vendor-neutral — any OIDC issuer
+works. For the **claude.ai connector** the issuer must support OAuth dynamic client registration
+(DCR), or let you preconfigure claude.ai's client, since claude.ai registers itself on first
+connect.
 
-1. Expose the container at a public hostname through a reverse proxy / tunnel (e.g. traefik + a
-   Cloudflare Tunnel public hostname → `knowledge.example.com`). Keep the MCP port internal.
-2. **Zero Trust → Access → Applications → Add → Self-hosted**: hostname `knowledge.example.com`,
-   path `/mcp`. Enable **Managed OAuth**, and add a **policy** allowing only your identity (email).
-3. claude.ai → **Settings → Connectors → Add custom connector** → `https://knowledge.example.com/mcp`.
-   Managed OAuth serves discovery + dynamic registration, so there are no client credentials to
-   paste — complete the Cloudflare login + consent and the tools appear.
+### An auth proxy / gateway (server stays authless)  *(works with claude.ai)*
 
-**Recommended: also turn on built-in validation.** Cloudflare injects a `Cf-Access-Jwt-Assertion`
-JWT on every request it forwards. Point the server's built-in auth at it so the origin protects
-*itself* — then you don't need network isolation to stop LAN/sibling-container access:
+Put an authenticating reverse proxy or OAuth/OIDC gateway in front and forward only authenticated
+requests, leaving the server's own auth off (the default). Use any identity layer you already run.
+Two things to get right:
 
-```sh
-KNOWLEDGE_AUTH_ISSUER=https://<team>.cloudflareaccess.com
-KNOWLEDGE_AUTH_JWKS_URL=https://<team>.cloudflareaccess.com/cdn-cgi/access/certs
-KNOWLEDGE_AUTH_AUDIENCE=<your Access application's AUD tag>
-KNOWLEDGE_AUTH_TOKEN_HEADER=cf-access-jwt-assertion
-```
+- Make sure the origin can't be reached *around* the proxy (don't publish the container port; keep
+  untrusted workloads off its network) — or *also* enable built-in validation so the origin gates
+  itself even if something reaches it directly. If the proxy injects the verified identity as a JWT
+  header, point `KNOWLEDGE_AUTH_TOKEN_HEADER` at that header and validate it.
+- For the **claude.ai connector**, the proxy must serve the discovery claude.ai expects
+  (`/.well-known/oauth-protected-resource` + a 401 challenge).
 
-<details><summary>Homelab specifics (traefik + cloudflared)</summary>
+### Private network (no public endpoint)  *(Claude Code only)*
 
-- **Single-level subdomain.** Free Universal SSL covers `example.com` and `*.example.com` only;
-  a deeper host like `knowledge.mcp.example.com` has no edge cert. Keep the host at
-  `knowledge.example.com` with the endpoint at the `/mcp` path.
-- **TLS.** The traefik router requests the origin cert via the `cf-dns` resolver; the public
-  edge cert is Universal SSL `*.example.com`.
-- **Tunnel.** Add a public hostname `knowledge.example.com` → `https://localhost:443`; set
-  cloudflared's **Origin Server Name** to the host (or **No TLS Verify**), since traefik
-  terminates TLS on a loopback hop. Adding the hostname creates the DNS record.
-- **Start it.** `cd ~/example.com && docker compose pull knowledge-service && docker compose up -d knowledge-service`
-- **The bypass.** Without built-in validation, Access guards only the *public* path — a LAN
-  client or neighbouring container could hit the origin directly. Either enable built-in
-  validation (above) or keep the port off the host and the origin off shared networks.
-
-</details>
-
-### Your own OIDC issuer (Auth0 / Keycloak / Authentik / oauth2-proxy)  *(public; works with claude.ai)*
-
-Two ways to use your own IdP:
-
-- **Built-in validation** — set `KNOWLEDGE_AUTH_ISSUER`/`KNOWLEDGE_AUTH_JWKS_URL`/`KNOWLEDGE_AUTH_AUDIENCE` to the
-  IdP's values; the server validates tokens and advertises the issuer for discovery itself. For
-  the claude.ai connector the IdP must support dynamic client registration (Auth0/Keycloak do)
-  or let you preconfigure claude.ai's client.
-- **A gateway** (oauth2-proxy / Authelia) terminating OAuth/OIDC in front of `/mcp` and
-  forwarding only authenticated requests — leave the server authless behind it. The gateway must
-  serve the discovery claude.ai expects (`/.well-known/oauth-protected-resource` + a 401 challenge).
-
-Either way, restrict the policy to your account.
-
-### Private network (Tailscale / WireGuard / VPN)  *(Claude Code only)*
-
-Put the endpoint on a private network and skip a public proxy entirely — simplest and fully
-private. **claude.ai can't reach it** (its fetch comes from Anthropic's cloud), so use this with
-the **Claude Code** CLI on a machine that's on the same tailnet/VPN: run `/mcp` to point Claude
-Code at the private URL.
+Put the endpoint on a private network (VPN, overlay network, or LAN) and skip a public proxy
+entirely — simplest and fully private. **claude.ai can't reach it** (its fetch comes from
+Anthropic's cloud), so use this with the **Claude Code** CLI on a machine on the same network: run
+`/mcp` to point Claude Code at the private URL.
 
 ## Notes
 

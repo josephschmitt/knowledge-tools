@@ -10,14 +10,17 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
 
 ## Components
 
-- **`service/`** — the vault service. One server exposing the vault over **two protocols**: a
-  Streamable-HTTP **MCP** endpoint at `/mcp` (the claude.ai connector) and a **REST API** at
-  `/api/v1` that mirrors the same operations for scripts and other tooling. Both let you capture
-  raw material into the vault's `inbox/` and query the compiled `wiki/`. Auth is **optional, off
-  by default** and gates both surfaces: run it authless behind an authenticating proxy, or enable
-  built-in OAuth token validation against any OIDC issuer (the homelab uses Cloudflare Access +
-  Managed OAuth). Reads/writes the vault via the `VAULT_ROOT` env var (bind-mounted into the
-  container). Deployed separately — see [`service/README.md`](service/README.md).
+- **`service/`** — the vault service. One server exposing the vault over **two protocols** plus an
+  optional **static website**: a Streamable-HTTP **MCP** endpoint at `/mcp` (the claude.ai
+  connector), a **REST API** at `/api/v1` that mirrors the same operations for scripts and other
+  tooling, and (opt-in) a browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the wiki** at
+  `/`. The two protocols let you capture raw material into the vault's `inbox/` and query the
+  compiled `wiki/`; the static site is a pre-built artifact you build on the host with
+  `scripts/vault-site.sh` and bind-mount in (`KNOWLEDGE_ENABLE_SITE` + `KNOWLEDGE_SITE_ROOT`). Auth
+  is **optional, off by default** and gates all surfaces: run it authless behind an authenticating
+  proxy, or enable built-in OAuth token validation against any OIDC issuer. Reads/writes the vault
+  via the `VAULT_ROOT` env var
+  (bind-mounted into the container). Deployed separately — see [`service/README.md`](service/README.md).
 - **`plugins/`** — the Claude Code plugins, one per `plugins/<plugin>/`, each bundling a
   single skill plus (where needed) its MCP connector config. Two of them:
   - **`plugins/vault/`** (skill `knowledge-vault`) — the conversational front-door skill:
@@ -34,7 +37,10 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   (`/synthesize` and `/resolve`), carrying their judgment calls over either GitHub issues or a
   git-free file queue (`KNOWLEDGE_REVIEW_CHANNEL`, see [below](#judgment-call-channel-github-or-files));
   `vault-lib.sh` holds the config, per-vault cross-job lock, and
-  git side effects all three share; `install.sh` generates the systemd *user* units from the
+  git side effects all three share; `vault-site.sh` builds the optional
+  [Quartz](https://quartz.jzhao.xyz) static site the service serves at `/` (renders `index.md` +
+  `wiki/` only, publishes outside the vault — see [`service/README.md`](service/README.md#static-website-));
+  `install.sh` generates the systemd *user* units from the
   `knowledge-*@.in` templates — one instance per vault, so a host can run several
   ([below](#vault-automation-host-setup)); `init-vault.sh` seeds a brand-new vault from `template/`;
   `validate_skills.py` is used by CI.
@@ -68,9 +74,9 @@ must already be deployed and reachable at that URL — see
 ### If your IdP doesn't support Dynamic Client Registration
 
 The auto-negotiation above relies on your authorization server supporting **OAuth Dynamic
-Client Registration** (DCR) — Cloudflare Access does, so Claude Code registers a client on the
-fly and there's nothing to configure. Some self-hosted IdPs (e.g. **Authelia**, which the
-homelab runs) don't support DCR, so Claude Code can't auto-register and fails with
+Client Registration** (DCR) — many hosted IdPs do, so Claude Code registers a client on the
+fly and there's nothing to configure. Some self-hosted IdPs (e.g. **Authelia**) don't support
+DCR, so Claude Code can't auto-register and fails with
 *"Incompatible auth server: does not support dynamic client registration."*
 
 For that case, pre-register a **public client with PKCE** in your IdP (no client secret — it's a

@@ -51,7 +51,7 @@ acquire_vault_lock() {
 #   - origin moved ahead and local hasn't                        → fast-forward, return 0.
 #   - histories DIVERGED                                         → REBASE local (unpushed) commits
 #     onto origin/<branch> and return 0. Divergence is now routine: the phone commits task-file
-#     edits to origin (Working Copy auto-push) while the homelab may carry an unpushed commit from
+#     edits to origin (Working Copy auto-push) while the host may carry an unpushed commit from
 #     a prior failed push. The agent and the phone touch DISJOINT paths (agent: inbox/, wiki/,
 #     index.md, log.md, new tasks/*.md, tasks/_dashboard.md, tasks/_completed.md; the human: the
 #     lifecycle frontmatter of EXISTING tasks/*.md), so the rebase replays cleanly. Only a GENUINE

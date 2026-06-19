@@ -4,6 +4,8 @@
 // on, so run it behind an authenticating proxy. Set KNOWLEDGE_AUTH_* to make it validate tokens
 // itself (see auth.ts and service/README.md).
 import express from 'express';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
@@ -19,6 +21,8 @@ import {
   ENABLE_DNS_REBINDING,
   ENABLE_MCP,
   ENABLE_REST,
+  ENABLE_SITE,
+  SITE_ROOT,
 } from './config.js';
 
 const app = express();
@@ -106,6 +110,36 @@ if (ENABLE_MCP) {
   app.delete('/mcp', requireToken, replaySession);
 }
 
+// --- Static website (/) — a pre-built Quartz rendering of the wiki. ---
+// Mounted LAST so /healthz, the auth metadata, /api/v1 and /mcp (all registered above) win; this
+// is the catch-all. Gated by the same `requireToken` as the other surfaces. The host's
+// vault-site.sh builds the artifact into SITE_ROOT; the dir may not exist yet at startup (the
+// host populates it asynchronously), so warn but mount anyway — express.static picks up files as
+// they appear.
+if (ENABLE_SITE) {
+  if (!existsSync(SITE_ROOT)) {
+    logger.warn(
+      { siteRoot: SITE_ROOT },
+      'site root not present yet — serving will start once the host build populates it',
+    );
+  }
+  // A single express.static serves both Quartz output shapes: directory `index.html` is auto-served,
+  // and `extensions: ['html']` resolves Quartz's clean URLs (/wiki/foo -> wiki/foo.html). Default
+  // `dotfiles: 'ignore'` and root-confined resolution handle dotfile/traversal safety — leave them.
+  app.use(requireToken, express.static(SITE_ROOT, { extensions: ['html'] }));
+  // Fall through to Quartz's generated 404.html for unmatched GET/HEAD requests (with a 404 status,
+  // not 200). Scoped to GET/HEAD, and skips the /api and /mcp surfaces so an unknown API/MCP path
+  // isn't answered with the wiki's HTML 404 page — those fall through to Express's default handler.
+  const notFoundPage = path.join(SITE_ROOT, '404.html');
+  app.use(requireToken, (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.path.startsWith('/api/') || req.path === '/mcp' || req.path.startsWith('/mcp/')) return next();
+    res.status(404).sendFile(notFoundPage, (err) => {
+      if (err) next();
+    });
+  });
+}
+
 app.listen(PORT, '0.0.0.0', () => {
   logger.info(
     {
@@ -113,6 +147,7 @@ app.listen(PORT, '0.0.0.0', () => {
       publicUrl: PUBLIC_URL,
       mcpEndpoint: ENABLE_MCP ? `${PUBLIC_URL}/mcp` : null,
       restEndpoint: ENABLE_REST ? `${PUBLIC_URL}/api/v1` : null,
+      siteEndpoint: ENABLE_SITE ? `${PUBLIC_URL}/` : null,
     },
     'knowledge-service listening',
   );
