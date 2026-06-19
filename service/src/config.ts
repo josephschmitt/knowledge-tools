@@ -25,17 +25,28 @@ export const VAULT_ROOT = process.env.VAULT_ROOT ?? '/vault';
 export const VAULT_NAME = process.env.KNOWLEDGE_VAULT_NAME ?? '';
 
 // --- Which surfaces to serve ---
-// The server can expose the MCP endpoint (/mcp), the REST API (/api/v1), or both. Both are ON by
-// default; set either to 'false' to run a single-surface deployment (e.g. a headless host that
-// only wants REST, or a claude.ai connector that only wants MCP). A disabled surface's paths 404.
+// The server can expose the MCP endpoint (/mcp), the REST API (/api/v1), and/or a static website
+// at /. MCP and REST are ON by default; set either to 'false' to run a single-surface deployment
+// (e.g. a headless host that only wants REST, or a claude.ai connector that only wants MCP). A
+// disabled surface's paths 404.
 export const ENABLE_MCP = (process.env.KNOWLEDGE_ENABLE_MCP ?? 'true') !== 'false';
 export const ENABLE_REST = (process.env.KNOWLEDGE_ENABLE_REST ?? 'true') !== 'false';
 
-// A server serving neither surface is a misconfiguration — fail fast rather than start a process
+// Static website surface — serve a pre-built Quartz rendering of the wiki at /. OFF by default
+// (opt-in): it needs a build artifact bind-mounted at SITE_ROOT (produced by the host's
+// vault-site.sh job; see scripts/ and service/README.md), so it stays off until deliberately
+// enabled. Gated by the same `requireToken` as the other surfaces (a no-op when auth is off —
+// in practice an authenticating proxy in front is what gates browser access).
+export const ENABLE_SITE = (process.env.KNOWLEDGE_ENABLE_SITE ?? 'false') === 'true';
+// Directory of the pre-built static site served at /. Bind-mounted into the container (the host's
+// vault-site.sh writes it OUTSIDE the vault, so compile's `git add -A` never sweeps it up).
+export const SITE_ROOT = process.env.KNOWLEDGE_SITE_ROOT ?? '/site';
+
+// A server serving no surface at all is a misconfiguration — fail fast rather than start a process
 // that only answers /healthz.
-if (!ENABLE_MCP && !ENABLE_REST) {
+if (!ENABLE_MCP && !ENABLE_REST && !ENABLE_SITE) {
   console.error(
-    'FATAL: both KNOWLEDGE_ENABLE_MCP and KNOWLEDGE_ENABLE_REST are false — nothing to serve. Enable at least one.',
+    'FATAL: KNOWLEDGE_ENABLE_MCP, KNOWLEDGE_ENABLE_REST and KNOWLEDGE_ENABLE_SITE are all off — nothing to serve. Enable at least one.',
   );
   process.exit(1);
 }
