@@ -299,10 +299,14 @@ oncalendar_to_launchd() { # <value>
            [ "$((10#$step))" -gt 0 ] || { _unsupported "$1"; return 1; }
            _interval "$(( (10#$step) * 60 ))"; return 0 ;;     # every-N-min → StartInterval
       *[!0-9]*|'') _unsupported "$1"; return 1 ;;
-      *) _cal Minute "$((10#$mm))"; return 0 ;;               # hourly at minute MM
+      *) [ "$((10#$mm))" -le 59 ] || { _unsupported "$1"; return 1; }
+         _cal Minute "$((10#$mm))"; return 0 ;;               # hourly at minute MM
     esac
   fi
   case "$hh$mm" in *[!0-9]*|'') _unsupported "$1"; return 1 ;; esac
+  # Reject out-of-range times here so the script fails clearly at cadence validation, rather than
+  # emitting Hour=25/Minute=99 that launchd silently rejects at bootstrap (agent not installed).
+  [ "$((10#$hh))" -le 23 ] && [ "$((10#$mm))" -le 59 ] || { _unsupported "$1"; return 1; }
   if [ -n "$dow" ]; then
     _cal Weekday "$dow" Hour "$((10#$hh))" Minute "$((10#$mm))"
   else
