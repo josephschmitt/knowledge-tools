@@ -18,8 +18,8 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   compiled `wiki/`; the static site is a pre-built artifact you build on the host with
   `scripts/vault-site.sh` and bind-mount in (`KNOWLEDGE_ENABLE_SITE` + `KNOWLEDGE_SITE_ROOT`). Auth
   is **optional, off by default** and gates all surfaces: run it authless behind an authenticating
-  proxy, or enable built-in OAuth token validation against any OIDC issuer (the homelab uses
-  Cloudflare Access + Managed OAuth). Reads/writes the vault via the `VAULT_ROOT` env var
+  proxy, or enable built-in OAuth token validation against any OIDC issuer. Reads/writes the vault
+  via the `VAULT_ROOT` env var
   (bind-mounted into the container). Deployed separately — see [`service/README.md`](service/README.md).
 - **`plugins/`** — the Claude Code plugins, one per `plugins/<plugin>/`, each bundling a
   single skill plus (where needed) its MCP connector config. Two of them:
@@ -74,9 +74,9 @@ must already be deployed and reachable at that URL — see
 ### If your IdP doesn't support Dynamic Client Registration
 
 The auto-negotiation above relies on your authorization server supporting **OAuth Dynamic
-Client Registration** (DCR) — Cloudflare Access does, so Claude Code registers a client on the
-fly and there's nothing to configure. Some self-hosted IdPs (e.g. **Authelia**, which the
-homelab runs) don't support DCR, so Claude Code can't auto-register and fails with
+Client Registration** (DCR) — many hosted IdPs do, so Claude Code registers a client on the
+fly and there's nothing to configure. Some self-hosted IdPs (e.g. **Authelia**) don't support
+DCR, so Claude Code can't auto-register and fails with
 *"Incompatible auth server: does not support dynamic client registration."*
 
 For that case, pre-register a **public client with PKCE** in your IdP (no client secret — it's a

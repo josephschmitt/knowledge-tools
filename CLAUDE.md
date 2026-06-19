@@ -31,8 +31,8 @@ working in the repo.
   **MCP** endpoint at `/mcp` (the claude.ai connector, `src/mcp.ts`) and a **REST API** at
   `/api/v1` (`src/rest.ts`) that mirrors the MCP tools 1:1 for scripts/automation. Auth is
   **optional, off by default** (`src/auth.ts`) and gates both surfaces: run it authless behind an
-  authenticating proxy, or set `KNOWLEDGE_AUTH_*` to validate JWT access tokens against any OIDC issuer
-  (the homelab uses Cloudflare Access + Managed OAuth). Reads/writes the vault via `VAULT_ROOT`.
+  authenticating proxy, or set `KNOWLEDGE_AUTH_*` to validate JWT access tokens against any OIDC
+  issuer. Reads/writes the vault via `VAULT_ROOT`.
   The judgment-call tools (`list_questions`/`get_question`/`answer_question`, in `src/review.ts`)
   dispatch to a files backend (`inbox/.review/`, in `src/vault.ts`) or a GitHub-issues backend
   (`src/github.ts`, opt-in via `KNOWLEDGE_GITHUB_TOKEN`+`KNOWLEDGE_GITHUB_REPO`) — set the container's
@@ -112,7 +112,7 @@ python3 scripts/validate_skills.py
 
 Agent-facing guidance is split across three layers by **who is guaranteed to see it**,
 and additions must keep each fact at one altitude. The MCP layers reach *every* caller
-(claude.ai, the Claude Code plugin, headless homelab agents, any future client) and sit
+(claude.ai, the Claude Code plugin, headless server-side agents, any future client) and sit
 in context on every turn, so they must stay terse; the skill is lazy-loaded and only
 exists on skill-aware surfaces, so it can afford length — but can't be relied on to be
 present.
@@ -190,8 +190,8 @@ The `knowledge-vault` skill drives the vault through its **MCP connector**, decl
 `mcpServers` entry wires `${user_config.mcp_url}` into a remote HTTP server named
 `knowledge-vault`. OAuth is negotiated against whatever authenticating proxy/IdP fronts the
 endpoint (RFC 9728 protected-resource metadata + a 401 challenge), so no secret lives in the
-manifest. **No-DCR IdPs:** the homelab fronts the endpoint with a self-hosted **Authelia** IdP,
-which has no DCR, so Claude Code can't self-register and fails with *"Incompatible auth server:
+manifest. **No-DCR IdPs:** some self-hosted IdPs (e.g. **Authelia**) front the endpoint with no
+DCR, so Claude Code can't self-register and fails with *"Incompatible auth server:
 does not support dynamic client registration."* The manifest **cannot** carry the client ID to
 fix this: Claude Code interpolates `${user_config.*}` into a server's `url` but **not** into the
 nested `oauth` block, so a userConfig-supplied client ID reaches the IdP as the literal string
@@ -200,10 +200,10 @@ shipped CLI and live). The supported path is a **`.mcp.json`** entry — project
 `~/.mcp.json` to cover every project (Claude reads `.mcp.json` from the cwd up to the filesystem
 root) — that defines `knowledge-vault` with a *literal* `oauth.clientId` + `oauth.callbackPort`
 (47832); a `.mcp.json` server **overrides** the plugin's same-named one. So the manifest ships
-only the bare DCR-capable server: DCR-capable proxies (e.g. Cloudflare Access Managed OAuth)
-auto-register and need nothing; no-DCR IdPs add the `.mcp.json` override (the homelab's is
-`claude-code-knowledge-vault`, public+PKCE, loopback redirects `http://127.0.0.1:47832/callback`
-+ `http://localhost:47832/callback`, kept out of the repo). The
+only the bare DCR-capable server: DCR-capable proxies/IdPs auto-register and need nothing;
+no-DCR IdPs add the `.mcp.json` override (a public+PKCE client
+with loopback redirects `http://127.0.0.1:47832/callback` + `http://localhost:47832/callback`,
+its client ID kept out of the repo). The
 `auto-capture` plugin declares **no** MCP config of its own — it reuses the `knowledge-vault`
 server the `vault` plugin connects, so it depends on `vault` being installed too (this also
 avoids a duplicate `mcp_url` prompt). Keeping each plugin's MCP config inside its own

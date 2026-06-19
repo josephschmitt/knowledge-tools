@@ -20,8 +20,8 @@ On enable, the plugin prompts for your **Knowledge vault MCP URL** — the `/mcp
 
 OAuth is negotiated automatically on first connect against whatever proxy/IdP fronts your
 endpoint — run `/mcp` to authenticate. As long as the authorization server supports **Dynamic
-Client Registration (DCR)** (e.g. Cloudflare Access Managed OAuth), Claude Code registers a
-client on the fly and there's nothing else to configure.
+Client Registration (DCR)**, Claude Code registers a client on the fly and there's nothing else
+to configure.
 
 ### If your IdP doesn't support DCR — set the client ID via `.mcp.json`
 
