@@ -66,12 +66,25 @@ if ! sync_from_origin; then
   exit 1
 fi
 
-# Manual if the MCP dropped a request sentinel; consume it so the .path unit can re-arm.
-if [ -f "$REQUEST" ]; then
-  MODE=manual
-  rm -f "$REQUEST"
+# Decide manual vs scheduled from the MCP's request sentinel. The two host schedulers need opposite
+# request-file lifecycles, so this branches by OS:
+#   - Linux (systemd .path, PathExists): the file's PRESENCE is the trigger. Consume it (delete) so
+#     the .path unit re-arms for the next request.
+#   - macOS (launchd WatchPaths): the file must stay PRESENT or launchd falls back to watching the
+#     parent dir, and then our own status.json writes would retrigger compile in a loop. So the file
+#     is permanent (install.sh creates it); detect a fresh request by mtime — newer than the last
+#     compile — and never delete it. (MCP requestCompile() rewrites the file, bumping its mtime.)
+if [ "$(uname -s)" = Darwin ]; then
+  # Manual iff the request is newer than the last compile. The -f guard keeps it deterministic
+  # ([ -nt ] with a missing operand is unspecified): before the first compile, the install-created
+  # placeholder request isn't a real ask, so fall through to scheduled (which still compiles).
+  if [ -f "$LAST_COMPILED_FILE" ] && [ "$REQUEST" -nt "$LAST_COMPILED_FILE" ]; then
+    MODE=manual
+  else
+    MODE=scheduled
+  fi
 else
-  MODE=scheduled
+  if [ -f "$REQUEST" ]; then MODE=manual; rm -f "$REQUEST"; else MODE=scheduled; fi
 fi
 log "compile mode: $MODE"
 

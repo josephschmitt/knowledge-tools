@@ -353,6 +353,11 @@ install_launchd() {
   echo "Installing vault '$INSTANCE' via launchd (tools: $TOOLS_REPO, vault: $VAULT_REPO)"
   echo "  cadence: compile=$ONCALENDAR synthesize=$SYNTH_ONCALENDAR resolve=$RESOLVE_ONCALENDAR (local time)"
   mkdir -p "$LA_DIR" "$LOG_DIR_M" "$VAULT_REPO/inbox/.compile"
+  # The compile agent's WatchPaths watches the request FILE; if it's absent launchd falls back to
+  # watching the parent dir and the worker's own status.json writes would loop it. Create the file
+  # so the watch targets it from the start. Leave an existing one (and its mtime, which may flag a
+  # pending request) untouched — vault-compile.sh keeps this file permanent on macOS.
+  [ -e "$VAULT_REPO/inbox/.compile/request" ] || : >"$VAULT_REPO/inbox/.compile/request"
 
   gen_plist() { # <template basename> <job> <schedule-fragment>
     local tmpl="$SCRIPTS/$1" job="$2" sched="$3"
