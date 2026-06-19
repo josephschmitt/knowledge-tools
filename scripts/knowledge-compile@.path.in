@@ -1,0 +1,20 @@
+# systemd USER path unit — materialized PER VAULT by scripts/install.sh as
+# knowledge-compile@<instance>.path, which fills in @VAULT_REPO@ (this vault's repo). Unlike the
+# service/timer this is NOT a shared template: a .path unit can't read an EnvironmentFile, so the
+# watched path must be a literal baked in per vault (the instance name %i is a slug, not a path).
+# Edit this template, then re-run install.sh.
+#
+# Watches for a manual compile request the MCP server drops into this vault's inbox/ and starts
+# knowledge-compile@%i.service. Because that instance's timer and this path unit start the SAME
+# per-instance service, systemd runs only one at a time — the single-instance guarantee is the
+# lock shared between the manual trigger and the scheduled job for this vault.
+[Unit]
+Description=Watch for an on-demand %i vault compile request
+
+[Path]
+# Fires when the sentinel exists; the service consumes (deletes) it, re-arming the watch.
+PathExists=@VAULT_REPO@/inbox/.compile/request
+Unit=knowledge-compile@%i.service
+
+[Install]
+WantedBy=default.target

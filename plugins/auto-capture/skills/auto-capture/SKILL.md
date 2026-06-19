@@ -54,6 +54,16 @@ vault in view). Your job is to make the dump legible:
 - **One capture per distinct item.** If a turn surfaced two unrelated things, that's two
   `append_to_inbox` calls.
 
+## Multiple vaults — always the default
+
+Autonomous capture **never asks which vault** — asking is exactly the friction this skill
+exists to avoid. If Joe runs several vaults (each its own connector), always file to the
+**default**: the one connected as the bare `knowledge-vault` server (the `knowledge-vault-<label>`
+variants are the non-default ones). Don't try to route by topic — that's a content decision, and
+capture takes none. If Joe explicitly wants something in a specific non-default vault, that's a
+"save this to work" — an explicit request the `knowledge-vault` skill handles, not this silent
+path.
+
 ## Announcing captures
 
 Capturing is autonomous, but it isn't *secret*. Tell Joe what you filed — briefly and

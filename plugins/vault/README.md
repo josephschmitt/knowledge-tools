@@ -56,3 +56,38 @@ from the working directory up to the filesystem root):
 3. `/mcp` → **Authenticate**.
 
 DCR deployments need none of this — leave the plugin's bare server alone and it auto-registers.
+
+## Multiple vaults
+
+Multi-vault here means **multiple deployments, not one server multiplexing many vaults**: each
+vault is its own service (its own `VAULT_ROOT`, URL, and auth) connected as its own MCP server. The
+plugin connects exactly one (`knowledge-vault`, from the URL you enter on install) — add the others
+in `.mcp.json` under distinct names following the convention **`knowledge-vault-<label>`**:
+
+```json
+{
+  "mcpServers": {
+    "knowledge-vault": {
+      "type": "http",
+      "url": "https://personal.knowledge.example.com/mcp"
+    },
+    "knowledge-vault-work": {
+      "type": "http",
+      "url": "https://work.knowledge.example.com/mcp",
+      "oauth": { "clientId": "<work-public-client-id>", "callbackPort": 47832 }
+    }
+  }
+}
+```
+
+Notes:
+
+- **The bare `knowledge-vault` server is the default** — the target for `auto-capture` and for any
+  capture/recall where you don't name a vault. Keep your primary vault as `knowledge-vault` and add
+  the rest as `knowledge-vault-<label>`. The skill asks "which vault?" only when more than one is
+  connected *and* you didn't name one.
+- Set each service's **`KNOWLEDGE_VAULT_NAME`** to its `<label>` (see
+  [`service/README.md`](../../service/README.md)) so the label the skill reads back from
+  `vault_status` matches the connector name.
+- Auth is per server: a DCR proxy needs nothing; a no-DCR IdP gets its own literal `oauth.clientId`
+  per entry (as above). Each `knowledge-vault-*` entry overrides/extends the plugin's single server.

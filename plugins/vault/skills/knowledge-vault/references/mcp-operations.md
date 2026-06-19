@@ -48,7 +48,9 @@ All tools return their result as plain text content. Wiki paths are relative to 
 
 ### vault_status
 - **Inputs:** none.
-- **Output:** a JSON object with four fields:
+- **Output:** a JSON object with five fields:
+  - `vault_name` — this vault's label (`KNOWLEDGE_VAULT_NAME`), or `null` when unlabeled. Only
+    meaningful with several vaults connected; it disambiguates which vault answered.
   - `last_compiled_at` — ISO time the most recent *successful* compile finished, or `null`.
   - `pending_inbox_count` — number of captures in `inbox/` not yet compiled.
   - `manual_compile_available_at` — ISO time the next manual `compile_run` is allowed; `null`

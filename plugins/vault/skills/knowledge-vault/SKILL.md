@@ -30,6 +30,26 @@ mints it; this interface never creates, edits, schedules, or completes a task fi
 task lifecycle — status, due date, priority, completion — in the TaskNotes UI. So never tell
 him you've "made" or "scheduled" a task; you've captured raw material the compiler will file.
 
+## Choosing a vault (only when there's more than one)
+
+Usually there's **one** vault and you do nothing here — call its tools directly and never ask.
+Joe can run **several** vaults (e.g. personal vs work), each a separate deployment wired as its
+own connector, and the tools then arrive namespaced per vault (`knowledge-vault-<label>`, e.g.
+`knowledge-vault-work`). Only then does a choice exist:
+
+- **Picking the vault is the one allowed decision — and it's not categorization.** Capture still
+  takes *zero* decisions about content (no dedup, no destination, no filing); choosing which
+  vault to write to or read from is a separate, coarse routing choice that lives here, not in the
+  compiler. So this is the *only* thing you may decide before a capture — nothing about the
+  content itself.
+- **One vault → never ask.** If only one `knowledge-vault…` connector is present, just use it.
+- **Several vaults → route, or ask once.** If Joe named it ("save this to work", "what's in my
+  personal vault about X"), use that vault's connector. If he didn't and the action is
+  vault-specific, ask one terse question — "Which vault — personal or work?" — then proceed.
+  Don't ask more than once; don't turn it into a categorization prompt.
+- To map connectors to readable names, you can call each one's `vault_status` once and read its
+  `vault_name` label.
+
 ## MCP operations
 
 The connector's tools each arrive with their own name, description, and input schema, so
