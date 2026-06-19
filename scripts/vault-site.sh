@@ -51,6 +51,9 @@ SITE_OUT="${KNOWLEDGE_SITE_ROOT:-$STATE/site/$INSTANCE}"
 
 LOG_DIR="$STATE/site-logs/$INSTANCE"
 mkdir -p "$LOG_DIR"
+# One log per run, and this runs inline after every (hourly) compile, so prune old logs to cap
+# growth. Keep ~30 days; tune with KNOWLEDGE_SITE_LOG_RETENTION_DAYS.
+find "$LOG_DIR" -type f -name '*.log' -mtime "+${KNOWLEDGE_SITE_LOG_RETENTION_DAYS:-30}" -delete 2>/dev/null || true
 STAMP="$(date +%Y-%m-%d_%H%M%S)"
 LOG="$LOG_DIR/$STAMP.log"
 log() { printf '%s %s\n' "$(date -Is)" "$*" | tee -a "$LOG"; }
