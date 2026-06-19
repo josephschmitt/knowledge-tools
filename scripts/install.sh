@@ -255,11 +255,11 @@ _dow_num() { # systemd weekday name -> launchd Weekday integer (Sun=0, Mon=1 …
 # (with a message on stderr) if it's outside the supported macOS subset. The trailing timezone is
 # stripped — launchd schedules in the machine's local time.
 oncalendar_to_launchd() { # <value>
-  local v="$1" last dow="" timepart hh rest mm step
+  local v="$1" dow="" timepart hh rest mm step
   # Drop a trailing timezone token (launchd schedules in local time). A tz name starts with a
-  # letter (America/Detroit, Europe/London, UTC); the time field starts with a digit or '*' — so
-  # key off the leading char, NOT a '/', which the every-N-min time field (*:00/30:00) also has.
-  last="${v##* }"; case "$last" in [A-Za-z]*) [ "$last" != "$v" ] && v="${v% *}" ;; esac
+  # letter (America/Detroit, Europe/London, UTC); the time field starts with a digit or '*', and a
+  # leading weekday has no preceding space — so a " <letter>" only ever matches the trailing tz.
+  case "$v" in *' '[A-Za-z]*) v="${v% *}" ;; esac
   v="${v%"${v##*[![:space:]]}"}"                              # rstrip
 
   case "$v" in
