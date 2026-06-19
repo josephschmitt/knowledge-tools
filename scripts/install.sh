@@ -313,8 +313,14 @@ install_launchd() {
   # launchd can't read an EnvironmentFile, so bake them straight into EnvironmentVariables.
   ENV_EXTRA=""
   _env_kv() { # <name> <value>  -> append an indented <key>/<string> pair to ENV_EXTRA
+    # XML-escape the value so a '&', '<', or '>' can't produce a malformed plist that fails
+    # plutil/bootstrap silently. Escape via sed, NOT bash "${v//&/&amp;}": bash 5.2+ treats a '&'
+    # in the replacement as the matched text, which corrupts the entities. '&' rule runs first so
+    # it doesn't re-escape the '&' introduced by the '<'/'>' rules.
+    local v
+    v="$(printf '%s' "$2" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
     ENV_EXTRA="$ENV_EXTRA    <key>$1</key>
-    <string>$2</string>
+    <string>$v</string>
 "
   }
   [ -n "${KNOWLEDGE_REVIEW_CHANNEL:-}" ] && _env_kv KNOWLEDGE_REVIEW_CHANNEL "$KNOWLEDGE_REVIEW_CHANNEL"
