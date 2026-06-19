@@ -37,9 +37,9 @@ LAST_COMPILED_FILE="$COMPILE_DIR/last-compiled-epoch"
 LAST_MANUAL_FILE="$COMPILE_DIR/last-manual-epoch"
 mkdir -p "$COMPILE_DIR"
 
-log() { printf '%s %s\n' "$(date -Is)" "$*" | tee -a "$LOG"; }
+log() { printf '%s %s\n' "$(now_iso)" "$*" | tee -a "$LOG"; }
 
-iso_of() { [ -s "$1" ] && date -d "@$(cat "$1")" -Is || printf ''; }
+iso_of() { [ -s "$1" ] && epoch_iso "$(cat "$1")" || printf ''; }
 
 # Write status.json for the MCP to read. Args: running(true|false) summary.
 write_status() {
@@ -76,7 +76,7 @@ fi
 log "compile mode: $MODE"
 
 NOW_EPOCH="$(date +%s)"
-STARTED_AT="$(date -Is)"
+STARTED_AT="$(now_iso)"
 
 # Manual runs are throttled; the scheduled run is exempt and never consumes the cooldown.
 if [ "$MODE" = manual ] && [ -s "$LAST_MANUAL_FILE" ]; then

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- launchd USER agent (LaunchAgent) — the macOS equivalent of the systemd compile units.
+     Generated PER VAULT into ~/Library/LaunchAgents/@LABEL@.plist by scripts/install.sh on macOS;
+     @TOOLS_REPO@ is this repo (the worker), @VAULT_REPO@ this vault, @INSTANCE@ the vault instance
+     (it keys the per-vault lock). launchd has no template/%i mechanism, so install.sh bakes every
+     value in and writes one concrete plist per vault. Edit this template, then re-run install.sh.
+
+     One agent does what TWO systemd units do for compile: its StartCalendarInterval is the timer
+     (KNOWLEDGE_COMPILE_ONCALENDAR) and WatchPaths is the on-demand .path watcher. A launchd label
+     can't run two copies of itself, so both triggers safely share one job (launchd serializes
+     them; the per-vault lock in vault-lib.sh covers compile vs synthesize/resolve). WatchPaths
+     watches the request FILE, not its dir, so the worker's own status.json writes don't re-fire
+     it; consuming the request fires one extra scheduled run, which no-ops on an empty inbox. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@LABEL@</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@TOOLS_REPO@/scripts/vault-compile.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>KNOWLEDGE_REPO</key>
+    <string>@VAULT_REPO@</string>
+    <key>KNOWLEDGE_INSTANCE</key>
+    <string>@INSTANCE@</string>
+    <key>PATH</key>
+    <string>@PATH@</string>
+@ENV_EXTRA@
+  </dict>
+@SCHEDULE@
+  <key>WatchPaths</key>
+  <array>
+    <string>@VAULT_REPO@/inbox/.compile/request</string>
+  </array>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>@LOG@</string>
+  <key>StandardErrorPath</key>
+  <string>@LOG@</string>
+</dict>
+</plist>

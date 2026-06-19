@@ -94,7 +94,7 @@ mkdir -p "$LOG_DIR"
 STAMP="$(date +%Y-%m-%d_%H%M%S)"
 LOG="$LOG_DIR/$STAMP.log"
 
-log() { printf '%s %s\n' "$(date -Is)" "$*" | tee -a "$LOG"; }
+log() { printf '%s %s\n' "$(now_iso)" "$*" | tee -a "$LOG"; }
 
 # Serialize against compile + the other issue job — they all edit wiki/ and commit.
 acquire_vault_lock
