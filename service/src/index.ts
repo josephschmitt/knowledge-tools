@@ -130,10 +130,11 @@ if (ENABLE_SITE) {
   // Fall through to Quartz's generated 404.html for unmatched GET/HEAD requests (with a 404 status,
   // not 200). Scoped to GET/HEAD, and skips the /api and /mcp surfaces so an unknown API/MCP path
   // isn't answered with the wiki's HTML 404 page — those fall through to Express's default handler.
+  const notFoundPage = path.join(SITE_ROOT, '404.html');
   app.use(requireToken, (req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     if (req.path.startsWith('/api/') || req.path === '/mcp' || req.path.startsWith('/mcp/')) return next();
-    res.status(404).sendFile(path.join(SITE_ROOT, '404.html'), (err) => {
+    res.status(404).sendFile(notFoundPage, (err) => {
       if (err) next();
     });
   });

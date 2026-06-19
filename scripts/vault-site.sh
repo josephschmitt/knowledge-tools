@@ -106,10 +106,9 @@ if [ ! -d "$QUARTZ_DIR/node_modules" ] || [ "$(cat "$STAMP_FILE" 2>/dev/null || 
 fi
 
 # --- Overlay this repo's config onto the checkout. ---
-cp "$TOOLS_REPO/site/quartz.config.ts" "$QUARTZ_DIR/quartz.config.ts" \
-  || fail "could not copy site/quartz.config.ts into the checkout."
-cp "$TOOLS_REPO/site/quartz.layout.ts" "$QUARTZ_DIR/quartz.layout.ts" \
-  || fail "could not copy site/quartz.layout.ts into the checkout."
+for f in quartz.config.ts quartz.layout.ts; do
+  cp "$TOOLS_REPO/site/$f" "$QUARTZ_DIR/$f" || fail "could not copy site/$f into the checkout."
+done
 
 # --- Stage content (ALLOWLIST — privacy boundary). Only index.md + wiki/ ever reach the site. ---
 mkdir -p "$STAGE"
