@@ -40,8 +40,8 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   git side effects all three share; `vault-site.sh` builds the optional
   [Quartz](https://quartz.jzhao.xyz) static site the service serves at `/` (renders `index.md` +
   `wiki/` only, publishes outside the vault — see [`service/README.md`](service/README.md#static-website-));
-  `install.sh` generates the systemd *user* units from the
-  `knowledge-*@.in` templates — one instance per vault, so a host can run several
+  `install.sh` generates the host scheduler jobs from the `knowledge-*` templates (systemd *user*
+  units on Linux, launchd agents on macOS) — one instance per vault, so a host can run several
   ([below](#vault-automation-host-setup)); `init-vault.sh` seeds a brand-new vault from `template/`;
   `validate_skills.py` is used by CI.
 - **`template/`** — the starting point of a vault's own librarian (`CLAUDE.md`, the
@@ -186,8 +186,9 @@ Where a judgment call lives — and whether you need GitHub at all — is set by
 
 - **`github`** — calls are GitHub issues. `/synthesize` and `/resolve` run `gh issue ...` from
   *inside* the Claude run, so the host needs the GitHub CLI installed, on PATH, and authenticated
-  once with `gh auth login` (stored in `~/.config/gh`). The generated service units put
-  `~/.nix-profile/bin` and `~/.local/bin` on PATH and rely on `HOME` for the auth; the run is
+  once with `gh auth login` (stored in `~/.config/gh`). The generated jobs put the relevant local
+  profile dirs on PATH (`~/.nix-profile/bin` + `~/.local/bin` on Linux, the Homebrew prefixes on
+  macOS) and rely on `HOME` for the auth; the run is
   granted only the exact `gh issue` subcommands each command's frontmatter declares (via
   `--allowedTools`), never a blanket skip-permissions. The required labels
   (`vault:judgment-call`, `vault:needs-verification`, and `vault:answered`) must exist on the
@@ -278,3 +279,9 @@ automation, and it's free — including on private repos):
 that file exists, nothing changes** — `gh` falls back to your `~/.config/gh` login and the jobs
 keep working exactly as before. To revert, delete the file. The token must never be committed;
 keeping it in `~/.config` (not the repo) is the point.
+
+> **macOS:** the `gh.env` file is **Linux-only** — it relies on systemd's optional
+> `EnvironmentFile`, which launchd has no equivalent for (and baking a PAT into a LaunchAgent plist
+> would persist the secret in `~/Library/LaunchAgents`, a worse posture). For a bot identity on
+> macOS, log `gh` in as the bot directly (`gh auth login` as that account), or export `GH_TOKEN`
+> in the environment the LaunchAgents inherit.
