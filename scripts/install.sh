@@ -232,6 +232,17 @@ inject() { # <placeholder> <multiline-value>
   INJECT_VAL="$2" awk -v key="$1" 'index($0, key) { print ENVIRON["INJECT_VAL"]; next } { print }'
 }
 
+# XML-escape stdin (&, <, >) for embedding in a plist <string>. '&' first, or it would re-escape
+# the '&' the </>/ rules introduce.
+_xml_escape() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+
+# Make a value safe to substitute into a plist <string> via `sed -e "s|@TOK@|VALUE|g"`: XML-escape
+# it, then escape the chars sed treats specially in a REPLACEMENT (\, &, and our | delimiter) so a
+# path like /Users/a&b or one containing | lands literally instead of corrupting the plist.
+_plist_val() { # <value> -> escaped string for use as a sed replacement
+  printf '%s' "$1" | _xml_escape | sed -e 's/[\\&|]/\\&/g'
+}
+
 # Emit a <key>StartCalendarInterval</key><dict>…</dict> block. Args: Key Int [Key Int ...].
 # Indented to sit at the plist's top-level dict (2 spaces), inner keys at 4.
 _cal() {
@@ -283,7 +294,10 @@ oncalendar_to_launchd() { # <value>
   if [ "$hh" = '*' ]; then
     case "$mm" in
       */*) step="${mm#*/}"; case "$step" in ''|*[!0-9]*) _unsupported "$1"; return 1 ;; esac
-           _interval "$((step * 60))"; return 0 ;;            # every-N-min → StartInterval
+           # step must be a positive count of minutes — 0 would mean StartInterval 0, which launchd
+           # treats as "fire continuously" (a tight compile loop). 10# avoids an octal parse on '08'.
+           [ "$((10#$step))" -gt 0 ] || { _unsupported "$1"; return 1; }
+           _interval "$(( (10#$step) * 60 ))"; return 0 ;;     # every-N-min → StartInterval
       *[!0-9]*|'') _unsupported "$1"; return 1 ;;
       *) _cal Minute "$((10#$mm))"; return 0 ;;               # hourly at minute MM
     esac
@@ -314,11 +328,9 @@ install_launchd() {
   ENV_EXTRA=""
   _env_kv() { # <name> <value>  -> append an indented <key>/<string> pair to ENV_EXTRA
     # XML-escape the value so a '&', '<', or '>' can't produce a malformed plist that fails
-    # plutil/bootstrap silently. Escape via sed, NOT bash "${v//&/&amp;}": bash 5.2+ treats a '&'
-    # in the replacement as the matched text, which corrupts the entities. '&' rule runs first so
-    # it doesn't re-escape the '&' introduced by the '<'/'>' rules.
-    local v
-    v="$(printf '%s' "$2" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
+    # plutil/bootstrap silently. (No sed-replacement escaping needed: this goes into ENV_EXTRA,
+    # which inject() splices via awk, not sed.)
+    local v; v="$(printf '%s' "$2" | _xml_escape)"
     ENV_EXTRA="$ENV_EXTRA    <key>$1</key>
     <string>$v</string>
 "
@@ -343,9 +355,15 @@ install_launchd() {
     local label="com.knowledge-tools.$job.$INSTANCE"
     local dest="$LA_DIR/$label.plist"
     local log="$LOG_DIR_M/$INSTANCE-$job.log"
-    sed -e "s|@TOOLS_REPO@|$TOOLS_REPO|g" -e "s|@VAULT_REPO@|$VAULT_REPO|g" \
+    # The path-ish values land inside plist <string> elements, so escape each for XML + sed (a '&'
+    # or '|' in $HOME / the repo path would otherwise corrupt the plist or break the substitution).
+    # INSTANCE/LABEL are a validated [A-Za-z0-9_-] slug, so they need none.
+    local tools_v vault_v path_v log_v
+    tools_v="$(_plist_val "$TOOLS_REPO")"; vault_v="$(_plist_val "$VAULT_REPO")"
+    path_v="$(_plist_val "$LA_PATH")";     log_v="$(_plist_val "$log")"
+    sed -e "s|@TOOLS_REPO@|$tools_v|g" -e "s|@VAULT_REPO@|$vault_v|g" \
       -e "s|@INSTANCE@|$INSTANCE|g" -e "s|@LABEL@|$label|g" \
-      -e "s|@PATH@|$LA_PATH|g" -e "s|@LOG@|$log|g" \
+      -e "s|@PATH@|$path_v|g" -e "s|@LOG@|$log_v|g" \
       "$tmpl" \
       | inject '@SCHEDULE@' "$sched" \
       | inject '@ENV_EXTRA@' "$ENV_EXTRA" \
