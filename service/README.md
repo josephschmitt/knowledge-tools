@@ -1,17 +1,20 @@
 # Knowledge Vault Service
 
-One server that exposes this knowledge vault over **two protocols**, both backed by the same
-in-process vault core:
+One server that exposes this knowledge vault over **two protocols** plus an optional **static
+website**, all backed by the same in-process vault core:
 
 - **MCP** at `/mcp` — a remote [MCP](https://modelcontextprotocol.io) endpoint over the
   **Streamable HTTP** transport, used by **claude.ai as a custom connector** (and the Claude
   Code plugin). The MCP *protocol* server name is `knowledge-vault`.
 - **REST** at `/api/v1` — a plain JSON HTTP API mirroring the MCP tools 1:1, for scripts,
   automation, and any other tooling that doesn't speak MCP. See [REST API](#rest-api).
+- **Static site** at `/` — an optional, pre-built [Quartz](https://quartz.jzhao.xyz) rendering of
+  the wiki you can browse in a web browser. **Off by default**; see [Static website](#static-website-).
 
-Both surfaces are on by default; each can be turned off independently with
-`KNOWLEDGE_ENABLE_MCP=false` / `KNOWLEDGE_ENABLE_REST=false` (a disabled surface's paths 404; the
-server refuses to start if both are off). See [Choosing which surfaces to serve](#choosing-which-surfaces-to-serve).
+The two protocols are on by default; the static site is opt-in. Each surface toggles independently
+with `KNOWLEDGE_ENABLE_MCP` / `KNOWLEDGE_ENABLE_REST` / `KNOWLEDGE_ENABLE_SITE` (a disabled
+surface's paths 404; the server refuses to start if all three are off). See
+[Choosing which surfaces to serve](#choosing-which-surfaces-to-serve).
 
 Authentication is **optional and off by default** and gates **both** surfaces: out of the box
 the server does no auth and trusts its network (run it behind an authenticating proxy), or you
@@ -90,16 +93,83 @@ cooldown next clears) — poll it after a `compile_run` to know when the wiki is
 
 ## Choosing which surfaces to serve
 
-Both protocols run by default. To run a single-surface deployment, set one of:
+The two protocols run by default; the static site is opt-in. Toggle each independently:
 
 ```sh
-KNOWLEDGE_ENABLE_MCP=false     # REST only (e.g. a headless host with no claude.ai connector)
-KNOWLEDGE_ENABLE_REST=false    # MCP only (e.g. only the claude.ai/Claude Code connector)
+KNOWLEDGE_ENABLE_MCP=false     # turn off MCP  (e.g. REST/site only)
+KNOWLEDGE_ENABLE_REST=false    # turn off REST (e.g. MCP/site only)
+KNOWLEDGE_ENABLE_SITE=true     # turn ON the static site (off by default; see Static website)
 ```
 
 A disabled surface isn't mounted, so its paths return `404` (and for MCP, the RFC 9728 discovery
-metadata isn't advertised either). `/healthz` is always served. Setting **both** to `false` is a
+metadata isn't advertised either). `/healthz` is always served. Setting **all three** off is a
 misconfiguration — the server logs `FATAL … nothing to serve` and exits non-zero.
+
+## Static website (`/`)
+
+Optionally serve a browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the wiki** at `/`,
+alongside `/mcp` and `/api/v1` — a fast static site with full-text search, backlinks, a graph view,
+and Obsidian-style `[[wikilink]]` navigation. **Off by default**; turn it on with:
+
+```sh
+KNOWLEDGE_ENABLE_SITE=true
+KNOWLEDGE_SITE_ROOT=/site      # where the pre-built site is mounted (default /site)
+```
+
+**Quartz is a build-time generator, not a renderer** — the server only *serves* a pre-built
+directory; it never runs Quartz and carries none of its dependencies. So there are two pieces:
+
+1. **Build the artifact** on the host with [`scripts/vault-site.sh`](../scripts/vault-site.sh). It
+   renders only `index.md` + `wiki/` (a strict allowlist — never `inbox/`, `outputs/`, logs, or
+   task files) and publishes the static output **outside** the vault, swapped in atomically so the
+   server never sees a half-built tree. See [Building the site](#building-the-site).
+2. **Serve it** — bind-mount that output directory into the container at `KNOWLEDGE_SITE_ROOT` and
+   set `KNOWLEDGE_ENABLE_SITE=true`. A single `express.static` serves Quartz's clean URLs
+   (`/wiki/foo`); an unmatched path returns Quartz's `404.html`. The directory needn't exist at
+   startup (the host populates it asynchronously) — the server logs a warning and serves it once it
+   appears.
+
+```sh
+# Add to your `docker run` / compose alongside the existing VAULT_ROOT mount:
+#   -v ~/.local/state/knowledge-tools/site/default:/site:ro   # the built site (read-only)
+#   -e KNOWLEDGE_ENABLE_SITE=true
+```
+
+> **Browser access needs a proxy when built-in auth is on.** The `/` surface is gated by the
+> **same `requireToken`** as the other surfaces. With built-in token validation on
+> ([Authentication](#authentication)), a plain browser sends no `Bearer` token and gets `401` — the
+> server is a pure resource server with no login page. So browse it behind the **same
+> authenticating proxy** that fronts the rest of the service (Cloudflare Access, Authelia, …),
+> which logs the browser in and injects the header. With auth off (the default), `requireToken` is
+> a no-op and the proxy in front is the gate, exactly like `/mcp` and `/api/v1`.
+
+### Building the site
+
+`scripts/vault-site.sh` runs on the **host** (where the vault and Node live, not in the container).
+It maintains a pinned Quartz checkout, overlays the config in [`site/`](../site), stages
+`index.md` + `wiki/`, runs `quartz build`, and atomically swaps the result into the output
+directory. It's read-only w.r.t. the vault (no git, no commits), so it's safe to run any time — by
+hand, from cron, or from a systemd timer:
+
+```sh
+# Needs Node >= 20 on the host (for Quartz). Build the default vault's site once:
+KNOWLEDGE_REPO=/path/to/vault scripts/vault-site.sh
+# Output: ~/.local/state/knowledge-tools/site/<instance>/ — bind-mount THAT dir into the container.
+```
+
+Host knobs (set in the repo-root `.env` or the environment):
+
+| Var | Default | What |
+|---|---|---|
+| `KNOWLEDGE_SITE_ROOT` | `~/.local/state/knowledge-tools/site/<instance>` | where the built site is published — bind-mount this into the container |
+| `KNOWLEDGE_SITE_BASE_URL` | `example.com` | public host for absolute URLs in RSS/sitemap (navigation is relative, so cosmetic); set to your real host |
+| `KNOWLEDGE_SITE_TITLE` | `Knowledge Vault` | the site's page title |
+| `KNOWLEDGE_QUARTZ_REF` | `v4.5.2` | pinned Quartz version (a git checkout, not an npm dep) |
+| `KNOWLEDGE_SITE_LOG_RETENTION_DAYS` | `30` | prune `vault-site` build logs older than this |
+
+Re-run it whenever the wiki changes to refresh the published site. (A future host-automation pass
+will wire systemd units to rebuild after each compile and on a timer; until then, schedule it
+yourself or run it on demand.)
 
 ## Multiple vaults
 
@@ -245,7 +315,9 @@ pulls without authenticating; the image carries only server code, no vault conte
 
 ## Deploying behind auth
 
-Run the container (only required config is `VAULT_ROOT`), then choose how it's protected.
+Run the container (only required config is `VAULT_ROOT`; add the `KNOWLEDGE_SITE_ROOT` mount +
+`KNOWLEDGE_ENABLE_SITE=true` if you want the [static site](#static-website-)), then choose how it's
+protected.
 
 ### Cloudflare Access + Managed OAuth  *(public; works with claude.ai)*
 
