@@ -119,7 +119,10 @@ if [ "${#SOURCES[@]}" -eq 0 ]; then
   fail "no content to publish — neither $REPO/index.md nor $REPO/wiki exists."
 fi
 if command -v rsync >/dev/null 2>&1; then
-  # --delete prunes notes removed from the vault; only deltas copy, so this is cheap to re-run.
+  # --delete prunes notes removed from the vault within synced directories; only deltas copy, so
+  # this is cheap to re-run. For top-level file sources (index.md) rsync --delete has no effect, so
+  # explicitly drop a previously-staged copy when the vault file no longer exists.
+  [ ! -f "$REPO/index.md" ] && rm -f "$STAGE/index.md"
   rsync -a --delete "${SOURCES[@]}" "$STAGE/" >>"$LOG" 2>&1 || fail "staging (rsync) failed."
 else
   rm -rf "${STAGE:?}/"* && cp -a "${SOURCES[@]}" "$STAGE/" || fail "staging (cp) failed."
