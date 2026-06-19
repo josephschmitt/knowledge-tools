@@ -126,16 +126,19 @@ mkdir -p "$UNIT_DIR" "$CONFIG_DIR"
 # Write this vault's config file (read by its service units via EnvironmentFile). Install-managed —
 # re-running rewrites it from the current environment. 0600 since it names the vault path/repo.
 echo "  config: $INSTANCE_ENV"
-umask 077
-{
-  echo "# Managed by scripts/install.sh — per-vault config for instance '$INSTANCE'."
-  echo "# Loaded by the knowledge-*@$INSTANCE units via EnvironmentFile. Re-running install.sh rewrites it."
-  echo "KNOWLEDGE_REPO=$VAULT_REPO"
-  [ -n "${KNOWLEDGE_REVIEW_CHANNEL:-}" ] && echo "KNOWLEDGE_REVIEW_CHANNEL=$KNOWLEDGE_REVIEW_CHANNEL"
-  [ -n "${KNOWLEDGE_GITHUB_REPO:-}" ] && echo "KNOWLEDGE_GITHUB_REPO=$KNOWLEDGE_GITHUB_REPO"
-  [ -n "${KNOWLEDGE_COMPILE_COOLDOWN:-}" ] && echo "KNOWLEDGE_COMPILE_COOLDOWN=$KNOWLEDGE_COMPILE_COOLDOWN"
-  true
-} >"$INSTANCE_ENV"
+# Subshell the umask so the restrictive mode applies ONLY to this write — otherwise it leaks into
+# the render() calls below and the generated unit files land 600 instead of the conventional 644.
+( umask 077
+  {
+    echo "# Managed by scripts/install.sh — per-vault config for instance '$INSTANCE'."
+    echo "# Loaded by the knowledge-*@$INSTANCE units via EnvironmentFile. Re-running install.sh rewrites it."
+    echo "KNOWLEDGE_REPO=$VAULT_REPO"
+    [ -n "${KNOWLEDGE_REVIEW_CHANNEL:-}" ] && echo "KNOWLEDGE_REVIEW_CHANNEL=$KNOWLEDGE_REVIEW_CHANNEL"
+    [ -n "${KNOWLEDGE_GITHUB_REPO:-}" ] && echo "KNOWLEDGE_GITHUB_REPO=$KNOWLEDGE_GITHUB_REPO"
+    [ -n "${KNOWLEDGE_COMPILE_COOLDOWN:-}" ] && echo "KNOWLEDGE_COMPILE_COOLDOWN=$KNOWLEDGE_COMPILE_COOLDOWN"
+    true
+  } >"$INSTANCE_ENV"
+)
 chmod 600 "$INSTANCE_ENV"
 
 # Render a *.in template with all placeholders substituted. The service templates use only
@@ -158,18 +161,23 @@ render knowledge-compile@.path.in     "$PATH_UNIT"
 render knowledge-synthesize@.timer.in "knowledge-synthesize@$INSTANCE.timer"
 render knowledge-resolve@.timer.in    "knowledge-resolve@$INSTANCE.timer"
 
-# Migrate a pre-multi-vault install: the old non-instanced units would double-fire alongside the
-# new @default ones. Disable + remove them if present.
-legacy_found=0
-for u in "${LEGACY_UNITS[@]}"; do
-  [ -e "$UNIT_DIR/$u" ] && legacy_found=1
-done
-if [ "$legacy_found" = 1 ]; then
-  echo "Migrating: removing legacy non-instanced units (replaced by @-instance units)"
-  systemctl --user disable --now \
-    knowledge-compile.timer knowledge-synthesize.timer knowledge-resolve.timer knowledge-compile.path \
-    2>/dev/null || true
-  for u in "${LEGACY_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
+# Migrate a pre-multi-vault install: the old non-instanced units map to THIS run's @default units
+# (same vault, same schedule), so they'd double-fire. Only remove them when installing the default
+# instance — that's the run that writes the replacements. Installing a NON-default vault first (to
+# add a second vault before migrating the original) must leave the legacy units running until the
+# user re-runs for `default`; otherwise the original vault's automation would silently stop.
+if [ "$INSTANCE" = default ]; then
+  legacy_found=0
+  for u in "${LEGACY_UNITS[@]}"; do
+    [ -e "$UNIT_DIR/$u" ] && legacy_found=1
+  done
+  if [ "$legacy_found" = 1 ]; then
+    echo "Migrating: removing legacy non-instanced units (replaced by @default units)"
+    systemctl --user disable --now \
+      knowledge-compile.timer knowledge-synthesize.timer knowledge-resolve.timer knowledge-compile.path \
+      2>/dev/null || true
+    for u in "${LEGACY_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
+  fi
 fi
 
 echo "Reloading the user daemon"
