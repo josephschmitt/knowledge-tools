@@ -32,21 +32,22 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
     nothing is lost just because you forgot to say "save this". Reuses the `vault` plugin's
     `append_to_inbox` connector; it never queries or compiles. Ships as a separate Claude Code
     plugin and its own release zip.
-- **`scripts/`** — the host-side automation. `vault-compile.sh` runs an ephemeral Claude
-  Code pass (`/compile-inbox`) over the vault; `vault-job.sh` runs the two judgment-call jobs
-  (`/synthesize` and `/resolve`), carrying their judgment calls over either GitHub issues or a
-  git-free file queue (`KNOWLEDGE_REVIEW_CHANNEL`, see [below](#judgment-call-channel-github-or-files));
-  `vault-lib.sh` holds the config, per-vault cross-job lock, and
-  git side effects all three share; `vault-site.sh` builds the optional
+- **`cli/`** — the host-side automation, a single Go CLI (`knowledge-tools`, alias `kt`) that
+  replaced the old bash scripts. It runs the three vault-mutating jobs — `compile`
+  (`/compile-inbox`), `synthesize`, and `resolve` (the two judgment-call jobs, carrying their
+  calls over either GitHub issues or a git-free file queue; `KNOWLEDGE_REVIEW_CHANNEL`, see
+  [below](#judgment-call-channel-github-or-files)) — and supervises them on a schedule via a
+  self-managed `daemon` (one per vault), which `install`/`uninstall` register as a single OS
+  autostart unit ([below](#vault-automation-host-setup)). `init` seeds a brand-new vault from
+  `template/`. See [`cli/`](cli/).
+- **`scripts/`** — the remaining host scripts. `vault-site.sh` builds the optional
   [Quartz](https://quartz.jzhao.xyz) static site the service serves at `/` (renders `index.md` +
   `wiki/` only, publishes outside the vault — see [`service/README.md`](service/README.md#static-website-));
-  `install.sh` generates the host scheduler jobs from the `knowledge-*` templates (systemd *user*
-  units on Linux, launchd agents on macOS) — one instance per vault, so a host can run several
-  ([below](#vault-automation-host-setup)); `init-vault.sh` seeds a brand-new vault from `template/`;
-  `validate_skills.py` is used by CI.
+  `vault-lib.sh` + `load-env.sh` are kept because `vault-site.sh` sources them; `validate_skills.py`
+  is used by CI.
 - **`template/`** — the starting point of a vault's own librarian (`CLAUDE.md`, the
   `/compile-inbox`, `/synthesize`, `/resolve` commands, and the folder skeleton). A seed, not
-  a source of truth — once `init-vault.sh` copies it into a new vault, those files belong to
+  a source of truth — once `knowledge-tools init` copies it into a new vault, those files belong to
   the vault and are expected to drift as the corpus grows. See [Starting a new vault](#starting-a-new-vault).
 
 ## Installing the skill
@@ -126,9 +127,9 @@ skill. CI builds these zips on every skill change merged to `main`.
 If you don't already have a vault repo, seed one from the bundled `template/`:
 
 ```sh
-KNOWLEDGE_REPO=/path/to/new-vault scripts/init-vault.sh
+KNOWLEDGE_REPO=/path/to/new-vault knowledge-tools init
 # or pass the path directly:
-scripts/init-vault.sh /path/to/new-vault
+knowledge-tools init /path/to/new-vault
 ```
 
 This lays down the librarian (`CLAUDE.md`), the `/compile-inbox`, `/synthesize`, and
@@ -141,38 +142,42 @@ reconcile. To reset a single file back to the seed, delete it and re-run.
 
 ## Vault automation (host setup)
 
-Three vault jobs run on the host as scheduled user-level jobs — **systemd user units on Linux**,
-**launchd LaunchAgents on macOS** (`install.sh` picks the right one; see the macOS note below) —
-as one **template instance per vault** (`knowledge-compile@<vault>.service`, …). On a single-vault
-host the instance is just `default` and you can ignore the naming. They all edit `wiki/` and commit, so the three jobs **for a given
-vault** share **one lockfile** (`~/.local/state/knowledge-tools/vault-<vault>.lock`, keyed by the
-instance and overridable with `KNOWLEDGE_VAULT_LOCK`) and never run concurrently — while different
-vaults have different locks and *do* run concurrently. In every case Claude only edits files (and,
-in the GitHub review channel, runs scoped `gh` calls) — the **wrapper** owns git: it commits any
-`wiki/` + `index.md` + `log.md` changes and pushes if an `origin` remote exists.
+A single long-running **daemon** runs on the host per vault and supervises the three vault jobs on
+an internal schedule — **one daemon per vault instance**, kept alive by one OS autostart unit (a
+**systemd user service** on Linux, a **launchd LaunchAgent** on macOS) that `knowledge-tools
+install` registers. On a single-vault host the instance is just `default` and you can ignore the
+naming. The three jobs all edit `wiki/` and commit, so they share **one lockfile**
+(`~/.local/state/knowledge-tools/vault-<vault>.lock`, keyed by the instance and overridable with
+`KNOWLEDGE_VAULT_LOCK`) and never run concurrently — while different vaults have different locks and
+*do* run concurrently. In every case Claude only edits files (and, in the GitHub review channel,
+runs scoped `gh` calls) — the **wrapper** owns git: it commits any `wiki/` + `index.md` + `log.md`
+changes and pushes if an `origin` remote exists.
 
 The vault **need not be a git repo**: when the wrapper finds no work tree it skips the commit
 and leaves history to whatever syncs the folder (Dropbox, Syncthing, …). Combined with the
 file-based review channel below, that lets the whole system run on a plain synced folder with
 no git and no GitHub.
 
-**Compile** — turn fresh captures into notes:
+The daemon schedules each job with a cron expression (timezone via a `CRON_TZ=` prefix). It also
+runs a job once at startup if its scheduled tick elapsed while the daemon was down (catch-up), and
+watches `inbox/.compile/request` so the MCP server's `compile_run` tool triggers an on-demand
+compile. You can also run any job one-shot from the CLI for debugging:
+`knowledge-tools {compile,synthesize,resolve}`.
 
-- `knowledge-compile@<vault>.service` — one ephemeral inbox→wiki compile (the worker).
-- `knowledge-compile@<vault>.timer` — runs it on a schedule (default hourly;
-  `KNOWLEDGE_COMPILE_ONCALENDAR`). No-ops cheaply when the inbox is empty, so a tick only does
-  real work when there are captures.
-- `knowledge-compile@<vault>.path` — runs it on demand when the MCP server's `compile_run` tool
-  drops `inbox/.compile/request` into the vault. Both triggers start the same service.
+**Compile** — turn fresh captures into notes. Default `@hourly` (`KNOWLEDGE_COMPILE_SCHEDULE`);
+no-ops cheaply when the inbox is empty, so a tick only does real work when there are captures. The
+MCP `compile_run` tool triggers it on demand (cooldown-throttled).
 
 **Synthesize** (heavy, infrequent) and **Resolve** (light, frequent) — the judgment-call loop:
 
-- `knowledge-synthesize@<vault>.{service,timer}` — a whole-corpus `/synthesize` pass (default
-  **weekly, ~4:30am local**, `KNOWLEDGE_SYNTHESIZE_ONCALENDAR`). Reconciles drift/contradictions
-  and finds new cross-note connections, **opening** judgment calls for anything only you can decide.
-- `knowledge-resolve@<vault>.{service,timer}` — a `/resolve` pass (default **daily, ~3:30am
-  local**, `KNOWLEDGE_RESOLVE_ONCALENDAR`). Reads your answers to open calls, applies the decisions
-  to `wiki/`, and **closes** them. Short-circuits cheaply when nothing is answered.
+- **Synthesize** — a whole-corpus `/synthesize` pass (default **weekly, ~4:30am local**,
+  `KNOWLEDGE_SYNTHESIZE_SCHEDULE` = `CRON_TZ=America/Detroit 30 4 * * 0`). Reconciles
+  drift/contradictions and finds new cross-note connections, **opening** judgment calls for
+  anything only you can decide.
+- **Resolve** — a `/resolve` pass (default **daily, ~3:30am local**,
+  `KNOWLEDGE_RESOLVE_SCHEDULE` = `CRON_TZ=America/Detroit 30 3 * * *`). Reads your answers to open
+  calls, applies the decisions to `wiki/`, and **closes** them. Short-circuits cheaply when nothing
+  is answered.
 
 Both default to the middle of the night (pinned to `America/Detroit` so they track local night
 through DST even on a UTC host) to land on off-peak Claude Max capacity, staggered an hour apart
@@ -212,65 +217,57 @@ connector at the same channel the host uses.
 
 To set this up from scratch (idempotent — safe to re-run), point `KNOWLEDGE_REPO` at your
 vault repo — either inline as below, or by copying `.env.example` to `.env` and setting it
-there (the scripts load the repo-root `.env` automatically; a real env var overrides it):
+there (the CLI loads the repo-root `.env` automatically; a real env var overrides it):
 
 ```sh
-KNOWLEDGE_REPO=/path/to/vault ~/development/knowledge-tools/scripts/install.sh
+KNOWLEDGE_REPO=/path/to/vault knowledge-tools install
 ```
 
-It generates the units from the `scripts/knowledge-*@.{service,timer,path}.in` templates —
-filling in this repo's path for the worker scripts and writing this vault's `KNOWLEDGE_REPO` into
-`~/.config/knowledge-tools/<vault>.env` (which the service units load) — installs them into
-`~/.config/systemd/user/`, reloads the daemon, enables and starts the three timers + the path
-watcher, and enables linger so they run while you're logged out. Run the issue jobs on demand with
-`systemctl --user start knowledge-{synthesize,resolve}@<vault>.service`. To change a unit, edit its
-`.in` template and re-run the script.
+On **Linux** this writes a `knowledge-tools-daemon@.service` systemd user unit + this vault's
+`~/.config/knowledge-tools/<vault>.env`, reloads the daemon, enables and starts
+`knowledge-tools-daemon@<vault>`, and enables linger so it runs while you're logged out. Tail logs
+with `journalctl --user -u knowledge-tools-daemon@<vault> -f`.
 
-**On macOS** the same command instead generates three launchd LaunchAgents per vault
-(`com.knowledge-tools.{compile,synthesize,resolve}.<vault>.plist`) from the
-`scripts/knowledge-{compile,synthesize,resolve}.plist.in` templates, writes them to
-`~/Library/LaunchAgents/`, and (re)loads each with `launchctl bootstrap`. The compile agent folds
-both triggers into one job — its schedule plus a `WatchPaths` watcher on `inbox/.compile/request`.
-Run the issue jobs on demand with
-`launchctl kickstart -k gui/$(id -u)/com.knowledge-tools.{synthesize,resolve}.<vault>`, and tail
-logs at `~/Library/Logs/knowledge-tools/<vault>-<job>.log` (there's no `journalctl`). Two caveats:
-cadences are scheduled in the Mac's **local time** (a trailing timezone like `America/Detroit` is
-dropped) and accept only a subset of the OnCalendar grammar (hourly/daily/weekly,
-`[Dow ]*-*-* HH:MM:SS`, and every-N-min `*-*-* *:MM/STEP:SS` — whose `MM` start offset launchd
-can't honor, so it fires every `STEP` minutes from agent load, not aligned to `:MM`; install warns
-when you set a non-zero offset); and LaunchAgents run **only while you're logged in** (no linger
-equivalent), so a night job needs the Mac on and logged in then.
+On **macOS** it writes one LaunchAgent (`com.knowledge-tools.daemon.<vault>.plist`, `KeepAlive`)
+to `~/Library/LaunchAgents/` and (re)loads it with `launchctl bootstrap`. Logs go to
+`~/Library/Logs/knowledge-tools/<vault>.log`. LaunchAgents run **only while you're logged in** (no
+linger equivalent), so a night job needs the Mac on and logged in then. (The whole `OnCalendar →
+launchd` grammar dance is gone — the daemon owns scheduling, so cron expressions work the same on
+both OSes.)
+
+Check state any time with `knowledge-tools status` (prints the compile + schedule snapshots and
+whether the daemon is running). Re-run `knowledge-tools install` after changing a schedule; on an
+existing single-vault host the first run also removes the old bash-era per-job units it finds.
 
 **Multiple vaults** (e.g. personal vs work) run on one host as separate instances — each its own
-deployment of these units, lock, schedule, and config. Just run `install.sh` again per vault with a
-distinct `KNOWLEDGE_INSTANCE` (the `<vault>` above; the first one defaults to `default`):
+daemon, lock, schedule, and config. Just run `install` again per vault with a distinct
+`KNOWLEDGE_INSTANCE` (the `<vault>` above; the first one defaults to `default`):
 
 ```sh
-KNOWLEDGE_INSTANCE=work KNOWLEDGE_REPO=/path/to/work-vault ~/development/knowledge-tools/scripts/install.sh
+KNOWLEDGE_INSTANCE=work KNOWLEDGE_REPO=/path/to/work-vault knowledge-tools install
 ```
 
 Each vault is a wholly independent deployment — its own service (one per vault, see
-[`service/README.md`](service/README.md)), its own MCP connector, and its own host jobs — rather than
-one service multiplexing many vaults. Re-running `install.sh` once on an existing single-vault host
-migrates it to the `default` instance (it removes the old non-instanced units).
+[`service/README.md`](service/README.md)), its own MCP connector, and its own daemon — rather than
+one daemon multiplexing many vaults.
 
 ### Uninstalling
 
-`uninstall.sh` is the reverse of `install.sh` — same OS split (systemd / launchd), same
+`knowledge-tools uninstall` is the reverse of `install` — same OS split (systemd / launchd), same
 per-instance `KNOWLEDGE_INSTANCE` (default `default`), and idempotent (a no-op if that vault isn't
 installed). Run it once per vault you want to remove:
 
 ```sh
-~/development/knowledge-tools/scripts/uninstall.sh                           # remove the "default" vault
-KNOWLEDGE_INSTANCE=work ~/development/knowledge-tools/scripts/uninstall.sh   # remove the "work" vault
+knowledge-tools uninstall                              # remove the "default" vault
+KNOWLEDGE_INSTANCE=work knowledge-tools uninstall      # remove the "work" vault
 ```
 
-It stops and removes that instance's jobs (systemd timers + path watcher, or launchd agents) and
-its per-vault config (`~/.config/knowledge-tools/<vault>.env` on Linux) / logs
-(`~/Library/Logs/knowledge-tools/<vault>-*.log` on macOS). When the **last** vault is removed it
-also cleans up the shared pieces — the systemd service templates (Linux) and the empty logs dir
-(macOS) — so nothing is left behind. It needs no `KNOWLEDGE_REPO`, and it deliberately leaves the
-**vault itself** (`inbox/`, `wiki/`, `outputs/`), the optional `gh.env`, and linger untouched.
+It stops and removes that instance's daemon unit and its per-vault config
+(`~/.config/knowledge-tools/<vault>.env` on Linux) / log
+(`~/Library/Logs/knowledge-tools/<vault>.log` on macOS). When the **last** vault is removed it also
+cleans up the shared pieces — the systemd service template (Linux) and the empty logs dir (macOS) —
+so nothing is left behind. It needs no `KNOWLEDGE_REPO`, and it deliberately leaves the **vault
+itself** (`inbox/`, `wiki/`, `outputs/`), the optional `gh.env`, and linger untouched.
 
 ### Bot account (optional)
 

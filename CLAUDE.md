@@ -40,69 +40,68 @@ working in the repo.
   GHCR image by CI; deployed separately.
   See `service/README.md`. (The MCP *protocol* server name stays `knowledge-vault` — only the
   image/package is `knowledge-service`.)
-- `scripts/` — host-side vault automation and the skill validator. Three vault-mutating jobs
-  run as systemd *user* **template** units — **one instance per vault** (`KNOWLEDGE_INSTANCE`,
-  default `default`), so a host can run several vaults as independent deployments (multi-vault is
-  N deployments, not one service multiplexing; see issue #15). The three jobs *within a vault*
-  share one per-instance flock (`vault-lib.sh`, keyed by `KNOWLEDGE_INSTANCE`) so they never run
-  concurrently, while different vaults have different locks and *do*. In each the **wrapper** owns
-  git (Claude only edits files + runs scoped `gh` calls).
-  - `vault-compile.sh` runs an ephemeral `/compile-inbox` pass (inbox→wiki). Cadence
-    `KNOWLEDGE_COMPILE_ONCALENDAR` (default hourly); also triggered on demand via a `.path`
-    unit when the MCP drops `inbox/.compile/request`.
-  - `vault-job.sh <synthesize|resolve>` runs the two judgment-call jobs: `/synthesize` (heavy
-    weekly whole-corpus reconcile + connect, **opens** judgment calls) and `/resolve` (light
-    daily pass that applies answered calls and **closes** them). `KNOWLEDGE_REVIEW_CHANNEL`
-    picks where calls live (auto-detected when unset: `github` if gh+origin are present, else
-    `files`). **github** runs `/synthesize`+`/resolve`, opening/closing GitHub issues via `gh`
-    from *inside* the Claude run (granted via `--allowedTools`, no skip-permissions; the service
-    units put `gh` on PATH and rely on `HOME` for `~/.config/gh` auth). **files** runs
-    `/synthesize-files`+`/resolve-files`, which carry calls as `inbox/.review/*.md` answered from
-    chat via the MCP (`list_questions`/`get_question`/`answer_question`) — no gh, no GitHub, no
-    git, so it works on a bare synced folder. Cadences: `KNOWLEDGE_SYNTHESIZE_ONCALENDAR` /
-    `KNOWLEDGE_RESOLVE_ONCALENDAR`.
-  - `vault-lib.sh` is sourced by all three — config, the per-instance lock (keyed by
-    `KNOWLEDGE_INSTANCE`), portable date helpers (`now_iso`/`epoch_iso`, GNU vs BSD `date`), and
-    the commit/push side effect (issue jobs commit `wiki/ index.md log.md`, plus `inbox/.review/`
-    in the files channel; compile stages everything). The lock uses `flock` on Linux and an atomic
-    `mkdir` fallback on macOS (no `flock` there), same non-blocking semantics either way.
-    `commit_and_push` no-ops cleanly when the vault is not a git repo (history left to external
-    sync), so a bare folder works too.
-  - `install.sh` is **OS-conditional** (branches on `uname`), generating one vault's jobs per run
-    (`KNOWLEDGE_INSTANCE`, default `default`). On **Linux** it renders the
-    `knowledge-*@.{service,timer,path}.in` systemd templates into `~/.config/systemd/user/`: shared
-    service templates read each vault's `KNOWLEDGE_REPO` from a per-instance env file
-    `~/.config/knowledge-tools/<instance>.env` that install writes, and the timer/path units are
-    materialized per instance. On **macOS** it renders the `knowledge-{compile,synthesize,resolve}.plist.in`
-    launchd templates into `~/Library/LaunchAgents/` as `com.knowledge-tools.<job>.<instance>.plist`
-    and (re)loads them via `launchctl bootout`+`bootstrap`; there's no template/env-file indirection,
-    so `KNOWLEDGE_REPO`/`KNOWLEDGE_INSTANCE` are baked into each plist, the compile timer+path collapse
-    into one plist (schedule + `WatchPaths`), cadences are translated to launchd's smaller grammar in
-    local time (`oncalendar_to_launchd`), and there's no linger (LaunchAgents run only while logged
-    in). Run once per vault to add another. Re-run after changing a template or a cadence; on an
-    existing single-vault Linux host the first re-run migrates it to `default` (removing the old
-    non-instanced units). Idempotent.
-  - `uninstall.sh` is the reverse of `install.sh` — same `uname` branch, same per-instance
-    `KNOWLEDGE_INSTANCE` (default `default`), idempotent. Stops + removes that instance's units
-    (systemd) / agents (launchd) and its per-vault env file/logs; on the **last** instance also
-    removes the shared systemd service templates and the empty macOS logs dir. Needs no
-    `KNOWLEDGE_REPO`; never touches the vault (`inbox/`/`wiki/`/`outputs/`), `gh.env`, or linger.
-  - `init-vault.sh` seeds a fresh vault from `template/` (below). **One-shot scaffold, not
-    `install.sh`**: strictly copy-if-absent, no `--force`, leaves git alone. Re-running only
-    fills gaps — it never overwrites a tuned `CLAUDE.md` or command, because post-seed drift
-    is the design (the librarian is content-coupled). Targets `KNOWLEDGE_REPO` or a path arg.
-  - `load-env.sh` is sourced by the scripts to read config (e.g. `KNOWLEDGE_REPO`) from a
-    repo-root `.env` (gitignored; see `.env.example`). Real env vars and the systemd
-    `Environment=` override `.env`.
+- `cli/` — the host-side CLI (**Go + kong**, binary `knowledge-tools`, short alias `kt`). This
+  replaced the old bash jobs + systemd/launchd install machinery. **One self-managed daemon per
+  vault instance** (`KNOWLEDGE_INSTANCE`, default `default`) owns scheduling internally — install
+  registers just *one* OS autostart unit to keep the daemon alive (multi-vault is still N
+  deployments; see issue #15). The wrapper owns git (Claude only edits files + runs scoped `gh`
+  calls). Built/released by goreleaser under a distinct **`cli/vX.Y.Z`** tag prefix (skill releases
+  use plain `vX.Y.Z`); devbox (`go@1.23`) is the toolchain.
+  - Commands: `install` / `uninstall` (register/remove the daemon autostart unit, per-instance,
+    idempotent), `daemon` (the long-running scheduler + compile watcher), `compile` /
+    `synthesize` / `resolve` (one-shot jobs, also what the daemon runs on schedule), `init`
+    (scaffold a vault from the embedded template — copy-if-absent), `status` (print the compile +
+    schedule snapshots and the daemon unit state).
+  - `internal/config` ports `load-env.sh` (a repo-root `.env`; real env wins) + the `KNOWLEDGE_*`
+    knobs. **Schedules moved from systemd OnCalendar to cron expressions** (robfig/cron grammar):
+    `KNOWLEDGE_COMPILE_SCHEDULE` (default `@hourly`), `KNOWLEDGE_SYNTHESIZE_SCHEDULE`
+    (`CRON_TZ=America/Detroit 30 4 * * 0`), `KNOWLEDGE_RESOLVE_SCHEDULE`
+    (`CRON_TZ=America/Detroit 30 3 * * *`).
+  - `internal/vault` ports `vault-lib.sh`: the per-instance lock (now `flock(2)` on **both** Linux
+    and macOS — no mkdir fallback), `sync_from_origin` + `commit_and_push` git discipline (shells
+    out to `git`; issue jobs commit `wiki/ index.md log.md` [+ `inbox/.review/` in files], compile
+    stages everything; no-ops cleanly when not a git repo), the headless `claude` invocation, and
+    RFC3339 dates (no GNU/BSD branching).
+  - `internal/jobs` ports `vault-compile.sh` + `vault-job.sh`: compile snapshot/archive/
+    `status.json`/cooldown; synthesize/resolve channel auto-detect (`github` if gh+origin, else
+    `files`), per-channel slash command + `--allowedTools` gh grants + commit pathspecs, and the
+    resolve short-circuit. Also writes `inbox/.compile/schedules.json` (the daemon is the source of
+    truth for `next_run_at`, from the cron entries — so it never degrades to all-null like the old
+    `systemctl`-querying `refresh_schedules` did off systemd).
+  - `internal/daemon` (new): robfig/cron scheduler + fsnotify watcher on
+    `inbox/.compile/request` (uniform on both OSes — no systemd `.path` unit, no macOS WatchPaths
+    hack) + startup catch-up for ticks missed while down (replaces systemd `Persistent=true`).
+  - `internal/service` (new): the autostart unit lifecycle. Linux writes one
+    `knowledge-tools-daemon@.service` (+ per-instance `~/.config/knowledge-tools/<inst>.env`,
+    linger); macOS writes one `com.knowledge-tools.daemon.<inst>.plist` (KeepAlive). Both clean up
+    the old per-job bash-era units on (re)install/uninstall; uninstall is idempotent, needs no
+    `KNOWLEDGE_REPO`, and never touches the vault or linger.
+  - `internal/initvault` ports `init-vault.sh`. The vault `template/` is **embedded** (the binary
+    is standalone) as a committed copy at `cli/internal/initvault/template/`; keep it in sync with
+    the repo-root `template/` via `make sync-template` (CI guards drift).
+  - The MCP service contract is unchanged: `inbox/.compile/{request,status.json,
+    last-compiled-epoch,last-manual-epoch,schedules.json}` keep their paths + schemas, so
+    `service/` needs no changes.
+- `scripts/` — the remaining host scripts (the job/install scripts moved to `cli/`).
+  - `vault-site.sh` builds the optional Quartz site the service serves at `/` (out of scope for the
+    CLI port — needs Node/Quartz). Read-only w.r.t. the vault; run standalone or inline after a
+    content job (`--no-lock --soft`).
+  - `vault-lib.sh` + `load-env.sh` are retained **only because `vault-site.sh` still sources them**
+    (config, `KNOWLEDGE_REPO`, the shared lock). Note: `vault-site.sh`'s lock is still the bash
+    `flock`/`mkdir` implementation, which on **macOS** does *not* mutually exclude with the Go
+    daemon's `flock(2)` (Linux is fine — same advisory lock); the site build is read-only so the
+    worst case is reading a wiki mid-compile, self-healing next build. A follow-up could move the
+    site build into the daemon.
   - `validate_skills.py` — the skill linter CI runs (see constraints below).
 - `template/` — the **starting point** of a vault's own librarian, mirroring the vault layout:
   `CLAUDE.md` (the librarian spec), `.claude/commands/{compile-inbox,synthesize,resolve}.md`
   plus the git/GitHub-free `{synthesize,resolve}-files.md` variants,
   `.claude/settings.json`, `.gitignore`, the folder skeleton (`inbox/`, `inbox/archive/`,
-  `wiki/`, `outputs/`), and empty `index.md`/`log.md`. `scripts/init-vault.sh` copies these
-  into a new vault. This is a seed, **not** a source of truth: the commands and `CLAUDE.md`
-  belong to the vault once seeded and are *expected* to diverge as the content grows — the
-  tooling only schedules them.
+  `wiki/`, `outputs/`), and empty `index.md`/`log.md`. `knowledge-tools init` copies these into a
+  new vault (from its embedded copy — keep `cli/internal/initvault/template/` in sync via `make
+  sync-template`). This is a seed, **not** a source of truth: the commands and `CLAUDE.md` belong
+  to the vault once seeded and are *expected* to diverge as the content grows — the tooling only
+  schedules them.
 - `.claude-plugin/` — the Claude Code plugin marketplace (`marketplace.json`) and plugin
   manifest (`plugin.json`).
 
@@ -239,7 +238,8 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) titles: `type(s
 (e.g. `feat(skills): add ...`, `fix(service): ...`, `docs: ...`, `chore: ...`). This isn't just
 style — `package-skills.yml` derives the next release version from the landed commits' prefixes:
 `feat` → minor, `fix` → patch, and a `!` or `BREAKING CHANGE` → major. Write commit titles
-accordingly when touching `plugins/`.
+accordingly when touching `plugins/`. Use the `cli` scope for CLI changes (`feat(cli): ...`); the
+CLI release is **not** auto-cut — push a `cli/vX.Y.Z` tag to release it.
 
 ## CI
 
@@ -247,3 +247,11 @@ accordingly when touching `plugins/`.
 - `package-skills.yml` — builds per-skill zips and cuts/updates releases (above).
 - `build-service.yml` — builds and pushes the multi-arch `ghcr.io/josephschmitt/knowledge-service`
   image on `service/**` changes.
+- `cli-ci.yml` — on `cli/**` (+ `template/**`) changes: `go test`/`vet`/`golangci-lint` (ubuntu +
+  macos + a windows build), `goreleaser check`, and a drift guard that the embedded
+  `cli/internal/initvault/template/` matches the repo-root `template/` (run `make sync-template`).
+- `cli-release.yml` — on a **`cli/v*`** tag push, runs goreleaser (`release --clean`, from `cli/`)
+  to build the cross-platform binaries + packages and update the Homebrew tap. The distinct tag
+  prefix keeps the CLI out of the skill releases' plain `vX.Y.Z` namespace; goreleaser is OSS
+  (no Pro `monorepo`), so it publishes on the real `cli/vX.Y.Z` tag and strips the prefix in name
+  templates (`GORELEASER_CURRENT_TAG` + `trimprefix`).

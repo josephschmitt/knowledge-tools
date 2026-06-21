@@ -43,7 +43,7 @@ can switch on built-in OAuth token validation pointed at any OIDC issuer. See
 | `answer_question(id, answer)` | Record a decision on a judgment call (writes `inbox/.review/`, marks it answered) |
 
 `append_to_inbox` is the capture path: drop a thought from claude.ai, and the scheduled
-compile (`scripts/vault-compile.sh`) folds it into the wiki.
+compile (the `knowledge-tools` daemon, host-side) folds it into the wiki.
 
 The `*_question` tools are the inbound half of the **judgment-call channel** — the calls the
 weekly maintenance pass can't decide on its own, answered from chat. They work against either
@@ -77,11 +77,9 @@ until you configure it.
 The server can't compile in-process — the vault is read-only here except `inbox/`, and
 synthesis needs the `claude` CLI + git on the host. So `compile_run` *triggers* the host
 compile and reports status; it doesn't wait for the result. It writes a sentinel to
-`inbox/.compile/request` (the one writable path), which the host watches to start the same
-compile job the scheduled timer uses — a systemd `.path` unit
-(`scripts/knowledge-compile@.path.in`) on Linux, or the compile LaunchAgent's `WatchPaths` on
-macOS, one instance per vault — so only one compile runs at a time per vault (the per-vault lock).
-The
+`inbox/.compile/request` (the one writable path), which the host's `knowledge-tools` daemon
+watches (fsnotify) to start the same compile job its scheduler uses — one daemon per vault — so
+only one compile runs at a time per vault (the per-vault lock). The
 host writes `inbox/.compile/status.json`, which the server reads to return `triggered` /
 `throttled` (refused within the one-hour cooldown) / `busy` / `empty`. The scheduled
 run is never throttled and doesn't consume the manual cooldown.

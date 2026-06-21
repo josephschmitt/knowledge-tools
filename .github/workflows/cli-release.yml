@@ -1,0 +1,43 @@
+name: CLI Release
+
+# Releases the Go CLI under a distinct cli/vX.Y.Z tag prefix so it never collides with the skill
+# releases (which use plain vX.Y.Z — see package-skills.yml). Push a cli/v* tag to cut a release.
+on:
+  push:
+    tags:
+      - 'cli/v*'
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    name: Release with GoReleaser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch all tags
+        run: git fetch --force --tags
+      - name: Read Go version from devbox.json
+        id: go-version
+        run: |
+          version=$(jq -r '.packages[] | select(startswith("go@")) | split("@")[1]' cli/devbox.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache-dependency-path: cli/go.sum
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          workdir: cli
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          # The real prefixed tag — goreleaser publishes the release here; the config's
+          # trimprefix templates strip "cli/" for artifact names + the binary version.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
