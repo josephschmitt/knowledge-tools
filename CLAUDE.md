@@ -82,6 +82,11 @@ working in the repo.
     in). Run once per vault to add another. Re-run after changing a template or a cadence; on an
     existing single-vault Linux host the first re-run migrates it to `default` (removing the old
     non-instanced units). Idempotent.
+  - `uninstall.sh` is the reverse of `install.sh` — same `uname` branch, same per-instance
+    `KNOWLEDGE_INSTANCE` (default `default`), idempotent. Stops + removes that instance's units
+    (systemd) / agents (launchd) and its per-vault env file/logs; on the **last** instance also
+    removes the shared systemd service templates and the empty macOS logs dir. Needs no
+    `KNOWLEDGE_REPO`; never touches the vault (`inbox/`/`wiki/`/`outputs/`), `gh.env`, or linger.
   - `init-vault.sh` seeds a fresh vault from `template/` (below). **One-shot scaffold, not
     `install.sh`**: strictly copy-if-absent, no `--force`, leaves git alone. Re-running only
     fills gaps — it never overwrites a tuned `CLAUDE.md` or command, because post-seed drift
