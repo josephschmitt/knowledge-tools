@@ -68,8 +68,12 @@ uninstall_systemd() {
     rmdir "$CONFIG_DIR" 2>/dev/null && echo "  removed ${CONFIG_DIR/#$HOME/\~} (empty)" || true
   fi
 
-  systemctl --user daemon-reload
-  if [ "$removed" = 1 ]; then echo "Done."; else echo "Nothing to remove for instance '$INSTANCE'."; fi
+  if [ "$removed" = 1 ]; then
+    systemctl --user daemon-reload
+    echo "Done."
+  else
+    echo "Nothing to remove for instance '$INSTANCE'."
+  fi
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -90,10 +94,18 @@ uninstall_launchd() {
     log="$LOG_DIR_M/$INSTANCE-$job.log"
     launchctl bootout "gui/$uid/$label" 2>/dev/null || true
     if [ -e "$dest" ]; then rm -f "$dest"; echo "  removed ${dest/#$HOME/\~}"; removed=1; fi
-    if [ -e "$log" ]; then rm -f "$log"; echo "  removed ${log/#$HOME/\~}"; fi
+    if [ -e "$log" ]; then rm -f "$log"; echo "  removed ${log/#$HOME/\~}"; removed=1; fi
   done
-  # No shared templates on macOS. Drop the logs dir once it's empty (last instance).
-  rmdir "$LOG_DIR_M" 2>/dev/null && echo "  removed ${LOG_DIR_M/#$HOME/\~} (empty)" || true
+  # Last instance? Key off surviving plists, NOT an empty logs dir — agents only write logs once
+  # they fire, so an empty dir would falsely flag "last" on a never-run multi-instance host (and
+  # delete the shared dir out from under the other still-installed agents). No shared templates on
+  # macOS, so the only shared cleanup is dropping the now-orphaned (empty) logs dir.
+  shopt -s nullglob
+  local remaining=("$LA_DIR"/com.knowledge-tools.compile.*.plist)
+  shopt -u nullglob
+  if [ "${#remaining[@]}" -eq 0 ]; then
+    rmdir "$LOG_DIR_M" 2>/dev/null && echo "  removed ${LOG_DIR_M/#$HOME/\~} (empty)" || true
+  fi
   if [ "$removed" = 1 ]; then echo "Done."; else echo "Nothing to remove for instance '$INSTANCE'."; fi
 }
 
