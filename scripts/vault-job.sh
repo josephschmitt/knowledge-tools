@@ -99,6 +99,11 @@ log() { printf '%s %s\n' "$(now_iso)" "$*" | tee -a "$LOG"; }
 # Serialize against compile + the other issue job — they all edit wiki/ and commit.
 acquire_vault_lock
 
+# Refresh the schedule snapshot (last/next run of all three jobs) on every exit path now that we
+# hold the lock — so the status surface stays current whether this run does work, finds nothing
+# to resolve, or fails. (The "couldn't get the lock" exit above is before this trap on purpose.)
+trap 'refresh_schedules' EXIT
+
 # Catch up to origin before we edit + commit, so the push at the end fast-forwards. Aborts
 # (loudly) only if origin has diverged in a way we must not commit on top of.
 sync_from_origin || exit 1

@@ -37,7 +37,7 @@ can switch on built-in OAuth token validation pointed at any OIDC issuer. See
 | `list_notes()` | List every wiki note |
 | `append_to_inbox(text, title?)` | Capture a raw note into `inbox/` for the scheduled compile |
 | `compile_run()` | Trigger an on-demand compile (async, rate-limited to one/hour) |
-| `vault_status()` | Pollable JSON: last successful compile time, pending inbox count, manual-compile cooldown, running flag |
+| `vault_status()` | Pollable JSON: last successful compile time, pending inbox count, manual-compile cooldown, running flag, and per-job last/next scheduled run |
 | `list_questions(status?)` | List judgment calls the vault is waiting on (file review channel) |
 | `get_question(id)` | Return one judgment call's full markdown |
 | `answer_question(id, answer)` | Record a decision on a judgment call (writes `inbox/.review/`, marks it answered) |
@@ -91,6 +91,13 @@ signal: the host records `last_compiled_at` at the *end* of every successful com
 scheduled and on-demand), so a `last_compiled_at` newer than your trigger time means the run
 finished. It also reports `pending_inbox_count` and `manual_compile_available_at` (when the
 cooldown next clears) — poll it after a `compile_run` to know when the wiki is caught up.
+
+`vault_status` also returns a `jobs` map with the last/next *scheduled* run of each host job
+(`compile`, `synthesize`, `resolve`). The host can't be reached from the container, so — like
+`status.json` — it writes those timings (from systemd's own `LastTriggerUSec` /
+`NextElapseUSecRealtime`) to `inbox/.compile/schedules.json` on every job run
+(`scripts/vault-lib.sh:refresh_schedules`), and the server reads them. Each timestamp is `null`
+when unknown (a job that hasn't run yet, or a non-systemd host).
 
 ## Choosing which surfaces to serve
 

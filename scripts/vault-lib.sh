@@ -177,3 +177,65 @@ commit_and_push() {
   log "ERROR: git push failed — origin is NOT updated; local commit(s) are ahead. Resolve and re-run."
   return 1
 }
+
+# refresh_schedules — snapshot this instance's three timers (last-trigger + next-elapse) into
+# inbox/.compile/schedules.json, so the MCP/REST status surface can report, for each scheduled
+# host job, when it last ran and when it runs next. The service is containerized and can't reach
+# host systemd, so the host writes the facts and the service reads them — the same split as
+# compile's status.json. Requires $REPO.
+#
+# systemd is the source of truth (LastTriggerUSec / NextElapseUSecRealtime), so a single job's
+# run refreshes ALL THREE rows at once — the running job sees its own just-fired trigger, the
+# others carry their stored values. Wire it as `trap 'refresh_schedules' EXIT` after the lock so
+# every exit path refreshes. NEVER fails the caller (guards everything, returns 0); degrades to
+# all-null rows on a non-systemd / bare host where the scheduled-job concept doesn't apply.
+refresh_schedules() {
+  local dir="$REPO/inbox/.compile"
+  local out="$dir/schedules.json"
+  local tmp="$out.tmp.$$"
+  local inst="${KNOWLEDGE_INSTANCE:-default}"
+  # JSON-escape the instance name (\ then ") for the body below, so a quirky KNOWLEDGE_INSTANCE
+  # can't write invalid JSON that makes the reader fall back to all-null rows. install.sh
+  # validates it to a [A-Za-z0-9_-] slug, but refresh_schedules can also be called directly.
+  local inst_json
+  inst_json="$(printf '%s' "$inst" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  mkdir -p "$dir" 2>/dev/null || return 0
+
+  # Convert a systemd *USec timer property (integer microseconds since the epoch, or a
+  # human-readable timestamp on some builds) to a quoted ISO-8601 string, or the literal
+  # `null` when empty / zero / unparseable. Output is a raw JSON value (already quoted).
+  _sched_iso() {
+    local v="$1" secs iso
+    if [ -z "$v" ] || [ "$v" = "0" ] || [ "$v" = "n/a" ]; then printf 'null'; return; fi
+    if printf '%s' "$v" | grep -Eq '^[0-9]+$'; then
+      secs=$((v / 1000000))
+      iso="$(date -d "@$secs" -Is 2>/dev/null)" || { printf 'null'; return; }
+    else
+      iso="$(date -d "$v" -Is 2>/dev/null)" || { printf 'null'; return; }
+    fi
+    [ -n "$iso" ] && printf '"%s"' "$iso" || printf 'null'
+  }
+
+  # One "job": { last_run_at, next_run_at } row. Reads systemd when available, else nulls.
+  _sched_row() {
+    local job="$1" last="" next=""
+    if command -v systemctl >/dev/null 2>&1; then
+      last="$(systemctl --user show "knowledge-$job@$inst.timer" -p LastTriggerUSec --value 2>/dev/null || true)"
+      next="$(systemctl --user show "knowledge-$job@$inst.timer" -p NextElapseUSecRealtime --value 2>/dev/null || true)"
+    fi
+    printf '    "%s": { "last_run_at": %s, "next_run_at": %s }' \
+      "$job" "$(_sched_iso "$last")" "$(_sched_iso "$next")"
+  }
+
+  {
+    printf '{\n'
+    printf '  "instance": "%s",\n' "$inst_json"
+    printf '  "updated_at": "%s",\n' "$(date -Is)"
+    printf '  "jobs": {\n'
+    _sched_row compile;    printf ',\n'
+    _sched_row synthesize; printf ',\n'
+    _sched_row resolve;    printf '\n'
+    printf '  }\n}\n'
+  } >"$tmp" 2>/dev/null && mv -f "$tmp" "$out" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}

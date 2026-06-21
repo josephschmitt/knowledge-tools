@@ -13,6 +13,9 @@ const INDEX_FILE = path.join(VAULT_ROOT, 'index.md');
 const COMPILE_DIR = path.join(INBOX_DIR, '.compile');
 const COMPILE_REQUEST = path.join(COMPILE_DIR, 'request');
 const COMPILE_STATUS = path.join(COMPILE_DIR, 'status.json');
+// Per-job schedule snapshot the host writes from systemd (last/next run of compile, synthesize,
+// resolve). See scripts/vault-lib.sh:refresh_schedules.
+const COMPILE_SCHEDULES = path.join(COMPILE_DIR, 'schedules.json');
 
 // The judgment-call review queue, the GitHub-issue-free Q&A channel. Also under inbox/ —
 // the one mount the container can write — so the human can answer questions from chat.
@@ -188,12 +191,55 @@ export async function readCompileStatus(): Promise<CompileStatus | null> {
   }
 }
 
+/** One scheduled host job's timing. Either field is null when systemd has no value yet (the job
+ *  hasn't run / has no next elapse) or the host isn't systemd-driven. */
+export interface JobSchedule {
+  /** ISO time the job last ran (systemd's last trigger), or null. */
+  last_run_at: string | null;
+  /** ISO time the job is next scheduled to run (systemd's next elapse), or null. */
+  next_run_at: string | null;
+}
+
+/** Last/next run for each scheduled host job, as written by scripts/vault-lib.sh. */
+export interface JobSchedules {
+  compile: JobSchedule;
+  synthesize: JobSchedule;
+  resolve: JobSchedule;
+}
+
+/** Shape of the host-written schedules.json (jobs map plus bookkeeping fields). */
+interface SchedulesFile {
+  jobs?: Partial<Record<keyof JobSchedules, Partial<JobSchedule>>>;
+}
+
+const EMPTY_JOB_SCHEDULE: JobSchedule = { last_run_at: null, next_run_at: null };
+
+/** Read the host-written schedule snapshot, or all-null rows if it doesn't exist / is unparseable. */
+export async function readJobSchedules(): Promise<JobSchedules> {
+  let parsed: SchedulesFile | null = null;
+  try {
+    parsed = JSON.parse(await fs.readFile(COMPILE_SCHEDULES, 'utf8')) as SchedulesFile;
+  } catch {
+    parsed = null;
+  }
+  const row = (job: keyof JobSchedules): JobSchedule => {
+    const r = parsed?.jobs?.[job];
+    return {
+      last_run_at: nonEmpty(r?.last_run_at),
+      next_run_at: nonEmpty(r?.next_run_at),
+    };
+  };
+  return parsed
+    ? { compile: row('compile'), synthesize: row('synthesize'), resolve: row('resolve') }
+    : { compile: { ...EMPTY_JOB_SCHEDULE }, synthesize: { ...EMPTY_JOB_SCHEDULE }, resolve: { ...EMPTY_JOB_SCHEDULE } };
+}
+
 // Mirrors the host's KNOWLEDGE_COMPILE_COOLDOWN default; only used when status.json is
 // absent (before the first compile writes it).
 const DEFAULT_COOLDOWN_SECONDS = 3600;
 
 /** Treat the host's empty-string timestamps (iso_of writes "" when an epoch file is missing) as absent. */
-function nonEmpty(s: string | undefined): string | null {
+function nonEmpty(s: string | null | undefined): string | null {
   return s && s.length > 0 ? s : null;
 }
 
@@ -213,6 +259,11 @@ export interface VaultStatus {
   manual_compile_available_at: string | null;
   /** Whether a compile is in progress right now. */
   running: boolean;
+  /** Last/next *scheduled* run of each host job (compile/synthesize/resolve), from systemd via
+   *  the host. Each timestamp is null when unknown (job not yet run, or no systemd). A job's
+   *  next_run_at is its scheduled cadence — distinct from manual_compile_available_at, which is
+   *  the on-demand compile cooldown. */
+  jobs: JobSchedules;
 }
 
 /**
@@ -222,6 +273,7 @@ export interface VaultStatus {
 export async function getVaultStatus(): Promise<VaultStatus> {
   const status = await readCompileStatus();
   const pending = await countInboxCaptures();
+  const jobs = await readJobSchedules();
 
   let manualAvailableAt: string | null = null;
   const lastManual = nonEmpty(status?.last_manual_compile_at);
@@ -239,6 +291,7 @@ export async function getVaultStatus(): Promise<VaultStatus> {
     pending_inbox_count: pending,
     manual_compile_available_at: manualAvailableAt,
     running: status?.running ?? false,
+    jobs,
   };
 }
 

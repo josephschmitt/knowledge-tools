@@ -59,6 +59,12 @@ EOF
 # hand-run script). systemd already serializes this service's own timer vs path triggers.
 acquire_vault_lock
 
+# Refresh the schedule snapshot (last/next run of all three jobs) on every exit path now that
+# we hold the lock — so the status surface stays current whether this run compiles, finds the
+# inbox empty, is throttled, or fails. (The "couldn't get the lock" exit above is before this
+# trap on purpose: the job that holds the lock refreshes.)
+trap 'refresh_schedules' EXIT
+
 # Catch up to origin before we compile + commit, so the push at the end fast-forwards. Aborts
 # (loudly) only if origin has diverged in a way we must not commit on top of.
 if ! sync_from_origin; then
