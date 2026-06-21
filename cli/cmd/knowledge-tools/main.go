@@ -18,6 +18,7 @@ import (
 	"github.com/josephschmitt/knowledge-tools/cli/internal/initvault"
 	"github.com/josephschmitt/knowledge-tools/cli/internal/jobs"
 	"github.com/josephschmitt/knowledge-tools/cli/internal/service"
+	"github.com/josephschmitt/knowledge-tools/cli/internal/site"
 )
 
 // version is overridden at build time via -ldflags "-X main.version=...".
@@ -45,6 +46,7 @@ type CLI struct {
 	Synthesize SynthesizeCmd    `cmd:"" help:"Run a one-shot whole-corpus synthesize (opens judgment calls)."`
 	Resolve    ResolveCmd       `cmd:"" help:"Run a one-shot resolve (applies answered judgment calls)."`
 	Init       InitCmd          `cmd:"" help:"Scaffold a fresh vault from the template (copy-if-absent)."`
+	Site       SiteCmd          `cmd:"" help:"Build + publish the static Quartz site the service serves."`
 	Status     StatusCmd        `cmd:"" help:"Print the vault's compile + schedule status."`
 	Version    kong.VersionFlag `help:"Print version and exit."`
 }
@@ -81,6 +83,7 @@ type InstallCmd struct {
 	ReviewChannel      string `help:"Judgment-call channel: github | files (default: auto-detect)." enum:"github,files," default:""`
 	GithubRepo         string `help:"GitHub repo (owner/name) for the github review channel." placeholder:"OWNER/NAME"`
 	Cooldown           int    `help:"Seconds between allowed manual compiles." default:"0"`
+	Site               bool   `help:"Rebuild the Quartz site after each compile (needs Node>=20 on the host)."`
 }
 
 func (c *InstallCmd) Run(g *Globals) error {
@@ -106,6 +109,9 @@ func (c *InstallCmd) Run(g *Globals) error {
 	}
 	if c.Cooldown > 0 {
 		cfg.CompileCooldown = c.Cooldown
+	}
+	if c.Site {
+		cfg.SiteEnable = true
 	}
 	return service.Install(service.Options{Cfg: cfg})
 }
@@ -197,6 +203,21 @@ func (c *InitCmd) Run(g *Globals) error {
 		fmt.Println("init leaves git alone.")
 	}
 	return nil
+}
+
+type SiteCmd struct {
+	NoLock bool `help:"Skip the shared lock (the caller already holds it)."`
+	Soft   bool `help:"Exit success even if the build fails (leave the published site in place)."`
+}
+
+func (c *SiteCmd) Run(g *Globals) error {
+	cfg, err := g.load()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := signalContext()
+	defer cancel()
+	return ignoreLocked(site.Build(ctx, cfg, site.Options{NoLock: c.NoLock, Soft: c.Soft}))
 }
 
 type StatusCmd struct{}

@@ -6,12 +6,14 @@ on:
     paths:
       - 'cli/**'
       - 'template/**'
+      - 'site/**'
       - '.github/workflows/cli-ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'cli/**'
       - 'template/**'
+      - 'site/**'
       - '.github/workflows/cli-ci.yml'
 
 permissions:
@@ -71,17 +73,17 @@ jobs:
       - name: Run linter
         run: devbox run -- make lint
 
-  template-drift:
-    name: Embedded template in sync
+  embed-drift:
+    name: Embedded assets in sync
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Sync embedded template and check for drift
+      - name: Sync embedded assets and check for drift
         run: |
-          make sync-template
-          if ! git diff --quiet -- internal/initvault/template; then
-            echo "::error::cli/internal/initvault/template is out of sync with template/. Run 'make sync-template' in cli/ and commit."
-            git --no-pager diff -- internal/initvault/template
+          make sync-embed
+          if ! git diff --quiet -- internal/initvault/template internal/site/quartz; then
+            echo "::error::Embedded copies are out of sync with template/ or site/. Run 'make sync-embed' in cli/ and commit."
+            git --no-pager diff -- internal/initvault/template internal/site/quartz
             exit 1
           fi
 

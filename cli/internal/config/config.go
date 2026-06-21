@@ -29,6 +29,10 @@ const (
 	DefaultCompileSchedule    = "@hourly"
 	DefaultSynthesizeSchedule = "CRON_TZ=America/Detroit 30 4 * * 0"
 	DefaultResolveSchedule    = "CRON_TZ=America/Detroit 30 3 * * *"
+
+	// Static site (Quartz). Quartz is a clone-and-customize generator, pinned to a git ref.
+	DefaultQuartzRef = "v4.5.2"
+	DefaultQuartzURL = "https://github.com/jackyzha0/quartz"
 )
 
 // instanceRe is the slug allowed for KNOWLEDGE_INSTANCE — same constraint install.sh enforced,
@@ -56,6 +60,18 @@ type Config struct {
 	CompileSchedule    string
 	SynthesizeSchedule string
 	ResolveSchedule    string
+
+	// --- Static site (Quartz) — the optional render the service serves at /. ---
+	// SiteEnable (KNOWLEDGE_SITE_ENABLE) makes the daemon rebuild the site after each compile.
+	SiteEnable bool
+	// QuartzRef/URL/Dir: the pinned, shared Quartz checkout.
+	QuartzRef string
+	QuartzURL string
+	QuartzDir string
+	// SiteStage is the per-instance staging dir (privacy allowlist); SiteRoot is the published
+	// output the service bind-mounts.
+	SiteStage string
+	SiteRoot  string
 }
 
 // LoadDotenv reads a KEY=value .env file and exports any key NOT already set in the environment,
@@ -149,8 +165,25 @@ func Load(instance, repo string) (*Config, error) {
 		CompileSchedule:    envOr("KNOWLEDGE_COMPILE_SCHEDULE", DefaultCompileSchedule),
 		SynthesizeSchedule: envOr("KNOWLEDGE_SYNTHESIZE_SCHEDULE", DefaultSynthesizeSchedule),
 		ResolveSchedule:    envOr("KNOWLEDGE_RESOLVE_SCHEDULE", DefaultResolveSchedule),
+
+		SiteEnable: envBool("KNOWLEDGE_SITE_ENABLE"),
+		QuartzRef:  envOr("KNOWLEDGE_QUARTZ_REF", DefaultQuartzRef),
+		QuartzURL:  envOr("KNOWLEDGE_QUARTZ_URL", DefaultQuartzURL),
+		QuartzDir:  envOr("KNOWLEDGE_QUARTZ_DIR", filepath.Join(stateDir(), "quartz")),
+		SiteStage:  envOr("KNOWLEDGE_SITE_STAGE", filepath.Join(stateDir(), "site-stage", instance)),
+		SiteRoot:   envOr("KNOWLEDGE_SITE_ROOT", filepath.Join(stateDir(), "site", instance)),
 	}
 	return cfg, nil
+}
+
+// stateDir is the runtime state root, ~/.local/state/knowledge-tools (or under XDG_STATE_HOME) —
+// the same base the lock uses, holding the shared Quartz checkout and per-instance site output.
+func stateDir() string {
+	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
+		return filepath.Join(x, "knowledge-tools")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "state", "knowledge-tools")
 }
 
 // RequireRepo returns an error if KNOWLEDGE_REPO is unset — the jobs and daemon need it.
@@ -180,6 +213,15 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// envBool reports whether key is set to a truthy value (1/true/yes/on, case-insensitive).
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 func envInt(key string, def int) int {

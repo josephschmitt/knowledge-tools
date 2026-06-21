@@ -58,6 +58,13 @@ func plistContents(opts Options) string {
 	if cfg.GithubRepo != "" {
 		env = append(env, envKV{"KNOWLEDGE_GITHUB_REPO", cfg.GithubRepo})
 	}
+	if cfg.SiteEnable {
+		env = append(env,
+			envKV{"KNOWLEDGE_SITE_ENABLE", "true"},
+			envKV{"KNOWLEDGE_QUARTZ_REF", cfg.QuartzRef},
+			envKV{"KNOWLEDGE_SITE_ROOT", cfg.SiteRoot},
+		)
+	}
 
 	var envXML strings.Builder
 	for _, kv := range env {

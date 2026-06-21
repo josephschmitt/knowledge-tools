@@ -73,6 +73,11 @@ func instanceEnvContents(cfg *config.Config) string {
 	if cfg.GithubRepo != "" {
 		fmt.Fprintf(&b, "KNOWLEDGE_GITHUB_REPO=%s\n", cfg.GithubRepo)
 	}
+	if cfg.SiteEnable {
+		b.WriteString("KNOWLEDGE_SITE_ENABLE=true\n")
+		fmt.Fprintf(&b, "KNOWLEDGE_QUARTZ_REF=%s\n", cfg.QuartzRef)
+		fmt.Fprintf(&b, "KNOWLEDGE_SITE_ROOT=%s\n", cfg.SiteRoot)
+	}
 	return b.String()
 }
 

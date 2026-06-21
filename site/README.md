@@ -4,10 +4,13 @@ This directory holds **only the configuration** for the [Quartz](https://quartz.
 rendering of the vault that the service serves at `/`. It is **not** a full Quartz project.
 
 Quartz is a clone-and-customize static site generator, not an npm dependency. So
-`scripts/vault-site.sh` maintains a pinned upstream Quartz checkout in a host state dir
+`knowledge-tools site` maintains a pinned upstream Quartz checkout in a host state dir
 (`~/.local/state/knowledge-tools/quartz` by default, pinned to `KNOWLEDGE_QUARTZ_REF`), copies the
 two files here on top of it, stages the vault content, and runs `quartz build`. The build output
 is published outside the vault and bind-mounted into the service container at `SITE_ROOT` (`/site`).
+
+> The CLI embeds a committed copy of these two files (the binary is standalone); after editing
+> them here, run `make sync-embed` in `cli/` to refresh the copy (CI guards against drift).
 
 - `quartz.config.ts` — site config: title/baseUrl from env, no analytics, Obsidian wikilinks
   enabled, private dirs in `ignorePatterns` (belt-and-suspenders on top of the staging allowlist).

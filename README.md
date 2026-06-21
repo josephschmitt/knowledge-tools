@@ -16,7 +16,7 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   tooling, and (opt-in) a browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the wiki** at
   `/`. The two protocols let you capture raw material into the vault's `inbox/` and query the
   compiled `wiki/`; the static site is a pre-built artifact you build on the host with
-  `scripts/vault-site.sh` and bind-mount in (`KNOWLEDGE_ENABLE_SITE` + `KNOWLEDGE_SITE_ROOT`). Auth
+  `knowledge-tools site` and bind-mount in (`KNOWLEDGE_ENABLE_SITE` + `KNOWLEDGE_SITE_ROOT`). Auth
   is **optional, off by default** and gates all surfaces: run it authless behind an authenticating
   proxy, or enable built-in OAuth token validation against any OIDC issuer. Reads/writes the vault
   via the `VAULT_ROOT` env var
@@ -40,11 +40,11 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   self-managed `daemon` (one per vault), which `install`/`uninstall` register as a single OS
   autostart unit ([below](#vault-automation-host-setup)). `init` seeds a brand-new vault from
   `template/`. See [`cli/`](cli/).
-- **`scripts/`** — the remaining host scripts. `vault-site.sh` builds the optional
-  [Quartz](https://quartz.jzhao.xyz) static site the service serves at `/` (renders `index.md` +
-  `wiki/` only, publishes outside the vault — see [`service/README.md`](service/README.md#static-website-));
-  `vault-lib.sh` + `load-env.sh` are kept because `vault-site.sh` sources them; `validate_skills.py`
-  is used by CI.
+- **`site/`** — the [Quartz](https://quartz.jzhao.xyz) config for the optional static site the
+  service serves at `/` (`knowledge-tools site` renders `index.md` + `wiki/` only and publishes
+  outside the vault — see [`service/README.md`](service/README.md#static-website-)).
+- **`scripts/`** — only `validate_skills.py` remains (used by CI). The vault job/install/site
+  scripts all moved into `cli/`.
 - **`template/`** — the starting point of a vault's own librarian (`CLAUDE.md`, the
   `/compile-inbox`, `/synthesize`, `/resolve` commands, and the folder skeleton). A seed, not
   a source of truth — once `knowledge-tools init` copies it into a new vault, those files belong to

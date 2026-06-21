@@ -1,4 +1,4 @@
-.PHONY: all build install run test test-coverage clean lint vet release-check release-local sync-template
+.PHONY: all build install run test test-coverage clean lint vet release-check release-local sync-template sync-site sync-embed
 
 VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || echo dev)
 LDFLAGS := -ldflags "-X main.version=$(VERSION)"
@@ -36,11 +36,18 @@ release-check:
 release-local:
 	goreleaser release --snapshot --clean --skip=publish
 
-# Sync the embedded vault template from the repo-root template/ (the source of truth). The CLI
-# embeds a committed copy because the binary is standalone; CI guards against drift.
+# Sync the embedded assets from their repo-root sources of truth (the CLI embeds committed copies
+# because the binary is standalone; CI guards against drift). sync-embed does both.
+sync-embed: sync-template sync-site
+
 sync-template:
 	rm -rf internal/initvault/template
 	cp -R ../template internal/initvault/template
+
+sync-site:
+	rm -rf internal/site/quartz
+	mkdir -p internal/site/quartz
+	cp ../site/quartz.config.ts ../site/quartz.layout.ts internal/site/quartz/
 
 clean:
 	rm -f $(BIN)

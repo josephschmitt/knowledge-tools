@@ -21,6 +21,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/josephschmitt/knowledge-tools/cli/internal/config"
 	"github.com/josephschmitt/knowledge-tools/cli/internal/jobs"
+	"github.com/josephschmitt/knowledge-tools/cli/internal/site"
 	"github.com/josephschmitt/knowledge-tools/cli/internal/vault"
 	"github.com/robfig/cron/v3"
 )
@@ -107,6 +108,15 @@ func (d *daemon) runJob(job jobs.Job, manual bool) {
 		log.Printf("%s: lock held by another process — skipped", job)
 	default:
 		log.Printf("%s: error: %v", job, err)
+	}
+
+	// Keep the published site fresh after a successful compile, when enabled. Soft so a Quartz
+	// hiccup never escalates; the lock is already released, so site acquires its own.
+	if job == jobs.JobCompile && err == nil && d.cfg.SiteEnable {
+		log.Printf("site: rebuilding after compile")
+		if serr := site.Build(d.ctx, d.cfg, site.Options{Soft: true}); serr != nil && serr != vault.ErrLocked {
+			log.Printf("site: error: %v", serr)
+		}
 	}
 }
 
