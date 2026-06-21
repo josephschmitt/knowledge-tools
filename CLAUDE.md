@@ -62,17 +62,26 @@ working in the repo.
     git, so it works on a bare synced folder. Cadences: `KNOWLEDGE_SYNTHESIZE_ONCALENDAR` /
     `KNOWLEDGE_RESOLVE_ONCALENDAR`.
   - `vault-lib.sh` is sourced by all three — config, the per-instance lock (keyed by
-    `KNOWLEDGE_INSTANCE`), and the commit/push side effect (issue jobs commit `wiki/ index.md
-    log.md`, plus `inbox/.review/` in the files channel; compile stages everything).
+    `KNOWLEDGE_INSTANCE`), portable date helpers (`now_iso`/`epoch_iso`, GNU vs BSD `date`), and
+    the commit/push side effect (issue jobs commit `wiki/ index.md log.md`, plus `inbox/.review/`
+    in the files channel; compile stages everything). The lock uses `flock` on Linux and an atomic
+    `mkdir` fallback on macOS (no `flock` there), same non-blocking semantics either way.
     `commit_and_push` no-ops cleanly when the vault is not a git repo (history left to external
     sync), so a bare folder works too.
-  - `install.sh` generates the systemd *user* units from the `knowledge-*@.{service,timer,path}.in`
-    templates for **one vault per run** (`KNOWLEDGE_INSTANCE`, default `default`). The service units
-    are shared templates that read each vault's `KNOWLEDGE_REPO` from a per-instance env file
-    `~/.config/knowledge-tools/<instance>.env` that install writes; the timer/path units are
-    materialized per instance (carrying that vault's cadence + watched path). Run once per vault to
-    add another. Re-run after changing a template or a cadence; on an existing single-vault host the
-    first re-run migrates it to `default` (removing the old non-instanced units). Idempotent.
+  - `install.sh` is **OS-conditional** (branches on `uname`), generating one vault's jobs per run
+    (`KNOWLEDGE_INSTANCE`, default `default`). On **Linux** it renders the
+    `knowledge-*@.{service,timer,path}.in` systemd templates into `~/.config/systemd/user/`: shared
+    service templates read each vault's `KNOWLEDGE_REPO` from a per-instance env file
+    `~/.config/knowledge-tools/<instance>.env` that install writes, and the timer/path units are
+    materialized per instance. On **macOS** it renders the `knowledge-{compile,synthesize,resolve}.plist.in`
+    launchd templates into `~/Library/LaunchAgents/` as `com.knowledge-tools.<job>.<instance>.plist`
+    and (re)loads them via `launchctl bootout`+`bootstrap`; there's no template/env-file indirection,
+    so `KNOWLEDGE_REPO`/`KNOWLEDGE_INSTANCE` are baked into each plist, the compile timer+path collapse
+    into one plist (schedule + `WatchPaths`), cadences are translated to launchd's smaller grammar in
+    local time (`oncalendar_to_launchd`), and there's no linger (LaunchAgents run only while logged
+    in). Run once per vault to add another. Re-run after changing a template or a cadence; on an
+    existing single-vault Linux host the first re-run migrates it to `default` (removing the old
+    non-instanced units). Idempotent.
   - `init-vault.sh` seeds a fresh vault from `template/` (below). **One-shot scaffold, not
     `install.sh`**: strictly copy-if-absent, no `--force`, leaves git alone. Re-running only
     fills gaps — it never overwrites a tuned `CLAUDE.md` or command, because post-seed drift

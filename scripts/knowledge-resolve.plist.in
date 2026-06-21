@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- launchd USER agent (LaunchAgent) — the macOS equivalent of the systemd resolve units.
+     Generated PER VAULT into ~/Library/LaunchAgents/@LABEL@.plist by scripts/install.sh on macOS;
+     @TOOLS_REPO@ is this repo (the worker), @VAULT_REPO@ this vault, @INSTANCE@ the vault instance
+     (it keys the per-vault lock). launchd has no template/%i mechanism, so install.sh bakes every
+     value in and writes one concrete plist per vault. Edit this template, then re-run install.sh.
+
+     Runs one /resolve pass on its schedule (KNOWLEDGE_RESOLVE_ONCALENDAR): applies my answers and
+     closes the calls. Light + often a no-op (short-circuits when nothing is answered). In the
+     github channel it shells out to `gh`, so PATH includes the Homebrew prefixes. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@LABEL@</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@TOOLS_REPO@/scripts/vault-job.sh</string>
+    <string>resolve</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>KNOWLEDGE_REPO</key>
+    <string>@VAULT_REPO@</string>
+    <key>KNOWLEDGE_INSTANCE</key>
+    <string>@INSTANCE@</string>
+    <key>PATH</key>
+    <string>@PATH@</string>
+@ENV_EXTRA@
+  </dict>
+@SCHEDULE@
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>@LOG@</string>
+  <key>StandardErrorPath</key>
+  <string>@LOG@</string>
+</dict>
+</plist>

@@ -13,6 +13,24 @@
 REPO="$KNOWLEDGE_REPO"
 CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
 
+# Portable date helpers. GNU coreutils `date` (Linux) understands --version, -Is, and -d "@epoch";
+# BSD `date` (macOS) understands none of those, so fall back to an explicit strftime format and -r
+# for the epoch conversion. Detect once. Sourced before the workers define log()/write_status, so
+# both can route every timestamp through these instead of calling `date -Is` / `date -d` directly.
+#
+# Offset format: GNU's -Is emits the tz offset with a colon (+04:00); BSD's %z emits it without
+# (+0400) and has no %:z. Normalize the BSD form (_iso_colon) so timestamps read identically on
+# Linux and macOS — Linux output is left exactly as -Is produced it.
+if date --version >/dev/null 2>&1; then GNU_DATE=1; else GNU_DATE=0; fi
+_iso_colon() { sed -E 's/([+-][0-9][0-9])([0-9][0-9])$/\1:\2/'; }
+now_iso() {  # current time as ISO-8601 with offset, e.g. 2026-06-18T13:45:00-04:00
+  if [ "$GNU_DATE" = 1 ]; then date -Is; else date "+%Y-%m-%dT%H:%M:%S%z" | _iso_colon; fi
+}
+epoch_iso() {  # <epoch-seconds> -> ISO-8601; empty input -> empty string
+  [ -n "${1:-}" ] || { printf ''; return 0; }
+  if [ "$GNU_DATE" = 1 ]; then date -d "@$1" -Is; else date -r "$1" "+%Y-%m-%dT%H:%M:%S%z" | _iso_colon; fi
+}
+
 # One lockfile every vault-mutating job acquires, so compile / synthesize / resolve never run
 # at the same time — they all edit wiki/ and commit, and (say) a resolve commit must not race
 # a compile commit. Kept OUTSIDE the repo on purpose: it's runtime state, not vault content,
@@ -26,15 +44,43 @@ CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
 # of how each unit's environment is set up. Override with KNOWLEDGE_VAULT_LOCK if you must.
 VAULT_LOCK="${KNOWLEDGE_VAULT_LOCK:-$HOME/.local/state/knowledge-tools/vault-${KNOWLEDGE_INSTANCE:-default}.lock}"
 
-# acquire_vault_lock — take the shared lock on fd 9, or exit 0 if another job holds it.
-# The lock is held for the life of the process (released when it exits). Requires log().
+# acquire_vault_lock — take the shared lock, or exit 0 if another job holds it. The lock is held
+# for the life of the process (released when it exits). Requires log().
+#
+# Linux has flock; macOS ships none, so fall back to an atomic mkdir lock with the SAME
+# non-blocking semantics (bail, don't queue). Both key off $VAULT_LOCK (per-instance), so the
+# multi-vault isolation is identical either way: same instance → same lock → serialized; different
+# instances → different locks → concurrent.
 acquire_vault_lock() {
   mkdir -p "$(dirname "$VAULT_LOCK")"
-  exec 9>"$VAULT_LOCK"
-  if ! flock -n 9; then
-    log "another vault job holds the lock ($VAULT_LOCK) — exiting."
-    exit 0
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$VAULT_LOCK"
+    if ! flock -n 9; then
+      log "another vault job holds the lock ($VAULT_LOCK) — exiting."
+      exit 0
+    fi
+    return 0
   fi
+  # No flock (macOS): emulate `flock -n` with an atomic mkdir of $VAULT_LOCK.d — exactly one racer
+  # wins the mkdir. A crashed holder can leave the dir behind, so reclaim it once if it has no
+  # valid living PID. "No valid living PID" deliberately includes an EMPTY/missing pid file: a
+  # holder SIGKILL'd between winning the mkdir and writing its pid would otherwise wedge the lock
+  # forever (every later caller reads "" and bails). Released by an EXIT trap (workers set no other).
+  local lockdir="$VAULT_LOCK.d"
+  if ! mkdir "$lockdir" 2>/dev/null; then
+    local holder; holder="$(cat "$lockdir/pid" 2>/dev/null || true)"
+    if [ -z "$holder" ] || ! kill -0 "$holder" 2>/dev/null; then
+      log "stale vault lock ($lockdir, pid '${holder:-none}' gone) — reclaiming."
+      rm -rf "$lockdir"
+      mkdir "$lockdir" 2>/dev/null || { log "another vault job holds the lock ($lockdir) — exiting."; exit 0; }
+    else
+      log "another vault job holds the lock ($lockdir) — exiting."
+      exit 0
+    fi
+  fi
+  echo "$$" >"$lockdir/pid"
+  # Reference the GLOBAL $VAULT_LOCK, not $lockdir (a local that's out of scope when EXIT fires).
+  trap 'rm -rf "$VAULT_LOCK.d"' EXIT
 }
 
 # sync_from_origin — bring the checked-out branch up to date with origin BEFORE the job makes

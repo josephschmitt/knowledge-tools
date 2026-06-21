@@ -37,9 +37,9 @@ LAST_COMPILED_FILE="$COMPILE_DIR/last-compiled-epoch"
 LAST_MANUAL_FILE="$COMPILE_DIR/last-manual-epoch"
 mkdir -p "$COMPILE_DIR"
 
-log() { printf '%s %s\n' "$(date -Is)" "$*" | tee -a "$LOG"; }
+log() { printf '%s %s\n' "$(now_iso)" "$*" | tee -a "$LOG"; }
 
-iso_of() { [ -s "$1" ] && date -d "@$(cat "$1")" -Is || printf ''; }
+iso_of() { [ -s "$1" ] && epoch_iso "$(cat "$1")" || printf ''; }
 
 # Write status.json for the MCP to read. Args: running(true|false) summary.
 write_status() {
@@ -66,17 +66,30 @@ if ! sync_from_origin; then
   exit 1
 fi
 
-# Manual if the MCP dropped a request sentinel; consume it so the .path unit can re-arm.
-if [ -f "$REQUEST" ]; then
-  MODE=manual
-  rm -f "$REQUEST"
+# Decide manual vs scheduled from the MCP's request sentinel. The two host schedulers need opposite
+# request-file lifecycles, so this branches by OS:
+#   - Linux (systemd .path, PathExists): the file's PRESENCE is the trigger. Consume it (delete) so
+#     the .path unit re-arms for the next request.
+#   - macOS (launchd WatchPaths): the file must stay PRESENT or launchd falls back to watching the
+#     parent dir, and then our own status.json writes would retrigger compile in a loop. So the file
+#     is permanent (install.sh creates it); detect a fresh request by mtime — newer than the last
+#     compile — and never delete it. (MCP requestCompile() rewrites the file, bumping its mtime.)
+if [ "$(uname -s)" = Darwin ]; then
+  # Manual iff the request is newer than the last compile. The -f guard keeps it deterministic
+  # ([ -nt ] with a missing operand is unspecified): before the first compile, the install-created
+  # placeholder request isn't a real ask, so fall through to scheduled (which still compiles).
+  if [ -f "$LAST_COMPILED_FILE" ] && [ "$REQUEST" -nt "$LAST_COMPILED_FILE" ]; then
+    MODE=manual
+  else
+    MODE=scheduled
+  fi
 else
-  MODE=scheduled
+  if [ -f "$REQUEST" ]; then MODE=manual; rm -f "$REQUEST"; else MODE=scheduled; fi
 fi
 log "compile mode: $MODE"
 
 NOW_EPOCH="$(date +%s)"
-STARTED_AT="$(date -Is)"
+STARTED_AT="$(now_iso)"
 
 # Manual runs are throttled; the scheduled run is exempt and never consumes the cooldown.
 if [ "$MODE" = manual ] && [ -s "$LAST_MANUAL_FILE" ]; then

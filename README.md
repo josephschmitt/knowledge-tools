@@ -40,8 +40,8 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   git side effects all three share; `vault-site.sh` builds the optional
   [Quartz](https://quartz.jzhao.xyz) static site the service serves at `/` (renders `index.md` +
   `wiki/` only, publishes outside the vault — see [`service/README.md`](service/README.md#static-website-));
-  `install.sh` generates the systemd *user* units from the
-  `knowledge-*@.in` templates — one instance per vault, so a host can run several
+  `install.sh` generates the host scheduler jobs from the `knowledge-*` templates (systemd *user*
+  units on Linux, launchd agents on macOS) — one instance per vault, so a host can run several
   ([below](#vault-automation-host-setup)); `init-vault.sh` seeds a brand-new vault from `template/`;
   `validate_skills.py` is used by CI.
 - **`template/`** — the starting point of a vault's own librarian (`CLAUDE.md`, the
@@ -141,9 +141,10 @@ reconcile. To reset a single file back to the seed, delete it and re-run.
 
 ## Vault automation (host setup)
 
-Three vault jobs run on the host as systemd *user* units, as one **template instance per vault**
-(`knowledge-compile@<vault>.service`, …). On a single-vault host the instance is just `default`
-and you can ignore the naming. They all edit `wiki/` and commit, so the three jobs **for a given
+Three vault jobs run on the host as scheduled user-level jobs — **systemd user units on Linux**,
+**launchd LaunchAgents on macOS** (`install.sh` picks the right one; see the macOS note below) —
+as one **template instance per vault** (`knowledge-compile@<vault>.service`, …). On a single-vault
+host the instance is just `default` and you can ignore the naming. They all edit `wiki/` and commit, so the three jobs **for a given
 vault** share **one lockfile** (`~/.local/state/knowledge-tools/vault-<vault>.lock`, keyed by the
 instance and overridable with `KNOWLEDGE_VAULT_LOCK`) and never run concurrently — while different
 vaults have different locks and *do* run concurrently. In every case Claude only edits files (and,
@@ -185,8 +186,9 @@ Where a judgment call lives — and whether you need GitHub at all — is set by
 
 - **`github`** — calls are GitHub issues. `/synthesize` and `/resolve` run `gh issue ...` from
   *inside* the Claude run, so the host needs the GitHub CLI installed, on PATH, and authenticated
-  once with `gh auth login` (stored in `~/.config/gh`). The generated service units put
-  `~/.nix-profile/bin` and `~/.local/bin` on PATH and rely on `HOME` for the auth; the run is
+  once with `gh auth login` (stored in `~/.config/gh`). The generated jobs put the relevant local
+  profile dirs on PATH (`~/.nix-profile/bin` + `~/.local/bin` on Linux, the Homebrew prefixes on
+  macOS) and rely on `HOME` for the auth; the run is
   granted only the exact `gh issue` subcommands each command's frontmatter declares (via
   `--allowedTools`), never a blanket skip-permissions. The required labels
   (`vault:judgment-call`, `vault:needs-verification`, and `vault:answered`) must exist on the
@@ -223,6 +225,21 @@ filling in this repo's path for the worker scripts and writing this vault's `KNO
 watcher, and enables linger so they run while you're logged out. Run the issue jobs on demand with
 `systemctl --user start knowledge-{synthesize,resolve}@<vault>.service`. To change a unit, edit its
 `.in` template and re-run the script.
+
+**On macOS** the same command instead generates three launchd LaunchAgents per vault
+(`com.knowledge-tools.{compile,synthesize,resolve}.<vault>.plist`) from the
+`scripts/knowledge-{compile,synthesize,resolve}.plist.in` templates, writes them to
+`~/Library/LaunchAgents/`, and (re)loads each with `launchctl bootstrap`. The compile agent folds
+both triggers into one job — its schedule plus a `WatchPaths` watcher on `inbox/.compile/request`.
+Run the issue jobs on demand with
+`launchctl kickstart -k gui/$(id -u)/com.knowledge-tools.{synthesize,resolve}.<vault>`, and tail
+logs at `~/Library/Logs/knowledge-tools/<vault>-<job>.log` (there's no `journalctl`). Two caveats:
+cadences are scheduled in the Mac's **local time** (a trailing timezone like `America/Detroit` is
+dropped) and accept only a subset of the OnCalendar grammar (hourly/daily/weekly,
+`[Dow ]*-*-* HH:MM:SS`, and every-N-min `*-*-* *:MM/STEP:SS` — whose `MM` start offset launchd
+can't honor, so it fires every `STEP` minutes from agent load, not aligned to `:MM`; install warns
+when you set a non-zero offset); and LaunchAgents run **only while you're logged in** (no linger
+equivalent), so a night job needs the Mac on and logged in then.
 
 **Multiple vaults** (e.g. personal vs work) run on one host as separate instances — each its own
 deployment of these units, lock, schedule, and config. Just run `install.sh` again per vault with a
@@ -264,3 +281,9 @@ automation, and it's free — including on private repos):
 that file exists, nothing changes** — `gh` falls back to your `~/.config/gh` login and the jobs
 keep working exactly as before. To revert, delete the file. The token must never be committed;
 keeping it in `~/.config` (not the repo) is the point.
+
+> **macOS:** the `gh.env` file is **Linux-only** — it relies on systemd's optional
+> `EnvironmentFile`, which launchd has no equivalent for (and baking a PAT into a LaunchAgent plist
+> would persist the secret in `~/Library/LaunchAgents`, a worse posture). For a bot identity on
+> macOS, log `gh` in as the bot directly (`gh auth login` as that account), or export `GH_TOKEN`
+> in the environment the LaunchAgents inherit.

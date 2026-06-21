@@ -77,10 +77,11 @@ until you configure it.
 The server can't compile in-process — the vault is read-only here except `inbox/`, and
 synthesis needs the `claude` CLI + git on the host. So `compile_run` *triggers* the host
 compile and reports status; it doesn't wait for the result. It writes a sentinel to
-`inbox/.compile/request` (the one writable path), which a systemd `.path` unit
-(`scripts/knowledge-compile@.path.in`, one instance per vault) watches to start the same
-`knowledge-compile@<vault>.service` the scheduled timer uses — so systemd runs one compile at a
-time per vault (the per-vault lock). The
+`inbox/.compile/request` (the one writable path), which the host watches to start the same
+compile job the scheduled timer uses — a systemd `.path` unit
+(`scripts/knowledge-compile@.path.in`) on Linux, or the compile LaunchAgent's `WatchPaths` on
+macOS, one instance per vault — so only one compile runs at a time per vault (the per-vault lock).
+The
 host writes `inbox/.compile/status.json`, which the server reads to return `triggered` /
 `throttled` (refused within the one-hour cooldown) / `busy` / `empty`. The scheduled
 run is never throttled and doesn't consume the manual cooldown.
