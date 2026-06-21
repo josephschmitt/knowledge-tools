@@ -254,6 +254,24 @@ Each vault is a wholly independent deployment — its own service (one per vault
 one service multiplexing many vaults. Re-running `install.sh` once on an existing single-vault host
 migrates it to the `default` instance (it removes the old non-instanced units).
 
+### Uninstalling
+
+`uninstall.sh` is the reverse of `install.sh` — same OS split (systemd / launchd), same
+per-instance `KNOWLEDGE_INSTANCE` (default `default`), and idempotent (a no-op if that vault isn't
+installed). Run it once per vault you want to remove:
+
+```sh
+~/development/knowledge-tools/scripts/uninstall.sh                           # remove the "default" vault
+KNOWLEDGE_INSTANCE=work ~/development/knowledge-tools/scripts/uninstall.sh   # remove the "work" vault
+```
+
+It stops and removes that instance's jobs (systemd timers + path watcher, or launchd agents) and
+its per-vault config (`~/.config/knowledge-tools/<vault>.env` on Linux) / logs
+(`~/Library/Logs/knowledge-tools/<vault>-*.log` on macOS). When the **last** vault is removed it
+also cleans up the shared pieces — the systemd service templates (Linux) and the empty logs dir
+(macOS) — so nothing is left behind. It needs no `KNOWLEDGE_REPO`, and it deliberately leaves the
+**vault itself** (`inbox/`, `wiki/`, `outputs/`), the optional `gh.env`, and linger untouched.
+
 ### Bot account (optional)
 
 By default the issue jobs run `gh` as **you** (the `~/.config/gh` login), so any comment
