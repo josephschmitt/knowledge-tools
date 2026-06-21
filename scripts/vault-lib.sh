@@ -194,6 +194,11 @@ refresh_schedules() {
   local out="$dir/schedules.json"
   local tmp="$out.tmp.$$"
   local inst="${KNOWLEDGE_INSTANCE:-default}"
+  # JSON-escape the instance name (\ then ") for the body below, so a quirky KNOWLEDGE_INSTANCE
+  # can't write invalid JSON that makes the reader fall back to all-null rows. install.sh
+  # validates it to a [A-Za-z0-9_-] slug, but refresh_schedules can also be called directly.
+  local inst_json
+  inst_json="$(printf '%s' "$inst" | sed 's/\\/\\\\/g; s/"/\\"/g')"
   mkdir -p "$dir" 2>/dev/null || return 0
 
   # Convert a systemd *USec timer property (integer microseconds since the epoch, or a
@@ -224,7 +229,7 @@ refresh_schedules() {
 
   {
     printf '{\n'
-    printf '  "instance": "%s",\n' "$inst"
+    printf '  "instance": "%s",\n' "$inst_json"
     printf '  "updated_at": "%s",\n' "$(date -Is)"
     printf '  "jobs": {\n'
     _sched_row compile;    printf ',\n'

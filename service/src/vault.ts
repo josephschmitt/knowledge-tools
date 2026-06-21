@@ -225,8 +225,8 @@ export async function readJobSchedules(): Promise<JobSchedules> {
   const row = (job: keyof JobSchedules): JobSchedule => {
     const r = parsed?.jobs?.[job];
     return {
-      last_run_at: nonEmpty(r?.last_run_at ?? undefined),
-      next_run_at: nonEmpty(r?.next_run_at ?? undefined),
+      last_run_at: nonEmpty(r?.last_run_at),
+      next_run_at: nonEmpty(r?.next_run_at),
     };
   };
   return parsed
@@ -239,7 +239,7 @@ export async function readJobSchedules(): Promise<JobSchedules> {
 const DEFAULT_COOLDOWN_SECONDS = 3600;
 
 /** Treat the host's empty-string timestamps (iso_of writes "" when an epoch file is missing) as absent. */
-function nonEmpty(s: string | undefined): string | null {
+function nonEmpty(s: string | null | undefined): string | null {
   return s && s.length > 0 ? s : null;
 }
 
