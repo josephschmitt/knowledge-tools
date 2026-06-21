@@ -266,7 +266,7 @@ _dow_num() { # systemd weekday name -> launchd Weekday integer (Sun=0, Mon=1 …
 # (with a message on stderr) if it's outside the supported macOS subset. The trailing timezone is
 # stripped — launchd schedules in the machine's local time.
 oncalendar_to_launchd() { # <value>
-  local v="$1" dow="" timepart hh rest mm step
+  local v="$1" dow="" timepart hh rest mm step off
   # Drop a trailing timezone token (launchd schedules in local time). A tz name starts with a
   # letter (America/Detroit, Europe/London, UTC); the time field starts with a digit or '*', and a
   # leading weekday has no preceding space — so a " <letter>" only ever matches the trailing tz.
@@ -293,10 +293,15 @@ oncalendar_to_launchd() { # <value>
   hh="${timepart%%:*}"; rest="${timepart#*:}"; mm="${rest%%:*}"
   if [ "$hh" = '*' ]; then
     case "$mm" in
-      */*) step="${mm#*/}"; case "$step" in ''|*[!0-9]*) _unsupported "$1"; return 1 ;; esac
+      */*) off="${mm%%/*}"; step="${mm#*/}"; case "$step" in ''|*[!0-9]*) _unsupported "$1"; return 1 ;; esac
            # step must be a positive count of minutes — 0 would mean StartInterval 0, which launchd
            # treats as "fire continuously" (a tight compile loop). 10# avoids an octal parse on '08'.
            [ "$((10#$step))" -gt 0 ] || { _unsupported "$1"; return 1; }
+           # launchd StartInterval counts from agent load, so it can't honor a systemd start offset
+           # (the ':08' in *:08/30). Warn to STDERR (stdout is the captured schedule fragment) so a
+           # deliberately-staggered cadence isn't silently un-staggered on macOS.
+           case "$off" in ''|*[!0-9]*) ;; *) [ "$((10#$off))" -eq 0 ] || \
+             echo "warning: cadence '$1': launchd ignores the ':$off' start offset — StartInterval fires every $((10#$step)) min from load, not aligned to :$off." >&2 ;; esac
            _interval "$(( (10#$step) * 60 ))"; return 0 ;;     # every-N-min → StartInterval
       *[!0-9]*|'') _unsupported "$1"; return 1 ;;
       *) [ "$((10#$mm))" -le 59 ] || { _unsupported "$1"; return 1; }
@@ -379,18 +384,23 @@ install_launchd() {
       >"$dest"
     echo "  $dest"
     # Idempotent (re)load: bootout the old instance if present, then bootstrap the fresh plist.
-    # Fall back to the legacy load verbs on macOS too old for bootstrap/bootout.
+    # Fall back to the legacy load verbs on macOS too old for bootstrap/bootout. Capture bootstrap's
+    # error so it can be shown only if BOTH paths fail — at which point bootout has already unloaded
+    # any previously-running agent, so the job is now DEAD and we must fail loudly, not report success.
     launchctl bootout "gui/$uid/$label" 2>/dev/null || true
-    if ! launchctl bootstrap "gui/$uid" "$dest" 2>/dev/null; then
-      launchctl unload "$dest" 2>/dev/null || true
-      launchctl load -w "$dest"
-    fi
+    local err
+    if err="$(launchctl bootstrap "gui/$uid" "$dest" 2>&1)"; then return 0; fi
+    launchctl unload "$dest" 2>/dev/null || true
+    if launchctl load -w "$dest" 2>/dev/null; then return 0; fi
+    echo "error: could not load $label — the agent is NOT running (any previous one was already" >&2
+    echo "  unloaded). Fix the cause and re-run. launchctl bootstrap said: ${err:-<no output>}" >&2
+    return 1
   }
 
   echo "Generating LaunchAgents in $LA_DIR"
-  gen_plist knowledge-compile.plist.in    compile    "$sched_compile"
-  gen_plist knowledge-synthesize.plist.in synthesize "$sched_synth"
-  gen_plist knowledge-resolve.plist.in    resolve    "$sched_resolve"
+  gen_plist knowledge-compile.plist.in    compile    "$sched_compile" || exit 1
+  gen_plist knowledge-synthesize.plist.in synthesize "$sched_synth"   || exit 1
+  gen_plist knowledge-resolve.plist.in    resolve    "$sched_resolve" || exit 1
 
   echo
   echo "Done. Loaded agents:"

@@ -236,8 +236,10 @@ Run the issue jobs on demand with
 logs at `~/Library/Logs/knowledge-tools/<vault>-<job>.log` (there's no `journalctl`). Two caveats:
 cadences are scheduled in the Mac's **local time** (a trailing timezone like `America/Detroit` is
 dropped) and accept only a subset of the OnCalendar grammar (hourly/daily/weekly,
-`[Dow ]*-*-* HH:MM:SS`, and every-N-min `*-*-* *:MM/STEP:SS`); and LaunchAgents run **only while
-you're logged in** (no linger equivalent), so a night job needs the Mac on and logged in then.
+`[Dow ]*-*-* HH:MM:SS`, and every-N-min `*-*-* *:MM/STEP:SS` — whose `MM` start offset launchd
+can't honor, so it fires every `STEP` minutes from agent load, not aligned to `:MM`; install warns
+when you set a non-zero offset); and LaunchAgents run **only while you're logged in** (no linger
+equivalent), so a night job needs the Mac on and logged in then.
 
 **Multiple vaults** (e.g. personal vs work) run on one host as separate instances — each its own
 deployment of these units, lock, schedule, and config. Just run `install.sh` again per vault with a
