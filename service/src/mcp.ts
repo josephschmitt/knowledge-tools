@@ -190,7 +190,9 @@ export function buildMcpServer(): McpServer {
         'to tell apart several connected vaults), last_compiled_at (when the most recent compile ' +
         '*finished* — newer than your compile_run trigger time means that run is done), ' +
         'pending_inbox_count, manual_compile_available_at (when the next manual compile_run ' +
-        'is allowed; null/past = now), and running. Cheap to poll for a compile to finish.',
+        'is allowed; null/past = now), running, and jobs (per scheduled host job — compile, ' +
+        'synthesize, resolve — each with last_run_at + next_run_at; null when unknown). Cheap ' +
+        'to poll for a compile to finish.',
       inputSchema: {},
     },
     async () => text(JSON.stringify(await getVaultStatus(), null, 2)),

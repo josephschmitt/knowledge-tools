@@ -208,6 +208,11 @@ install_systemd() {
   echo "Done. Status:"
   systemctl --user list-timers "${TIMERS[@]}" --no-pager || true
   systemctl --user status "$PATH_UNIT" --no-pager --lines=0 || true
+
+  # Seed the schedule snapshot (inbox/.compile/schedules.json) so the MCP/REST status surface can
+  # report next-run times right away — before the first tick fires (matters for the weekly
+  # synthesize). Runs in a subshell so vault-lib's helpers don't leak into install. Best-effort.
+  ( . "$SCRIPTS/vault-lib.sh" && KNOWLEDGE_INSTANCE="$INSTANCE" refresh_schedules ) || true
   echo
   echo "Tips (instance '$INSTANCE'):"
   echo "  # trigger a manual compile (exercises the path watcher):"

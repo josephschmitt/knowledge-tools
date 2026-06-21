@@ -48,7 +48,7 @@ All tools return their result as plain text content. Wiki paths are relative to 
 
 ### vault_status
 - **Inputs:** none.
-- **Output:** a JSON object with five fields:
+- **Output:** a JSON object with six fields:
   - `vault_name` — this vault's label (`KNOWLEDGE_VAULT_NAME`), or `null` when unlabeled. Only
     meaningful with several vaults connected; it disambiguates which vault answered.
   - `last_compiled_at` — ISO time the most recent *successful* compile finished, or `null`.
@@ -56,6 +56,11 @@ All tools return their result as plain text content. Wiki paths are relative to 
   - `manual_compile_available_at` — ISO time the next manual `compile_run` is allowed; `null`
     or a past time means now.
   - `running` — `true` while a compile is in progress.
+  - `jobs` — last/next *scheduled* run of each host job, as `{ "compile": {...}, "synthesize":
+    {...}, "resolve": {...} }`, where each value is `{ "last_run_at": <iso|null>, "next_run_at":
+    <iso|null> }`. Timestamps are `null` when unknown (job not yet run, or the host isn't
+    systemd-driven). A job's `next_run_at` is its scheduled cadence — distinct from
+    `manual_compile_available_at` (the on-demand compile cooldown).
 
 ### list_questions
 - **Inputs:** `status` (optional; one of `open`, `answered`, `applied`). Omit for all.
