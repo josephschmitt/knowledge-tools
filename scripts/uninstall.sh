@@ -37,9 +37,13 @@ uninstall_systemd() {
     "knowledge-compile@$INSTANCE.timer"
     "knowledge-synthesize@$INSTANCE.timer"
     "knowledge-resolve@$INSTANCE.timer"
+    "knowledge-site@$INSTANCE.timer"
   )
   local PATH_UNIT="knowledge-compile@$INSTANCE.path"
-  local SERVICE_TEMPLATES=(knowledge-compile@.service knowledge-synthesize@.service knowledge-resolve@.service)
+  # The optional site service template is shared like the others, so it's removed on the last
+  # instance. The site timer above and this template are no-ops to remove when the site was never
+  # enabled (the [ -e ] guards below handle that).
+  local SERVICE_TEMPLATES=(knowledge-compile@.service knowledge-synthesize@.service knowledge-resolve@.service knowledge-site@.service)
 
   if ! systemctl --user show-environment >/dev/null 2>&1; then
     echo "error: systemd user instance isn't available. Are you on the host as your user?" >&2
@@ -88,7 +92,7 @@ uninstall_launchd() {
 
   echo "Uninstalling vault '$INSTANCE' (launchd)"
   local removed=0 job label dest log
-  for job in compile synthesize resolve; do
+  for job in compile synthesize resolve site; do
     label="com.knowledge-tools.$job.$INSTANCE"
     dest="$LA_DIR/$label.plist"
     log="$LOG_DIR_M/$INSTANCE-$job.log"

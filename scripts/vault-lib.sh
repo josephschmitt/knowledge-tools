@@ -178,6 +178,25 @@ commit_and_push() {
   return 1
 }
 
+# maybe_build_site — rebuild the static Quartz site INLINE, at the end of a content job
+# (compile/synthesize/resolve), so the published site tracks the library on every host-side change.
+# No-op unless KNOWLEDGE_SITE_ENABLED is set (1/true) — the build needs Node >= 20, a hard host
+# dependency the other jobs don't have, so it's strictly opt-in. Runs the sibling vault-site.sh
+# with --no-lock (the caller already holds the per-instance lock; re-flocking the inherited fd
+# would deadlock) and --soft (a Quartz hiccup must never fail the content job — it leaves the
+# previously published site in place). Best-effort: vault-site.sh owns its own logging and, under
+# --soft, exits 0 even on build failure, so this never fails the caller. Requires log() + $LOG.
+maybe_build_site() {
+  case "${KNOWLEDGE_SITE_ENABLED:-}" in
+    1 | true | TRUE | yes) ;;
+    *) return 0 ;;
+  esac
+  local site
+  site="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/vault-site.sh"
+  log "rebuilding static site (inline)"
+  "$site" --no-lock --soft >>"$LOG" 2>&1 || log "WARNING: inline site build exited non-zero (see vault-site logs)."
+}
+
 # refresh_schedules — snapshot this instance's three timers (last-trigger + next-elapse) into
 # inbox/.compile/schedules.json, so the MCP/REST status surface can report, for each scheduled
 # host job, when it last ran and when it runs next. The service is containerized and can't reach
