@@ -122,9 +122,10 @@ jobs:
         env:
           CLI_VERSION: ${{ steps.plan.outputs.version }}
 
-      # Publish the GitHub release ourselves on the real cli/vX.Y.Z tag. For the auto path the tag
-      # doesn't exist yet — gh creates it (lightweight) at the merge commit; for a manual tag push it
-      # already exists. A GITHUB_TOKEN-created tag does NOT re-trigger this workflow, so no loop.
+      # Publish the GitHub release ourselves on the real cli/vX.Y.Z tag. We create the tag as an
+      # *annotated* tag (the auto path) to match the old behavior — `cli/Makefile` derives its local
+      # build version via `git describe --tags`, so we don't want a lightweight API-created tag. A
+      # GITHUB_TOKEN-pushed tag does NOT re-trigger this workflow, so no loop.
       - name: Publish GitHub release
         if: steps.plan.outputs.release == '1'
         env:
@@ -138,12 +139,25 @@ jobs:
           files=(dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm dist/*.apk dist/*.pkg.tar.zst dist/checksums.txt)
           if [ "${#files[@]}" -eq 0 ]; then echo "No artifacts found in cli/dist/" >&2; exit 1; fi
           printf 'uploading: %s\n' "${files[@]}"
+
+          # Auto path: the tag doesn't exist yet, so create it annotated at HEAD (the merge commit).
+          # Manual path: the human already pushed the tag, so leave it as-is.
+          if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "$TAG"
+            git push origin "$TAG"
+          fi
+
+          # Create the release, or — if re-running on an existing release — refresh its title + notes
+          # and replace the assets so a re-cut never leaves stale metadata behind.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "knowledge-tools CLI v${VERSION}" --generate-notes
             gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$TAG" "${files[@]}" \
               --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
               --title "knowledge-tools CLI v${VERSION}" \
               --generate-notes
           fi
