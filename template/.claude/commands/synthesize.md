@@ -119,8 +119,8 @@ Then:
   what you reconciled, what you synthesized, how many notes touched, and how many issues you
   opened.
 - **Do not** touch `inbox/` or `inbox/archive/`, and **do not** run git — leave the commit
-  to me so I can review the library changes first. (Issues are separate from the commit; file
-  them directly.)
+  to me so I can review the library and notebook changes first. (Issues are separate from the
+  commit; file them directly.)
 
 End by telling me, briefly: what you fixed, what new connections/hubs you added, and the
 issues you opened (with their numbers). The terminal summary is a convenience echo — the

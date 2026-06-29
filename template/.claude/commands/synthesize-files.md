@@ -127,8 +127,8 @@ Then:
   what you reconciled, what you synthesized, how many notes touched, and how many questions you
   opened.
 - **Do not** touch top-level `inbox/` captures or `inbox/archive/`, and **do not** run git —
-  leave the commit to the tools-repo wrapper so the library changes get reviewed. (Writing
-  `inbox/.review/` question files is your job and is separate from the commit.)
+  leave the commit to the tools-repo wrapper so the library and notebook changes get reviewed.
+  (Writing `inbox/.review/` question files is your job and is separate from the commit.)
 
 End by telling me, briefly: what you fixed, what new connections/hubs you added, and the
 questions you opened (with their ids). The terminal summary is a convenience echo — the
