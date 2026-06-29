@@ -264,11 +264,13 @@ manual escape hatch (re-cuts, hotfixes).
   macos + a windows build), `goreleaser check`, and a drift guard that the embedded
   `cli/internal/initvault/template/` matches the repo-root `template/` (run `make sync-template`).
 - `cli-release.yml` — triggers on `cli/**` merges to `main` **and** on `cli/v*` tag pushes. On a
-  merge it computes the next `cli/vX.Y.Z` from the landed conventional-commit prefixes, creates +
-  pushes the tag, then runs goreleaser — all in one run (a GITHUB_TOKEN-created tag can't trigger a
-  second workflow, so the version-compute and the release must share a job). On a tag push it skips
-  computation and releases that exact tag. goreleaser (`release --clean`, from `cli/`) builds the
-  cross-platform binaries + packages and updates the Homebrew tap. The `cli/v*` prefix keeps the
-  CLI out of the skill releases' `skills/vX.Y.Z` namespace; goreleaser is OSS (no Pro `monorepo`),
-  so it publishes on the real `cli/vX.Y.Z` tag and strips the prefix in name templates
-  (`GORELEASER_CURRENT_TAG` + `trimprefix`).
+  merge it computes the next `cli/vX.Y.Z` from the landed conventional-commit prefixes; on a tag
+  push it uses that exact tag. Because OSS goreleaser (no Pro `monorepo`) parses the *raw* tag as
+  semver and chokes on the `cli/` prefix, the job builds artifacts with `goreleaser release --clean
+  --snapshot` — injecting the clean version via `CLI_VERSION` (snapshot mode parses no tag and
+  publishes nothing) — and then **publishes the GitHub release itself with `gh`** on the real
+  `cli/vX.Y.Z` tag (a GITHUB_TOKEN-created tag/release can't trigger a second workflow, so the build
+  and release must share one run). The `cli/v*` prefix keeps the CLI out of the skill releases'
+  `skills/vX.Y.Z` namespace. The Homebrew cask is **deferred** (commented in `cli/.goreleaser.yaml`)
+  until the `HOMEBREW_TAP_GITHUB_TOKEN` secret is set and the cask gets a prefixed-tag `url.template`
+  — binaries + deb/rpm/apk/archlinux + checksums still ship.
