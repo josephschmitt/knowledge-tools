@@ -1,9 +1,9 @@
 version: 2
 
-# The CLI is a subdirectory module of the knowledge-tools monorepo. Skill releases already use
-# plain vX.Y.Z tags (.github/workflows/package-skills.yml), so the CLI releases under a distinct
-# cli/vX.Y.Z prefix — that keeps the namespaces separate AND keeps skill version computation
-# (git tag -l 'v*.*.*') from ever seeing CLI tags.
+# The CLI is a subdirectory module of the knowledge-tools monorepo. Skill releases use a
+# skills/vX.Y.Z prefix (.github/workflows/package-skills.yml), so the CLI releases under its own
+# cli/vX.Y.Z prefix — both namespaces are prefixed, which keeps skill version computation
+# (git tag -l 'skills/v*') from ever seeing CLI tags and vice versa.
 #
 # goreleaser's `monorepo` (prefix-aware) feature is Pro-only, so we publish on the *real* prefixed
 # tag (GORELEASER_CURRENT_TAG=cli/vX.Y.Z, set by the release workflow) and strip the "cli/" prefix

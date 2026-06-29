@@ -46,7 +46,7 @@ working in the repo.
   registers just *one* OS autostart unit to keep the daemon alive (multi-vault is still N
   deployments; see issue #15). The wrapper owns git (Claude only edits files + runs scoped `gh`
   calls). Built/released by goreleaser under a distinct **`cli/vX.Y.Z`** tag prefix (skill releases
-  use plain `vX.Y.Z`); devbox (`go@1.23`) is the toolchain.
+  use a `skills/vX.Y.Z` prefix); devbox (`go@1.23`) is the toolchain.
   - Commands: `install` / `uninstall` (register/remove the daemon autostart unit, per-instance,
     idempotent), `daemon` (the long-running scheduler + compile watcher), `compile` /
     `synthesize` / `resolve` (one-shot jobs, also what the daemon runs on schedule), `init`
@@ -238,10 +238,13 @@ touching skills — it's independent of the Claude Code plugin path.
 
 Use [Conventional Commits](https://www.conventionalcommits.org/) titles: `type(scope): summary`
 (e.g. `feat(skills): add ...`, `fix(service): ...`, `docs: ...`, `chore: ...`). This isn't just
-style — `package-skills.yml` derives the next release version from the landed commits' prefixes:
-`feat` → minor, `fix` → patch, and a `!` or `BREAKING CHANGE` → major. Write commit titles
-accordingly when touching `plugins/`. Use the `cli` scope for CLI changes (`feat(cli): ...`); the
-CLI release is **not** auto-cut — push a `cli/vX.Y.Z` tag to release it.
+style — `package-skills.yml` derives the next skill release version (a `skills/vX.Y.Z` tag) from
+the landed commits' prefixes: `feat` → minor, `fix` → patch, and a `!` or `BREAKING CHANGE` →
+major. Write commit titles accordingly when touching `plugins/`. Use the `cli` scope for CLI
+changes (`feat(cli): ...`): a `cli/**` merge to `main` **auto-cuts** a `cli/vX.Y.Z` release from
+the same prefixes (pre-1.0 semantics — breaking → minor, `feat` → minor, `fix` → patch; a
+docs/chore-only merge cuts nothing), and pushing a `cli/v*` tag by hand stays available as a
+manual escape hatch (re-cuts, hotfixes).
 
 ## CI
 
@@ -252,8 +255,12 @@ CLI release is **not** auto-cut — push a `cli/vX.Y.Z` tag to release it.
 - `cli-ci.yml` — on `cli/**` (+ `template/**`) changes: `go test`/`vet`/`golangci-lint` (ubuntu +
   macos + a windows build), `goreleaser check`, and a drift guard that the embedded
   `cli/internal/initvault/template/` matches the repo-root `template/` (run `make sync-template`).
-- `cli-release.yml` — on a **`cli/v*`** tag push, runs goreleaser (`release --clean`, from `cli/`)
-  to build the cross-platform binaries + packages and update the Homebrew tap. The distinct tag
-  prefix keeps the CLI out of the skill releases' plain `vX.Y.Z` namespace; goreleaser is OSS
-  (no Pro `monorepo`), so it publishes on the real `cli/vX.Y.Z` tag and strips the prefix in name
-  templates (`GORELEASER_CURRENT_TAG` + `trimprefix`).
+- `cli-release.yml` — triggers on `cli/**` merges to `main` **and** on `cli/v*` tag pushes. On a
+  merge it computes the next `cli/vX.Y.Z` from the landed conventional-commit prefixes, creates +
+  pushes the tag, then runs goreleaser — all in one run (a GITHUB_TOKEN-created tag can't trigger a
+  second workflow, so the version-compute and the release must share a job). On a tag push it skips
+  computation and releases that exact tag. goreleaser (`release --clean`, from `cli/`) builds the
+  cross-platform binaries + packages and updates the Homebrew tap. The `cli/v*` prefix keeps the
+  CLI out of the skill releases' `skills/vX.Y.Z` namespace; goreleaser is OSS (no Pro `monorepo`),
+  so it publishes on the real `cli/vX.Y.Z` tag and strips the prefix in name templates
+  (`GORELEASER_CURRENT_TAG` + `trimprefix`).
