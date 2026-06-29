@@ -124,6 +124,7 @@ func Compile(ctx context.Context, cfg *config.Config, manual bool) error {
 		// Archive the captures we processed (preserve a raw trail per the vault's CLAUDE.md).
 		archive := filepath.Join(repo, "inbox", "archive", st)
 		if err := os.MkdirAll(archive, 0o755); err != nil {
+			writeStatus(false, "compile failed at archive")
 			return err
 		}
 		for _, it := range items {
