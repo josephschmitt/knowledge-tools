@@ -5,8 +5,47 @@ import path from 'node:path';
 import { VAULT_ROOT, VAULT_NAME, MAX_RESULT_CHARS } from './config.js';
 
 const LIBRARY_DIR = path.join(VAULT_ROOT, 'library');
+// notebook/ is a peer area to library/ (loose, tentative thinking; plain markdown, no
+// frontmatter; its own generated notebook/index.md). The read surface is area-aware so a
+// query can reach it, but every notebook hit stays clearly marked tentative. tasks/ is a
+// third peer area but is Obsidian-managed TaskNotes — deliberately out of the query surface.
+const NOTEBOOK_DIR = path.join(VAULT_ROOT, 'notebook');
 const INBOX_DIR = path.join(VAULT_ROOT, 'inbox');
 const INDEX_FILE = path.join(VAULT_ROOT, 'index.md');
+const NOTEBOOK_INDEX_FILE = path.join(NOTEBOOK_DIR, 'index.md');
+
+/** A queryable compiled area. `tasks/` is intentionally absent (Obsidian-managed). */
+export type Area = 'library' | 'notebook';
+/** Search breadth across the queryable areas. */
+export type SearchScope = Area | 'both';
+
+/** Absolute directory backing an area. */
+function areaDir(area: Area): string {
+  return area === 'notebook' ? NOTEBOOK_DIR : LIBRARY_DIR;
+}
+
+/**
+ * Content notes in an area (walkMarkdown minus the area's own nav index). The library index sits
+ * at the vault root, so it's already outside LIBRARY_DIR; the notebook index lives *inside*
+ * notebook/, so drop it here to keep both areas symmetric — the index is reached via readIndex,
+ * not surfaced as a searchable/listable note.
+ */
+async function areaNotes(area: Area): Promise<string[]> {
+  const files = await walkMarkdown(areaDir(area));
+  return area === 'notebook' ? files.filter((f) => f !== NOTEBOOK_INDEX_FILE) : files;
+}
+
+/**
+ * Split an externally-supplied note path into its area + area-relative remainder. A leading
+ * `library/` or `notebook/` segment names the area; anything else (an unprefixed path) defaults
+ * to `library/`, so callers from before the notebook existed keep working unchanged.
+ */
+function splitArea(notePath: string): { area: Area; rel: string } {
+  const trimmed = notePath.trim().replace(/^\/+/, '');
+  const m = /^(library|notebook)\/(.*)$/.exec(trimmed);
+  if (m) return { area: m[1] as Area, rel: m[2] };
+  return { area: 'library', rel: trimmed };
+}
 
 // Compile coordination lives under inbox/.compile/ — the one mount the container can
 // write. It's a subdir, so the host's capture snapshot (top-level files only) ignores it.
@@ -53,7 +92,7 @@ async function walkMarkdown(dir: string): Promise<string[]> {
     // Container bind/overlay/network mounts often return DT_UNKNOWN from readdir,
     // so Dirent.isFile()/isDirectory() are *both* false even for a regular file —
     // and inconsistently so between calls, which is how a note can show up in one
-    // walk (search_library) but vanish from another (list_notes). Resolve the type
+    // walk (search_notes) but vanish from another (list_notes). Resolve the type
     // with stat() (also follows symlinked notes) so nothing is silently dropped.
     // See issue #12.
     if (!isDir && !isFile) {
@@ -74,59 +113,84 @@ async function walkMarkdown(dir: string): Promise<string[]> {
   return out;
 }
 
-/** Relative-to-library paths of every note, sorted. */
+/** Area-qualified paths of every note across both queryable areas, sorted (`library/<rel>`,
+ *  `notebook/<rel>`). A missing area dir contributes nothing (walkMarkdown returns []). */
 export async function listNotes(): Promise<string[]> {
-  const files = await walkMarkdown(LIBRARY_DIR);
-  return files.map((f) => path.relative(LIBRARY_DIR, f)).sort();
-}
-
-/** The navigation index. */
-export async function readIndex(): Promise<string> {
-  try {
-    return cap(await fs.readFile(INDEX_FILE, 'utf8'));
-  } catch {
-    return '(index.md not found)';
+  const out: string[] = [];
+  for (const area of ['library', 'notebook'] as Area[]) {
+    const dir = areaDir(area);
+    const files = await areaNotes(area);
+    out.push(...files.map((f) => `${area}/${path.relative(dir, f)}`));
   }
+  return out.sort();
 }
 
-/** Raw markdown of one note. Accepts `name` or `name.md`, relative to library/. */
+/** The navigation index: the library map plus the notebook's own index, each labeled. A missing
+ *  file is noted in place so the output shape stays stable whether or not the notebook exists. */
+export async function readIndex(): Promise<string> {
+  const read = async (file: string, missing: string): Promise<string> => {
+    try {
+      return await fs.readFile(file, 'utf8');
+    } catch {
+      return missing;
+    }
+  };
+  const library = await read(INDEX_FILE, '(index.md not found)');
+  const notebook = await read(NOTEBOOK_INDEX_FILE, '(no notebook index)');
+  return cap(`# Library index\n\n${library}\n\n# Notebook index (tentative)\n\n${notebook}`);
+}
+
+/** Raw markdown of one note. Accepts `name` or `name.md`, optionally area-qualified
+ *  (`notebook/name` / `library/name`); an unprefixed path resolves under library/. */
 export async function getNote(notePath: string): Promise<string> {
-  let rel = notePath.trim();
+  const { area, rel: relRaw } = splitArea(notePath);
+  let rel = relRaw;
   if (!rel.toLowerCase().endsWith('.md')) rel += '.md';
-  const full = confine(LIBRARY_DIR, rel);
+  const full = confine(areaDir(area), rel);
   return cap(await fs.readFile(full, 'utf8'));
 }
 
 export interface SearchHit {
+  /** Which area the note lives in — `notebook` hits are tentative, never settled fact. */
+  area: Area;
+  /** Path relative to the area dir (combine with `area` for an area-qualified note path). */
   note: string;
   snippets: string[];
 }
 
-/** Case-insensitive substring search across all library notes, with line-context snippets. */
-export async function searchLibrary(query: string, maxHits = 20): Promise<SearchHit[]> {
+/**
+ * Case-insensitive substring search with line-context snippets. `scope` selects which area(s) to
+ * walk: `library` (default — authoritative), `notebook` (tentative thinking), or `both`. Hits
+ * carry their `area` so callers can mark notebook results tentative. `maxHits` caps the total.
+ */
+export async function searchNotes(query: string, scope: SearchScope = 'library', maxHits = 20): Promise<SearchHit[]> {
   const q = query.trim().toLowerCase();
   if (!q) return [];
-  const files = await walkMarkdown(LIBRARY_DIR);
+  const areas: Area[] = scope === 'both' ? ['library', 'notebook'] : [scope];
   const hits: SearchHit[] = [];
-  for (const file of files) {
-    let content: string;
-    try {
-      content = await fs.readFile(file, 'utf8');
-    } catch {
-      continue;
-    }
-    if (!content.toLowerCase().includes(q)) continue;
-    const lines = content.split('\n');
-    const snippets: string[] = [];
-    for (let i = 0; i < lines.length && snippets.length < 5; i++) {
-      if (lines[i].toLowerCase().includes(q)) {
-        const start = Math.max(0, i - 1);
-        const end = Math.min(lines.length, i + 2);
-        snippets.push(lines.slice(start, end).join('\n').trim());
+  for (const area of areas) {
+    const dir = areaDir(area);
+    const files = await areaNotes(area);
+    for (const file of files) {
+      let content: string;
+      try {
+        content = await fs.readFile(file, 'utf8');
+      } catch {
+        continue;
       }
+      if (!content.toLowerCase().includes(q)) continue;
+      const lines = content.split('\n');
+      const snippets: string[] = [];
+      for (let i = 0; i < lines.length && snippets.length < 5; i++) {
+        if (lines[i].toLowerCase().includes(q)) {
+          const start = Math.max(0, i - 1);
+          const end = Math.min(lines.length, i + 2);
+          snippets.push(lines.slice(start, end).join('\n').trim());
+        }
+      }
+      hits.push({ area, note: path.relative(dir, file), snippets });
+      if (hits.length >= maxHits) return hits;
     }
-    hits.push({ note: path.relative(LIBRARY_DIR, file), snippets });
-    if (hits.length >= maxHits) break;
   }
   return hits;
 }

@@ -57,7 +57,7 @@ The connector's tools each arrive with their own name, description, and input sc
 choreography that matters:
 
 - **Capture** → `append_to_inbox`, then confirm.
-- **Query** → `search_library` to find, `get_note` to read; `list_index` / `list_notes` to orient.
+- **Query** → `search_notes` to find, `get_note` to read; `list_index` / `list_notes` to orient.
 - **Judgment calls** → `list_questions` → `get_question` → `answer_question`.
 - **Compile** → `compile_run` to trigger, `vault_status` to poll for it to finish.
 
@@ -110,15 +110,25 @@ become a task on the next compile" — never "I created a task" or "I scheduled 
 
 When Joe asks what he knows, or to look something up, answer from the vault.
 
-- Search the library first with `search_library`, then read the relevant notes with `get_note`. Use
-  `list_index` to orient if it helps, and `list_notes` to see everything when a search comes up
-  empty or you're not sure what exists.
+- Search the library first with `search_notes` (default `scope: "library"` — his settled,
+  authoritative knowledge), then read the relevant notes with `get_note`. Use `list_index` to
+  orient if it helps, and `list_notes` to see everything when a search comes up empty or you're
+  not sure what exists.
+- **The notebook is loose, in-progress thinking — a secondary source.** When a question might turn
+  on something half-formed (an open question, a comparison he's still weighing, a research thread),
+  widen the search with `scope: "both"` (or `"notebook"`). Always present anything from the
+  notebook as *tentative* — say it's in-progress thinking, never state it as settled fact — and
+  prefer the library when the two cover the same ground. Search results and `list_index` mark
+  notebook material for you; carry that distinction into your answer. `get_note` reads either area
+  via its area-qualified path (`notebook/<name>` / `library/<name>`).
 - Answer from his own notes, not general web knowledge, when he's asking what *he* knows. Point
   to the notes you drew on by path.
-- If the library has nothing, say so plainly — don't invent a note or a citation. Offer to capture
+- If the vault has nothing, say so plainly — don't invent a note or a citation. Offer to capture
   the current info, or to research it on the web if that's what he wants.
-- If notes conflict or look stale, surface that instead of silently picking one.
-- **Tasks aren't in the library.** `search_library` / `get_note` see only `library/`, not `tasks/`, so
+- If notes conflict or look stale, surface that instead of silently picking one. (Notebook entries
+  are *meant* to be tentative and can contradict each other or the library — that's not staleness;
+  frame it as unsettled thinking, not a conflict to resolve.)
+- **Tasks aren't notes.** `search_notes` / `get_note` see only `library/` and `notebook/`, not `tasks/`, so
   they won't surface to-dos. When Joe asks "what's on my plate" or "what do I need to do," read
   the `## Tasks` block in `index.md` via `list_index` and relay its focus view, then point him
   to the `tasks/index` dashboard or TaskNotes in Obsidian for the live, filterable board. Don't
@@ -126,7 +136,7 @@ When Joe asks what he knows, or to look something up, answer from the vault.
 
 **Example:**
 Joe: "What do I know about lake house options for the trip with Adam?"
-You: `search_library` → `get_note` on the matching paths → answer from them, naming the note(s);
+You: `search_notes` → `get_note` on the matching paths → answer from them, naming the note(s);
 if it's thin, say where the gap is.
 
 ## Triggering a compile

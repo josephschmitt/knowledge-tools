@@ -5,7 +5,7 @@ import {
   listNotes,
   readIndex,
   getNote,
-  searchLibrary,
+  searchNotes,
   appendToInbox,
   triggerCompile,
   getVaultStatus,
@@ -54,8 +54,11 @@ export function buildMcpServer(): McpServer {
       instructions:
         (VAULT_NAME ? `This vault is "${VAULT_NAME}". ` : '') +
         'Personal knowledge vault, split on purpose: capture is dumb, compilation is smart. ' +
-        'Answer questions from the compiled library (search_library / get_note / list_index / ' +
-        'list_notes), preferring it over general knowledge. Save material — knowledge or ' +
+        'Answer questions from the compiled library (search_notes / get_note / list_index / ' +
+        'list_notes), preferring it over general knowledge. The library is authoritative; the ' +
+        'notebook is a secondary area of loose, in-progress thinking — widen search_notes to it ' +
+        'only when relevant, and always present notebook material as tentative, never settled. ' +
+        'Save material — knowledge or ' +
         'tasks — raw with append_to_inbox; a scheduled compiler curates the inbox into the library. ' +
         'compile_run / vault_status trigger and track that compile. When that maintenance ' +
         'hits a judgment call it can\'t decide alone, list_questions / get_question surface ' +
@@ -64,19 +67,33 @@ export function buildMcpServer(): McpServer {
   );
 
   server.registerTool(
-    'search_library',
+    'search_notes',
     {
-      title: 'Search the library',
+      title: 'Search notes',
       description:
-        'Case-insensitive substring search across all compiled library notes (searches library/ only, ' +
-        'not tasks/). Returns matching note paths with snippets; pass a path to get_note to read a full note.',
-      inputSchema: { query: z.string().min(1).describe('Text to search for') },
+        'Case-insensitive substring search across compiled notes. scope selects the area: ' +
+        '"library" (default — settled, authoritative knowledge), "notebook" (loose, in-progress ' +
+        'thinking), or "both"; widen past the library only when in-progress thinking is relevant. ' +
+        'Never searches tasks/. Each hit header is the area-qualified note path (library/<note> or ' +
+        'notebook/<note>) — pass it to get_note to read the full note. Notebook hits are tentative: ' +
+        'present them as in-progress, never as settled fact.',
+      inputSchema: {
+        query: z.string().min(1).describe('Text to search for'),
+        scope: z
+          .enum(['library', 'notebook', 'both'])
+          .default('library')
+          .describe('Which area(s) to search: library (default), notebook, or both'),
+      },
     },
-    async ({ query }) => {
-      const hits = await searchLibrary(query);
-      if (hits.length === 0) return text(`No library notes match "${query}".`);
+    async ({ query, scope }) => {
+      const hits = await searchNotes(query, scope);
+      if (hits.length === 0) return text(`No ${scope === 'both' ? '' : scope + ' '}notes match "${query}".`);
       const out = hits
-        .map((h) => `## ${h.note}\n${h.snippets.map((s) => `> ${s.replace(/\n/g, '\n> ')}`).join('\n\n')}`)
+        .map((h) => {
+          const tag = h.area === 'notebook' ? ' (tentative)' : '';
+          const body = h.snippets.map((s) => `> ${s.replace(/\n/g, '\n> ')}`).join('\n\n');
+          return `## ${h.area}/${h.note}${tag}\n${body}`;
+        })
         .join('\n\n');
       return text(`${hits.length} match(es) for "${query}":\n\n${out}`);
     },
@@ -86,8 +103,16 @@ export function buildMcpServer(): McpServer {
     'get_note',
     {
       title: 'Get a note',
-      description: "Return the full markdown of one library note by its path or name (e.g. 'homelab-infrastructure').",
-      inputSchema: { path: z.string().min(1).describe("Note path or name relative to library/, with or without .md") },
+      description:
+        "Return the full markdown of one note by its path or name (e.g. 'homelab-infrastructure'). " +
+        'Accepts an area-qualified path (library/<name> or notebook/<name>, as returned by ' +
+        'search_notes); an unqualified path resolves under library/.',
+      inputSchema: {
+        path: z
+          .string()
+          .min(1)
+          .describe('Note path or name, optionally area-qualified (library/… or notebook/…), with or without .md'),
+      },
     },
     async ({ path: notePath }) => {
       try {
@@ -102,7 +127,7 @@ export function buildMcpServer(): McpServer {
     'list_index',
     {
       title: 'Read the index',
-      description: 'Return index.md — the navigation map of the library.',
+      description: 'Return the navigation maps: the library index.md and the notebook index (tentative), each labeled.',
       inputSchema: {},
     },
     async () => text(await readIndex()),
@@ -112,7 +137,9 @@ export function buildMcpServer(): McpServer {
     'list_notes',
     {
       title: 'List notes',
-      description: 'List every library note by its path. Useful when a search comes up empty.',
+      description:
+        'List every note by its area-qualified path (library/<note> and notebook/<note>). ' +
+        'Useful when a search comes up empty.',
       inputSchema: {},
     },
     async () => {

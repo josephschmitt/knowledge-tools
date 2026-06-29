@@ -6,11 +6,13 @@ formats only. The *rules* for each tool live in the tool's own description (load
 tool); the *why* and choreography live in `SKILL.md`. Keep this in sync with the server when
 shapes change; don't restate rules or rationale here.
 
-All tools return their result as plain text content. Library paths are relative to `library/`.
+All tools return their result as plain text content. Note paths are area-qualified
+(`library/<rel>` or `notebook/<rel>`); an unqualified path is treated as `library/`. `tasks/` is
+not on the query surface.
 
 > The same service also exposes these operations as a **REST API** under `/api/v1` (for
-> scripts/tooling that don't speak MCP), returning JSON instead of text — e.g. `search_library`
-> → `GET /api/v1/library/search?q=`, `append_to_inbox` → `POST /api/v1/inbox`, `answer_question`
+> scripts/tooling that don't speak MCP), returning JSON instead of text — e.g. `search_notes`
+> → `GET /api/v1/search?q=`, `append_to_inbox` → `POST /api/v1/inbox`, `answer_question`
 > → `POST /api/v1/questions/<id>/answer`. Same in-process core, so behavior matches 1:1. Full
 > route table in `service/README.md`.
 
@@ -22,23 +24,27 @@ All tools return their result as plain text content. Library paths are relative 
 - **Output:** confirmation naming the inbox path, e.g. `Captured to
   inbox/2026-06-07T…-<slug>.md. It will be compiled into the library on the next scheduled compile.`
 
-### search_library
-- **Inputs:** `query` (required). No `limit`.
-- **Output:** for each matching note, a `## <note-path>` header followed by blockquoted
-  snippets (matching line + a little context). Says so when nothing matches. Searches `library/`
-  only — not `tasks/`.
+### search_notes
+- **Inputs:** `query` (required). `scope` (optional; one of `library`, `notebook`, `both`;
+  default `library`). No `limit`.
+- **Output:** for each matching note, a `## <area>/<note-path>` header (notebook hits suffixed
+  ` (tentative)`) followed by blockquoted snippets (matching line + a little context). Says so
+  when nothing matches. Never searches `tasks/`.
 
 ### get_note
-- **Inputs:** `path` (note path or name relative to `library/`, with or without `.md`).
+- **Inputs:** `path` (note path or name, optionally area-qualified `library/…` / `notebook/…`,
+  with or without `.md`; unqualified resolves under `library/`).
 - **Output:** the note's full markdown, or a "Note not found" message.
 
 ### list_index
 - **Inputs:** none.
-- **Output:** `index.md` markdown (the library's navigation map; includes the `## Tasks` block).
+- **Output:** the library `index.md` (its navigation map; includes the `## Tasks` block) and the
+  notebook index, each under a labeled header. A missing index is noted in place.
 
 ### list_notes
 - **Inputs:** none.
-- **Output:** newline-separated list of note paths (relative to `library/`).
+- **Output:** newline-separated list of area-qualified note paths (`library/<rel>` and
+  `notebook/<rel>`).
 
 ### compile_run
 - **Inputs:** none.
