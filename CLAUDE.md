@@ -134,7 +134,7 @@ present.
 - **Tool descriptions + field schemas** (`service/src/mcp.ts`) — per-tool invariants any
   caller must obey: what the tool does, hard usage rules (e.g. capture takes zero
   decisions), field-level facts (e.g. no separate source-URL field — fold it into
-  `text`), and one-clause pointers to companion tools (`search_library` → `get_note`,
+  `text`), and one-clause pointers to companion tools (`search_notes` → `get_note`,
   `compile_run` → `vault_status`). Rules only, no rationale.
 - **Server `instructions`** (same file) — cross-tool policy and architecture only: the
   dumb-capture/smart-compile split, prefer-the-vault-over-general-knowledge, which tools

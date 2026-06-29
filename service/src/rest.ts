@@ -8,7 +8,7 @@ import {
   listNotes,
   readIndex,
   getNote,
-  searchLibrary,
+  searchNotes,
   appendToInbox,
   triggerCompile,
   getVaultStatus,
@@ -45,24 +45,35 @@ function isNotFound(err: unknown): boolean {
   );
 }
 
-// --- Library (read) ----------------------------------------------------------------------
+// --- Notes (read) ------------------------------------------------------------------------
+// Spans the two queryable areas — library/ (settled) and notebook/ (tentative); tasks/ is
+// excluded. These mirror the search_notes / list_notes / get_note MCP tools.
 
-apiRouter.get('/library/search', async (req, res) => {
+const SEARCH_SCOPES = ['library', 'notebook', 'both'] as const;
+
+apiRouter.get('/search', async (req, res) => {
   const q = (req.query.q ?? '').toString();
   if (!q.trim()) {
     res.status(400).json({ error: 'query parameter "q" is required' });
     return;
   }
-  res.json({ query: q, hits: await searchLibrary(q) });
+  const scope = req.query.scope === undefined ? 'library' : req.query.scope.toString();
+  if (!(SEARCH_SCOPES as readonly string[]).includes(scope)) {
+    res.status(400).json({ error: `"scope" must be one of: ${SEARCH_SCOPES.join(', ')}` });
+    return;
+  }
+  // Hits carry `area` (library | notebook); `note` stays area-relative — combine them
+  // (area/note) for an area-qualified path to feed back to GET /notes/*.
+  res.json({ query: q, scope, hits: await searchNotes(q, scope as (typeof SEARCH_SCOPES)[number]) });
 });
 
-apiRouter.get('/library/notes', async (_req, res) => {
+apiRouter.get('/notes', async (_req, res) => {
   res.json({ notes: await listNotes() });
 });
 
 // Notes can live in subdirs, so capture the rest of the path with a named wildcard. confine()
 // inside getNote() guards traversal, so an "escapes" error is a 400, a missing file a 404.
-apiRouter.get('/library/notes/*path', async (req, res) => {
+apiRouter.get('/notes/*path', async (req, res) => {
   const raw = (req.params as Record<string, unknown>).path;
   const notePath = (Array.isArray(raw) ? raw.join('/') : String(raw ?? '')).trim();
   if (!notePath) {
