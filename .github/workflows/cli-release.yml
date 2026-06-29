@@ -3,11 +3,14 @@ name: CLI Release
 # Releases the Go CLI under a distinct cli/vX.Y.Z tag prefix so it never collides with the skill
 # releases (which use a skills/vX.Y.Z prefix — see package-skills.yml). Two ways to cut a release:
 #   - Auto: a cli/** change merged to main computes the next cli/vX.Y.Z from the landed
-#     conventional-commit prefixes (see "Plan release"), creates the tag, and runs goreleaser — all
-#     in one run. A tag/release created by the workflow's GITHUB_TOKEN does NOT trigger other
-#     workflows, so the tag-create and goreleaser MUST happen in the same job (mirrors
-#     package-skills.yml).
-#   - Manual: push a cli/v* tag (re-cuts, hotfixes) and goreleaser publishes that exact tag.
+#     conventional-commit prefixes (see "Plan release").
+#   - Manual: push a cli/v* tag (re-cuts, hotfixes).
+# Either way the job builds artifacts with goreleaser in *snapshot* mode (OSS goreleaser can't parse
+# the cli/ prefix as semver, so we inject the clean version via CLI_VERSION and skip its publishing)
+# and then publishes the GitHub release itself on the real cli/vX.Y.Z tag with `gh`. Doing the build
+# and the release in one run is required: a tag/release created by the workflow's GITHUB_TOKEN does
+# NOT trigger other workflows, so we can't split this across a tag-push event (mirrors
+# package-skills.yml).
 on:
   push:
     branches: [main]
@@ -48,9 +51,10 @@ jobs:
 
           if [ "$REF_TYPE" = "tag" ]; then
             echo "Manual release for tag $REF_NAME"
-            echo "mode=manual"   >> "$GITHUB_OUTPUT"
-            echo "release=1"      >> "$GITHUB_OUTPUT"
-            echo "tag=$REF_NAME"  >> "$GITHUB_OUTPUT"
+            echo "mode=manual"             >> "$GITHUB_OUTPUT"
+            echo "release=1"               >> "$GITHUB_OUTPUT"
+            echo "tag=$REF_NAME"           >> "$GITHUB_OUTPUT"
+            echo "version=${REF_NAME#cli/v}" >> "$GITHUB_OUTPUT"   # cli/v1.2.3 -> 1.2.3
             exit 0
           fi
 
@@ -90,21 +94,8 @@ jobs:
           fi
           echo "release=1" >> "$GITHUB_OUTPUT"
           echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "version=${next#cli/v}" >> "$GITHUB_OUTPUT"   # cli/v1.2.3 -> 1.2.3
           echo "Next CLI tag: $next"
-
-      # Auto path only: create + push the computed tag at HEAD so goreleaser has something to
-      # publish. Pushed with GITHUB_TOKEN, so it will NOT re-trigger this workflow (no loop) — which
-      # is exactly why goreleaser runs in this same job.
-      - name: Create and push tag
-        if: steps.plan.outputs.mode == 'auto' && steps.plan.outputs.release == '1'
-        env:
-          TAG: ${{ steps.plan.outputs.tag }}
-        run: |
-          set -euo pipefail
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "$TAG"
-          git push origin "$TAG"
 
       - name: Read Go version from devbox.json
         id: go-version
@@ -117,17 +108,42 @@ jobs:
         with:
           go-version: ${{ steps.go-version.outputs.version }}
           cache-dependency-path: cli/go.sum
-      - name: Run GoReleaser
+
+      # Build artifacts in snapshot mode: OSS goreleaser can't parse the cli/ prefix as semver, so
+      # we inject the clean version via CLI_VERSION and let snapshot mode skip tag parsing + all
+      # publishing (no GitHub release, no Homebrew token needed). Artifacts land in cli/dist/.
+      - name: Build artifacts (GoReleaser snapshot)
         if: steps.plan.outputs.release == '1'
         uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
           workdir: cli
-          args: release --clean
+          args: release --clean --snapshot
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-          # The real prefixed tag — goreleaser publishes the release here; the config's
-          # trimprefix templates strip "cli/" for artifact names + the binary version. Auto runs
-          # use the just-created tag; manual runs use the pushed cli/v* tag.
-          GORELEASER_CURRENT_TAG: ${{ steps.plan.outputs.tag }}
+          CLI_VERSION: ${{ steps.plan.outputs.version }}
+
+      # Publish the GitHub release ourselves on the real cli/vX.Y.Z tag. For the auto path the tag
+      # doesn't exist yet — gh creates it (lightweight) at the merge commit; for a manual tag push it
+      # already exists. A GITHUB_TOKEN-created tag does NOT re-trigger this workflow, so no loop.
+      - name: Publish GitHub release
+        if: steps.plan.outputs.release == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cd cli
+          files=(dist/*.tar.gz dist/*.zip dist/*.deb dist/*.rpm dist/*.apk dist/*.pkg.tar.zst dist/checksums.txt)
+          if [ "${#files[@]}" -eq 0 ]; then echo "No artifacts found in cli/dist/" >&2; exit 1; fi
+          printf 'uploading: %s\n' "${files[@]}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" "${files[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "knowledge-tools CLI v${VERSION}" \
+              --generate-notes
+          fi
