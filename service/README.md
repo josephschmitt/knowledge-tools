@@ -1,20 +1,22 @@
 # Knowledge Vault Service
 
-One server that exposes this knowledge vault over **two protocols** plus an optional **static
-website**, all backed by the same in-process vault core:
+One server that exposes this knowledge vault over **two protocols**, both backed by the same
+in-process vault core:
 
 - **MCP** at `/mcp` — a remote [MCP](https://modelcontextprotocol.io) endpoint over the
   **Streamable HTTP** transport, used by **claude.ai as a custom connector** (and the Claude
   Code plugin). The MCP *protocol* server name is `knowledge-vault`.
 - **REST** at `/api/v1` — a plain JSON HTTP API mirroring the MCP tools 1:1, for scripts,
   automation, and any other tooling that doesn't speak MCP. See [REST API](#rest-api).
-- **Static site** at `/` — an optional, pre-built [Quartz](https://quartz.jzhao.xyz) rendering of
-  the library you can browse in a web browser. **Off by default**; see [Static website](#static-website-).
 
-The two protocols are on by default; the static site is opt-in. Each surface toggles independently
-with `KNOWLEDGE_ENABLE_MCP` / `KNOWLEDGE_ENABLE_REST` / `KNOWLEDGE_ENABLE_SITE` (a disabled
-surface's paths 404; the server refuses to start if all three are off). See
-[Choosing which surfaces to serve](#choosing-which-surfaces-to-serve).
+> The browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the library** is no longer served
+> here — it now lives in the standalone **`knowledge-site`** image, which builds the render inside
+> its own container and serves it on its own URL (browser-session auth handled by the proxy). See
+> [`site/`](../site).
+
+Both protocols are on by default. Each surface toggles independently with `KNOWLEDGE_ENABLE_MCP` /
+`KNOWLEDGE_ENABLE_REST` (a disabled surface's paths 404; the server refuses to start if both are
+off). See [Choosing which surfaces to serve](#choosing-which-surfaces-to-serve).
 
 Authentication is **optional and off by default** and gates **both** surfaces: out of the box
 the server does no auth and trusts its network (run it behind an authenticating proxy), or you
@@ -99,65 +101,26 @@ when unknown (a job that hasn't run yet, or a non-systemd host).
 
 ## Choosing which surfaces to serve
 
-The two protocols run by default; the static site is opt-in. Toggle each independently:
+Both protocols run by default. Toggle each independently:
 
 ```sh
-KNOWLEDGE_ENABLE_MCP=false     # turn off MCP  (e.g. REST/site only)
-KNOWLEDGE_ENABLE_REST=false    # turn off REST (e.g. MCP/site only)
-KNOWLEDGE_ENABLE_SITE=true     # turn ON the static site (off by default; see Static website)
+KNOWLEDGE_ENABLE_MCP=false     # turn off MCP  (REST only)
+KNOWLEDGE_ENABLE_REST=false    # turn off REST (MCP only)
 ```
 
 A disabled surface isn't mounted, so its paths return `404` (and for MCP, the RFC 9728 discovery
-metadata isn't advertised either). `/healthz` is always served. Setting **all three** off is a
+metadata isn't advertised either). `/healthz` is always served. Setting **both** off is a
 misconfiguration — the server logs `FATAL … nothing to serve` and exits non-zero.
 
-## Static website (`/`)
+## Static website
 
-Optionally serve a browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the library** at `/`,
-alongside `/mcp` and `/api/v1` — a fast static site with full-text search, backlinks, a graph view,
-and Obsidian-style `[[wikilink]]` navigation. **Off by default**; turn it on with:
-
-```sh
-KNOWLEDGE_ENABLE_SITE=true
-KNOWLEDGE_SITE_ROOT=/site      # where the pre-built site is mounted (default /site)
-```
-
-**Quartz is a build-time generator, not a renderer** — the server only *serves* a pre-built
-directory; it never runs Quartz and carries none of its dependencies. So there are two pieces:
-
-1. **Build the artifact** — a static render of `index.md` + `library/` (a strict allowlist — never
-   `inbox/`, `outputs/`, logs, or task files), published **outside** the vault. The build pipeline
-   is currently **being reworked** (see [Building the site](#building-the-site)); the server just
-   serves whatever pre-built directory you point it at.
-2. **Serve it** — bind-mount that output directory into the container at `KNOWLEDGE_SITE_ROOT` and
-   set `KNOWLEDGE_ENABLE_SITE=true`. A single `express.static` serves Quartz's clean URLs
-   (`/library/foo`); an unmatched path returns Quartz's `404.html`. The directory needn't exist at
-   startup (the host populates it asynchronously) — the server logs a warning and serves it once it
-   appears.
-
-```sh
-# Add to your `docker run` / compose alongside the existing VAULT_ROOT mount:
-#   -v ~/.local/state/knowledge-tools/site/default:/site:ro   # the built site (read-only)
-#   -e KNOWLEDGE_ENABLE_SITE=true
-```
-
-> **Browser access needs a proxy when built-in auth is on.** The `/` surface is gated by the
-> **same `requireToken`** as the other surfaces. With built-in token validation on
-> ([Authentication](#authentication)), a plain browser sends no `Bearer` token and gets `401` — the
-> server is a pure resource server with no login page. So browse it behind the **same
-> authenticating proxy** that fronts the rest of the service, which logs the browser in and
-> injects the header. With auth off (the default), `requireToken` is
-> a no-op and the proxy in front is the gate, exactly like `/mcp` and `/api/v1`.
-
-### Building the site
-
-> **The site build pipeline is being reworked** and is not currently shipped. The previous
-> host-side builder (`vault-site.sh`, then a `knowledge-tools site` command) has been retired while
-> two directions are evaluated: rendering the site live inside this service image, or a standalone
-> Quartz-backed renderer in its own image. Until that lands, build the static artifact with your own
-> tooling (the Quartz config in [`site/`](../site) is the starting point), publish it outside the
-> vault, and point `KNOWLEDGE_SITE_ROOT` at it as above. The serving half (this section) is
-> unaffected — the server serves whatever pre-built directory it's given.
+The browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the library** is **not served by
+this service** — it lives in the standalone **`knowledge-site`** image
+(`ghcr.io/josephschmitt/knowledge-site`, built from [`site/`](../site)). That image builds the
+render **inside its own container** from a bind-mounted vault (a strict allowlist — only `index.md`
++ `library/`, never `inbox/`, `outputs/`, or tasks), serves it on its **own URL**, and rebuilds on
+a token-gated `POST /rebuild` the host's content jobs fire after a commit. Browser-session auth is
+handled by the proxy in front of *that* container, not here. See [`site/README.md`](../site/README.md).
 
 ## Multiple vaults
 
@@ -310,8 +273,7 @@ pulls without authenticating; the image carries only server code, no vault conte
 
 ## Deploying behind auth
 
-Run the container (only required config is `VAULT_ROOT`; add the `KNOWLEDGE_SITE_ROOT` mount +
-`KNOWLEDGE_ENABLE_SITE=true` if you want the [static site](#static-website-)), then protect it.
+Run the container (the only required config is `VAULT_ROOT`), then protect it.
 **The service doesn't prescribe an identity layer** — that's yours to choose. Pick whichever of the
 two [models](#authentication) suits you, with whatever provider you run; the options below are
 illustrative, not requirements.

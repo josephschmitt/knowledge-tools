@@ -2,14 +2,15 @@ import { QuartzConfig } from "./quartz/cfg"
 import * as Plugin from "./quartz/plugins"
 
 /**
- * knowledge-tools Quartz configuration — the rendering of the vault served at / by the service.
+ * knowledge-tools Quartz configuration — the rendering of the vault served by the knowledge-site image.
  *
- * This file is an OVERLAY: it is copied into a pinned upstream Quartz checkout by
- * scripts/vault-site.sh before `quartz build` runs, which is why the imports below resolve against
- * `./quartz/*` (that tree only exists inside the checkout, not in this repo). See site/README.md.
+ * This file is an OVERLAY: the Dockerfile copies it into a pinned upstream Quartz checkout (at
+ * /opt/quartz) at image-build time, and site/build.sh runs `quartz build` there — which is why the
+ * imports below resolve against `./quartz/*` (that tree only exists inside the checkout, not in
+ * this repo). See site/README.md.
  *
  * It is plain TypeScript executed by Node at build time, so it reads a couple of knobs from the
- * environment (set by vault-site.sh / the per-vault env file):
+ * environment (passed to the container at runtime):
  *   - KNOWLEDGE_SITE_TITLE     page title           (default "Knowledge Vault")
  *   - KNOWLEDGE_SITE_BASE_URL  host for RSS/sitemap/404 absolute URLs, WITHOUT scheme (e.g.
  *                              "library.example.com"). Defaults to "example.com" — Quartz navigation
@@ -26,7 +27,7 @@ const config: QuartzConfig = {
     analytics: null,
     locale: "en-US",
     baseUrl: process.env.KNOWLEDGE_SITE_BASE_URL || "example.com",
-    // The staging step in vault-site.sh is the real privacy boundary (it copies only index.md +
+    // The staging step in site/build.sh is the real privacy boundary (it copies only index.md +
     // library/). These patterns are belt-and-suspenders so nothing private renders even if staging
     // ever changes; on top of Quartz's own defaults.
     ignorePatterns: [

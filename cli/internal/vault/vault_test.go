@@ -74,14 +74,14 @@ func newTestLogger(t *testing.T) *Logger {
 
 func TestCommitAndPushNotARepo(t *testing.T) {
 	dir := t.TempDir() // not a git repo
-	if err := CommitAndPush(dir, "msg", nil, newTestLogger(t)); err != nil {
+	if err := CommitAndPush(dir, "msg", nil, nil, newTestLogger(t)); err != nil {
 		t.Errorf("non-repo should be a clean no-op, got %v", err)
 	}
 }
 
 func TestCommitAndPushNoChanges(t *testing.T) {
 	repo := initRepo(t)
-	if err := CommitAndPush(repo, "msg", nil, newTestLogger(t)); err != nil {
+	if err := CommitAndPush(repo, "msg", nil, nil, newTestLogger(t)); err != nil {
 		t.Errorf("no changes should be a clean no-op, got %v", err)
 	}
 }
@@ -91,7 +91,7 @@ func TestCommitAndPushCommitsLocally(t *testing.T) {
 	if err := writeFile(repo, "note.md", "hello"); err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitAndPush(repo, "add note", nil, newTestLogger(t)); err != nil {
+	if err := CommitAndPush(repo, "add note", nil, nil, newTestLogger(t)); err != nil {
 		t.Fatalf("CommitAndPush: %v", err)
 	}
 	// HEAD subject should be our message (no origin → commit kept local, no error).
@@ -110,7 +110,7 @@ func TestCommitAndPushPathspecScoping(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Only stage wiki.md.
-	if err := CommitAndPush(repo, "scoped", []string{"wiki.md"}, newTestLogger(t)); err != nil {
+	if err := CommitAndPush(repo, "scoped", []string{"wiki.md"}, nil, newTestLogger(t)); err != nil {
 		t.Fatalf("CommitAndPush: %v", err)
 	}
 	// inbox.md must remain uncommitted (untracked).

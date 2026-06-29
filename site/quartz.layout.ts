@@ -1,8 +1,8 @@
 import { PageLayout, SharedLayout } from "./quartz/cfg"
 import * as Component from "./quartz/components"
 
-// Overlay copied into the pinned Quartz checkout by scripts/vault-site.sh (see site/README.md);
-// the `./quartz/*` imports resolve there, not in this repo.
+// Overlay copied into the pinned Quartz checkout by the knowledge-site Dockerfile (see
+// site/README.md); the `./quartz/*` imports resolve there, not in this repo.
 
 // components shared across all pages
 export const sharedPageComponents: SharedLayout = {

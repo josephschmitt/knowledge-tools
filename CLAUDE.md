@@ -51,8 +51,9 @@ working in the repo.
     idempotent), `daemon` (the long-running scheduler + compile watcher), `compile` /
     `synthesize` / `resolve` (one-shot jobs, also what the daemon runs on schedule), `init`
     (scaffold a vault from the embedded template — copy-if-absent), `status` (print the compile +
-    schedule snapshots and the daemon unit state). (Static-site building is intentionally out of
-    scope here — the Quartz pipeline is being reworked separately; see `site/` below.)
+    schedule snapshots and the daemon unit state). (Static-site *building* is out of scope here —
+    that's the standalone `knowledge-site` image; the CLI only *triggers* its rebuild after a
+    commit, see `commit_and_push` below and `site/`.)
   - `internal/config` ports `load-env.sh` (a repo-root `.env`; real env wins) + the `KNOWLEDGE_*`
     knobs. **Schedules moved from systemd OnCalendar to cron expressions** (robfig/cron grammar):
     `KNOWLEDGE_COMPILE_SCHEDULE` (default `@hourly`), `KNOWLEDGE_SYNTHESIZE_SCHEDULE`
@@ -62,7 +63,9 @@ working in the repo.
     and macOS — no mkdir fallback), `sync_from_origin` + `commit_and_push` git discipline (shells
     out to `git`; issue jobs commit `library/ notebook/ index.md log.md` [+ `inbox/.review/` in files], compile
     stages everything; no-ops cleanly when not a git repo), the headless `claude` invocation, and
-    RFC3339 dates (no GNU/BSD branching).
+    RFC3339 dates (no GNU/BSD branching). After a commit lands, `commit_and_push` fires a
+    best-effort `POST` to the `knowledge-site` container's `/rebuild` when `KNOWLEDGE_SITE_REBUILD_URL`
+    is set (bearer `KNOWLEDGE_SITE_REBUILD_TOKEN`; non-fatal — a down site never fails a job).
   - `internal/jobs` ports `vault-compile.sh` + `vault-job.sh`: compile snapshot/archive/
     `status.json`/cooldown; synthesize/resolve channel auto-detect (`github` if gh+origin, else
     `files`), per-channel slash command + `--allowedTools` gh grants + commit pathspecs, and the
@@ -79,19 +82,24 @@ working in the repo.
     `KNOWLEDGE_REPO`, and never touches the vault or linger.
   - `internal/initvault` ports `init-vault.sh`. The vault `template/` is **embedded** (the binary
     is standalone) as a committed copy under `cli/internal/initvault/template/`; keep it in sync
-    with the repo-root `template/` via `make sync-embed` (CI guards drift). (`vault-site.sh` is
-    **not** ported — see the static-site note above.)
+    with the repo-root `template/` via `make sync-embed` (CI guards drift). (`vault-site.sh` was
+    **not** ported into the CLI — its build recipe moved into the `knowledge-site` image; see `site/`.)
   - The MCP service contract is unchanged: `inbox/.compile/{request,status.json,
     last-compiled-epoch,last-manual-epoch,schedules.json}` keep their paths + schemas, so
     `service/` needs no changes.
 - `scripts/` — only `validate_skills.py` remains (the skill linter CI runs; see constraints
   below). The vault job/install scripts (`vault-{compile,job,lib}.sh`, `{in,un}install.sh`,
-  `init-vault.sh`, `load-env.sh`) moved into `cli/`; `vault-site.sh` was retired without a CLI
-  port (the static-site pipeline is being reworked).
-- `site/` — the Quartz config (`quartz.config.ts` + `quartz.layout.ts`, read by
-  `KNOWLEDGE_SITE_TITLE` / `KNOWLEDGE_SITE_BASE_URL`) and its README. Consumed by the static-site
-  build, which is **being reworked** (live render in the service vs. a standalone renderer image);
-  the CLI no longer builds or embeds it.
+  `init-vault.sh`, `load-env.sh`) moved into `cli/`; `vault-site.sh`'s build recipe moved into the
+  `knowledge-site` image (`site/`).
+- `site/` — the source of the self-contained **`knowledge-site`** image
+  (`ghcr.io/josephschmitt/knowledge-site`, built by `.github/workflows/build-site.yml`): a
+  `Dockerfile` that bakes a pinned Quartz checkout + the config overlay (`quartz.config.ts` /
+  `quartz.layout.ts`, read via `KNOWLEDGE_SITE_TITLE` / `KNOWLEDGE_SITE_BASE_URL`) + deps, plus
+  `build.sh` (allowlist-stage `index.md`+`library/` → `quartz build` → atomic swap), `entrypoint.sh`,
+  and `serve.mjs` (zero-dep static server + token-gated `POST /rebuild`). It builds the render
+  **inside its own container** from a bind-mounted `VAULT_ROOT` and serves it on its **own URL**
+  (browser auth at the proxy), rebuilding when a content job POSTs after a commit. The `service/`
+  image no longer serves the site. See `site/README.md`.
 - `template/` — the **starting point** of a vault's own librarian, mirroring the vault layout:
   `CLAUDE.md` (the librarian spec), `.claude/commands/{compile-inbox,synthesize,resolve}.md`
   plus the git/GitHub-free `{synthesize,resolve}-files.md` variants,
