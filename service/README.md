@@ -169,15 +169,20 @@ Host knobs (set in the repo-root `.env` or the environment):
 
 | Var | Default | What |
 |---|---|---|
+| `KNOWLEDGE_SITE_ENABLED` | _(off)_ | opt in to **auto-rebuilds** — wires the inline + timer rebuild below. Re-run `install.sh` after changing. (This host knob controls *building*; `KNOWLEDGE_ENABLE_SITE` above controls *serving* — set both for a live site) |
+| `KNOWLEDGE_SITE_ONCALENDAR` | `hourly` | cadence of the standalone safety-net rebuild (any systemd `OnCalendar`) |
 | `KNOWLEDGE_SITE_ROOT` | `~/.local/state/knowledge-tools/site/<instance>` | where the built site is published — bind-mount this into the container |
 | `KNOWLEDGE_SITE_BASE_URL` | `example.com` | public host for absolute URLs in RSS/sitemap (navigation is relative, so cosmetic); set to your real host |
 | `KNOWLEDGE_SITE_TITLE` | `Knowledge Vault` | the site's page title |
 | `KNOWLEDGE_QUARTZ_REF` | `v4.5.2` | pinned Quartz version (a git checkout, not an npm dep) |
 | `KNOWLEDGE_SITE_LOG_RETENTION_DAYS` | `30` | prune `vault-site` build logs older than this |
 
-Re-run it whenever the library changes to refresh the published site. (A future host-automation pass
-will wire systemd units to rebuild after each compile and on a timer; until then, schedule it
-yourself or run it on demand.)
+**Auto-rebuild.** Set `KNOWLEDGE_SITE_ENABLED=true` on the host and re-run `scripts/install.sh`:
+the site then rebuilds **inline** at the end of every `compile`/`synthesize`/`resolve` that changed
+the library (while the job still holds the lock — a Quartz hiccup can't fail the content job), **and** a
+standalone `knowledge-site@<instance>` unit rebuilds it on `KNOWLEDGE_SITE_ONCALENDAR` (default
+hourly) as a safety net for library changes that arrive via external sync and to retry a soft-failed
+inline build. Leave it unset to keep refreshing the site by hand (`scripts/vault-site.sh`).
 
 ## Multiple vaults
 

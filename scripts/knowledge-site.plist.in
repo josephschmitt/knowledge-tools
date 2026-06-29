@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- launchd USER agent (LaunchAgent) — the macOS equivalent of the systemd site units. Generated
+     PER VAULT into ~/Library/LaunchAgents/@LABEL@.plist by scripts/install.sh on macOS (only when
+     KNOWLEDGE_SITE_ENABLED is set); @TOOLS_REPO@ is this repo (the worker), @VAULT_REPO@ this vault,
+     @INSTANCE@ the vault instance (it keys the per-vault lock). launchd has no template/%i
+     mechanism, so install.sh bakes every value in and writes one concrete plist per vault. Edit this
+     template, then re-run install.sh.
+
+     Rebuilds the static Quartz site on its schedule (KNOWLEDGE_SITE_ONCALENDAR) — the STANDALONE
+     safety net for the inline build that runs at the end of each compile/synthesize/resolve. It
+     takes the shared per-vault lock and hard-fails on error (no --soft/--no-lock). @PATH@ already
+     includes the Homebrew + nix/local prefixes, so `node`/`npx` (Quartz needs Node >= 20) resolve.
+     No WatchPaths: the site has no on-demand sentinel — it follows content jobs and this timer. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>@LABEL@</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@TOOLS_REPO@/scripts/vault-site.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>KNOWLEDGE_REPO</key>
+    <string>@VAULT_REPO@</string>
+    <key>KNOWLEDGE_INSTANCE</key>
+    <string>@INSTANCE@</string>
+    <key>PATH</key>
+    <string>@PATH@</string>
+@ENV_EXTRA@
+  </dict>
+@SCHEDULE@
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>@LOG@</string>
+  <key>StandardErrorPath</key>
+  <string>@LOG@</string>
+</dict>
+</plist>

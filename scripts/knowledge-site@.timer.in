@@ -1,0 +1,21 @@
+# systemd USER timer — generated PER VAULT by scripts/install.sh as knowledge-site@<instance>.timer
+# (only when KNOWLEDGE_SITE_ENABLED is set), which fills in @SITE_ONCALENDAR@ from
+# KNOWLEDGE_SITE_ONCALENDAR (default: hourly) for that vault. It triggers
+# knowledge-site@<instance>.service (same instance). This is the SAFETY-NET rebuild — the site is
+# already refreshed inline after each compile/synthesize/resolve, so this timer mostly catches
+# externally-synced library changes and retries a soft-failed inline build. vault-site.sh is
+# read-only w.r.t. the vault and cheap to re-run (rsync deltas + incremental Quartz), so a frequent
+# cadence is fine. Change the cadence via that env var (or .env), then re-run install.sh.
+[Unit]
+Description=Scheduled %i vault static-site rebuild
+
+[Timer]
+OnCalendar=@SITE_ONCALENDAR@
+# Run on next boot/login if the machine was off when a tick was due.
+Persistent=true
+# Jitter so it rarely fires at the same instant as the compile timer; if it does, one bails on the
+# shared lock and catches up next tick.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

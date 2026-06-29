@@ -145,6 +145,7 @@ fi
 # applied) — commit_and_push handles "nothing staged" cleanly. A push failure is surfaced as a
 # non-zero exit (the commit is preserved locally) so systemd flags the unit instead of rotting
 # silently.
+PUSH_FAILED=
 STAGE=()
 for p in "${COMMIT_PATHS[@]}"; do
   [ -e "$p" ] && STAGE+=("$p")
@@ -152,6 +153,16 @@ done
 if [ "${#STAGE[@]}" -eq 0 ]; then
   log "no tracked paths present to commit."
 elif ! commit_and_push "$COMMIT_MSG_PREFIX ($STAMP)" "${STAGE[@]}"; then
+  PUSH_FAILED=1
+fi
+
+# The library may have changed — refresh the published static site (no-op unless KNOWLEDGE_SITE_ENABLED;
+# we still hold the lock, so it runs --no-lock --soft and never fails this job). Runs whether or not
+# the push succeeded: the new library content is on disk locally either way. (resolve short-circuits
+# earlier when nothing is answered, so this only runs when the pass actually did work.)
+maybe_build_site
+
+if [ -n "$PUSH_FAILED" ]; then
   log "$JOB done (with push failure)."
   exit 1
 fi

@@ -141,6 +141,11 @@ log "archived processed captures to $ARCHIVE"
 PUSH_FAILED=
 commit_and_push "Vault compile ($STAMP)" || PUSH_FAILED=1
 
+# The library changed — refresh the published static site (no-op unless KNOWLEDGE_SITE_ENABLED;
+# we still hold the lock, so it runs --no-lock --soft and never fails this compile). Runs whether
+# or not the push succeeded: the new library content is on disk locally either way.
+maybe_build_site
+
 # Record completion timestamps for the cooldown + status surface.
 date +%s >"$LAST_COMPILED_FILE"
 [ "$MODE" = manual ] && date +%s >"$LAST_MANUAL_FILE"

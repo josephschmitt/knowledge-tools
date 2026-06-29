@@ -1,0 +1,31 @@
+# systemd USER service TEMPLATE — generated into ~/.config/systemd/user/knowledge-site@.service
+# by scripts/install.sh (only when KNOWLEDGE_SITE_ENABLED is set), which fills in @TOOLS_REPO@
+# (this repo, where the worker lives). One shared template serves every vault: the instance name
+# %i selects this vault's config file %h/.config/knowledge-tools/%i.env, which carries this vault's
+# KNOWLEDGE_REPO and the optional KNOWLEDGE_SITE_* knobs. Edit this template, then re-run install.sh.
+#
+# Rebuilds the static Quartz site the service serves at / for instance %i. STANDALONE safety net:
+# the primary trigger is the inline build at the end of each compile/synthesize/resolve (see
+# maybe_build_site in vault-lib.sh); this timer-driven run catches library changes that arrive via
+# external sync and retries a soft-failed inline build. It takes the shared per-instance lock (so it
+# never races a content job) and hard-fails on error (systemd flags the unit) — no --soft/--no-lock.
+[Unit]
+Description=Rebuild the %i vault's static site (Quartz)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# This vault's config (KNOWLEDGE_REPO, KNOWLEDGE_SITE_*). vault-site.sh reads index.md + library/ and
+# publishes outside the vault; the lock keys off KNOWLEDGE_INSTANCE so vaults don't block each other.
+EnvironmentFile=%h/.config/knowledge-tools/%i.env
+Environment=KNOWLEDGE_INSTANCE=%i
+# Quartz needs Node >= 20, which lives in the nix/local profiles that aren't on the default systemd
+# user PATH. Mirror the synthesize unit's PATH so `node`/`npx` resolve.
+Environment=PATH=%h/.nix-profile/bin:%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=@TOOLS_REPO@/scripts/vault-site.sh
+# Cloning Quartz + npm ci on first run, then a full quartz build, can take a while.
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=default.target

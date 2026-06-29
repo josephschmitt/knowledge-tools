@@ -61,10 +61,21 @@ working in the repo.
     chat via the MCP (`list_questions`/`get_question`/`answer_question`) — no gh, no GitHub, no
     git, so it works on a bare synced folder. Cadences: `KNOWLEDGE_SYNTHESIZE_ONCALENDAR` /
     `KNOWLEDGE_RESOLVE_ONCALENDAR`.
+  - `vault-site.sh` builds the **static Quartz site** the service serves at `/` (see
+    `service/README.md`): maintains a pinned Quartz checkout, overlays `site/quartz.{config,layout}.ts`,
+    stages a privacy-safe copy of `index.md` + `library/` (allowlist — never inbox/outputs/tasks), runs
+    `quartz build`, and atomically publishes OUTSIDE the vault (`KNOWLEDGE_SITE_ROOT`). Read-only on
+    the vault (no git). **Opt-in** (`KNOWLEDGE_SITE_ENABLED`; needs Node ≥ 20). Two trigger paths:
+    **inline** at the tail of each content job via `vault-lib.sh`'s `maybe_build_site`
+    (`--no-lock --soft`, so it shares the running job's lock and a Quartz hiccup never fails the job),
+    and a **standalone** `knowledge-site@<instance>` timer (`KNOWLEDGE_SITE_ONCALENDAR`, default
+    hourly) as a safety net (takes the lock, hard-fails). The host knob controls *building*; the
+    container's `KNOWLEDGE_ENABLE_SITE` controls *serving*.
   - `vault-lib.sh` is sourced by all three — config, the per-instance lock (keyed by
-    `KNOWLEDGE_INSTANCE`), portable date helpers (`now_iso`/`epoch_iso`, GNU vs BSD `date`), and
-    the commit/push side effect (issue jobs commit `library/ index.md log.md`, plus `inbox/.review/`
-    in the files channel; compile stages everything). The lock uses `flock` on Linux and an atomic
+    `KNOWLEDGE_INSTANCE`), portable date helpers (`now_iso`/`epoch_iso`, GNU vs BSD `date`), the
+    commit/push side effect (issue jobs commit `library/ index.md log.md`, plus `inbox/.review/`
+    in the files channel; compile stages everything), and the opt-in inline `maybe_build_site` hook
+    (above). The lock uses `flock` on Linux and an atomic
     `mkdir` fallback on macOS (no `flock` there), same non-blocking semantics either way.
     `commit_and_push` no-ops cleanly when the vault is not a git repo (history left to external
     sync), so a bare folder works too.
@@ -81,12 +92,15 @@ working in the repo.
     local time (`oncalendar_to_launchd`), and there's no linger (LaunchAgents run only while logged
     in). Run once per vault to add another. Re-run after changing a template or a cadence; on an
     existing single-vault Linux host the first re-run migrates it to `default` (removing the old
-    non-instanced units). Idempotent.
+    non-instanced units). The optional `knowledge-site@` units (service template + per-vault timer,
+    or the launchd site agent) are generated only when `KNOWLEDGE_SITE_ENABLED` is set, and torn
+    down on a re-run with it unset. Idempotent.
   - `uninstall.sh` is the reverse of `install.sh` — same `uname` branch, same per-instance
     `KNOWLEDGE_INSTANCE` (default `default`), idempotent. Stops + removes that instance's units
-    (systemd) / agents (launchd) and its per-vault env file/logs; on the **last** instance also
-    removes the shared systemd service templates and the empty macOS logs dir. Needs no
-    `KNOWLEDGE_REPO`; never touches the vault (`inbox/`/`library/`/`outputs/`), `gh.env`, or linger.
+    (systemd) / agents (launchd) — including the optional `knowledge-site@` units — and its per-vault
+    env file/logs; on the **last** instance also removes the shared systemd service templates and the
+    empty macOS logs dir. Needs no `KNOWLEDGE_REPO`; never touches the vault
+    (`inbox/`/`library/`/`outputs/`), `gh.env`, or linger.
   - `init-vault.sh` seeds a fresh vault from `template/` (below). **One-shot scaffold, not
     `install.sh`**: strictly copy-if-absent, no `--force`, leaves git alone. Re-running only
     fills gaps — it never overwrites a tuned `CLAUDE.md` or command, because post-seed drift

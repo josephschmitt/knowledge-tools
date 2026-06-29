@@ -72,6 +72,18 @@ ONCALENDAR="${KNOWLEDGE_COMPILE_ONCALENDAR:-hourly}"
 SYNTH_ONCALENDAR="${KNOWLEDGE_SYNTHESIZE_ONCALENDAR:-Sun *-*-* 04:30:00 America/Detroit}"
 RESOLVE_ONCALENDAR="${KNOWLEDGE_RESOLVE_ONCALENDAR:-*-*-* 03:30:00 America/Detroit}"
 
+# Static site (Quartz) — OPT-IN, because building needs Node >= 20 (a host dependency the content
+# jobs don't have). When enabled, install wires a standalone safety-net rebuild unit on this cadence
+# AND the content jobs rebuild the site inline (see maybe_build_site in vault-lib.sh); when disabled
+# (the default), neither happens and a re-run tears down any previously-installed site unit. The
+# container serves the built tree separately via its own KNOWLEDGE_ENABLE_SITE — this host knob only
+# controls *building*.
+case "${KNOWLEDGE_SITE_ENABLED:-}" in
+  1 | true | TRUE | yes) SITE_ENABLED=1 ;;
+  *) SITE_ENABLED= ;;
+esac
+SITE_ONCALENDAR="${KNOWLEDGE_SITE_ONCALENDAR:-hourly}"
+
 # synthesize/resolve run `gh` from inside their Claude run; warn (don't fail) if the host isn't set
 # up for that, since compile doesn't need it and a fresh install may add gh later. OS-agnostic.
 if ! command -v gh >/dev/null 2>&1; then
@@ -103,6 +115,15 @@ install_systemd() {
     "knowledge-resolve@$INSTANCE.timer"
   )
   local PATH_UNIT="knowledge-compile@$INSTANCE.path"
+  # Static-site units (opt-in). The service template is shared across instances (like the others);
+  # the timer is per-vault. Added to the render/enable lists only when enabled — otherwise a teardown
+  # block below removes any that a prior enabled run left behind.
+  local SITE_SERVICE="knowledge-site@.service"
+  local SITE_TIMER="knowledge-site@$INSTANCE.timer"
+  if [ -n "$SITE_ENABLED" ]; then
+    SERVICE_TEMPLATES+=("$SITE_SERVICE")
+    TIMERS+=("$SITE_TIMER")
+  fi
   # Legacy single-vault units from before multi-vault — removed on migration so they don't double-fire.
   local LEGACY_UNITS=(
     knowledge-compile.service knowledge-compile.timer knowledge-compile.path
@@ -126,9 +147,11 @@ install_systemd() {
   check_oncalendar KNOWLEDGE_COMPILE_ONCALENDAR "$ONCALENDAR"
   check_oncalendar KNOWLEDGE_SYNTHESIZE_ONCALENDAR "$SYNTH_ONCALENDAR"
   check_oncalendar KNOWLEDGE_RESOLVE_ONCALENDAR "$RESOLVE_ONCALENDAR"
+  [ -n "$SITE_ENABLED" ] && check_oncalendar KNOWLEDGE_SITE_ONCALENDAR "$SITE_ONCALENDAR"
 
   echo "Installing vault '$INSTANCE' via systemd (tools: $TOOLS_REPO, vault: $VAULT_REPO)"
   echo "  cadence: compile=$ONCALENDAR synthesize=$SYNTH_ONCALENDAR resolve=$RESOLVE_ONCALENDAR"
+  [ -n "$SITE_ENABLED" ] && echo "  static site: enabled (rebuild cadence=$SITE_ONCALENDAR + inline after each content job)"
   mkdir -p "$UNIT_DIR" "$CONFIG_DIR"
 
   # Write this vault's config file (read by its service units via EnvironmentFile). Install-managed —
@@ -144,6 +167,17 @@ install_systemd() {
       [ -n "${KNOWLEDGE_REVIEW_CHANNEL:-}" ] && echo "KNOWLEDGE_REVIEW_CHANNEL=$KNOWLEDGE_REVIEW_CHANNEL"
       [ -n "${KNOWLEDGE_GITHUB_REPO:-}" ] && echo "KNOWLEDGE_GITHUB_REPO=$KNOWLEDGE_GITHUB_REPO"
       [ -n "${KNOWLEDGE_COMPILE_COOLDOWN:-}" ] && echo "KNOWLEDGE_COMPILE_COOLDOWN=$KNOWLEDGE_COMPILE_COOLDOWN"
+      # Static-site config — written only when enabled, so both the standalone unit AND the inline
+      # build (compile/synthesize/resolve read this same env file) see it. Omitting them when
+      # disabled is what makes maybe_build_site a no-op and toggles the feature off on re-run.
+      if [ -n "$SITE_ENABLED" ]; then
+        echo "KNOWLEDGE_SITE_ENABLED=1"
+        [ -n "${KNOWLEDGE_SITE_ROOT:-}" ] && echo "KNOWLEDGE_SITE_ROOT=$KNOWLEDGE_SITE_ROOT"
+        [ -n "${KNOWLEDGE_SITE_BASE_URL:-}" ] && echo "KNOWLEDGE_SITE_BASE_URL=$KNOWLEDGE_SITE_BASE_URL"
+        [ -n "${KNOWLEDGE_SITE_TITLE:-}" ] && echo "KNOWLEDGE_SITE_TITLE=$KNOWLEDGE_SITE_TITLE"
+        [ -n "${KNOWLEDGE_QUARTZ_REF:-}" ] && echo "KNOWLEDGE_QUARTZ_REF=$KNOWLEDGE_QUARTZ_REF"
+        [ -n "${KNOWLEDGE_SITE_LOG_RETENTION_DAYS:-}" ] && echo "KNOWLEDGE_SITE_LOG_RETENTION_DAYS=$KNOWLEDGE_SITE_LOG_RETENTION_DAYS"
+      fi
       true
     } >"$INSTANCE_ENV"
   )
@@ -156,6 +190,7 @@ install_systemd() {
       -e "s|@ONCALENDAR@|$ONCALENDAR|g" \
       -e "s|@SYNTH_ONCALENDAR@|$SYNTH_ONCALENDAR|g" \
       -e "s|@RESOLVE_ONCALENDAR@|$RESOLVE_ONCALENDAR|g" \
+      -e "s|@SITE_ONCALENDAR@|$SITE_ONCALENDAR|g" \
       "$SCRIPTS/$1" >"$UNIT_DIR/$2"
     echo "  $2"
   }
@@ -169,6 +204,9 @@ install_systemd() {
   render knowledge-compile@.path.in     "$PATH_UNIT"
   render knowledge-synthesize@.timer.in "knowledge-synthesize@$INSTANCE.timer"
   render knowledge-resolve@.timer.in    "knowledge-resolve@$INSTANCE.timer"
+  # The site service template renders via the SERVICE_TEMPLATES loop above (when enabled); its
+  # per-vault timer is rendered here.
+  [ -n "$SITE_ENABLED" ] && render knowledge-site@.timer.in "$SITE_TIMER"
 
   # Migrate a pre-multi-vault install: the old non-instanced units map to THIS run's @default units
   # (same vault, same schedule), so they'd double-fire. Only remove them when installing the default
@@ -186,6 +224,19 @@ install_systemd() {
         knowledge-compile.timer knowledge-synthesize.timer knowledge-resolve.timer knowledge-compile.path \
         2>/dev/null || true
       for u in "${LEGACY_UNITS[@]}"; do rm -f "$UNIT_DIR/$u"; done
+    fi
+  fi
+
+  # Site disabled: tear down any site units a prior enabled run installed, so toggling the feature
+  # off cleans up after itself. The timer is per-vault (safe to remove); the service template is
+  # SHARED across instances, so only remove it when no other instance's site timer still references
+  # it. Harmless when nothing was there.
+  if [ -z "$SITE_ENABLED" ] && { [ -e "$UNIT_DIR/$SITE_TIMER" ] || [ -e "$UNIT_DIR/$SITE_SERVICE" ]; }; then
+    echo "Removing site units for '$INSTANCE' (KNOWLEDGE_SITE_ENABLED is off)"
+    systemctl --user disable --now "$SITE_TIMER" "knowledge-site@$INSTANCE.service" 2>/dev/null || true
+    rm -f "$UNIT_DIR/$SITE_TIMER"
+    if ! ls "$UNIT_DIR"/knowledge-site@*.timer >/dev/null 2>&1; then
+      rm -f "$UNIT_DIR/$SITE_SERVICE"
     fi
   fi
 
@@ -213,6 +264,14 @@ install_systemd() {
   # report next-run times right away — before the first tick fires (matters for the weekly
   # synthesize). Runs in a subshell so vault-lib's helpers don't leak into install. Best-effort.
   ( . "$SCRIPTS/vault-lib.sh" && KNOWLEDGE_INSTANCE="$INSTANCE" refresh_schedules ) || true
+
+  # Seed the first site build so it's published right away instead of waiting for the first tick.
+  # --no-block so install doesn't hang on the first run's Quartz clone + npm ci (can be minutes).
+  if [ -n "$SITE_ENABLED" ]; then
+    echo "Kicking off the initial site build (best-effort, in the background)"
+    systemctl --user start --no-block "knowledge-site@$INSTANCE.service" || \
+      echo "  note: couldn't start it — check journalctl --user -u knowledge-site@$INSTANCE.service"
+  fi
   echo
   echo "Tips (instance '$INSTANCE'):"
   echo "  # trigger a manual compile (exercises the path watcher):"
@@ -221,6 +280,10 @@ install_systemd() {
   echo "  # run synthesize / resolve on demand:"
   echo "  systemctl --user start knowledge-synthesize@$INSTANCE.service   # journalctl --user -u knowledge-synthesize@$INSTANCE.service -f"
   echo "  systemctl --user start knowledge-resolve@$INSTANCE.service      # journalctl --user -u knowledge-resolve@$INSTANCE.service -f"
+  if [ -n "$SITE_ENABLED" ]; then
+    echo "  # rebuild the static site on demand:"
+    echo "  systemctl --user start knowledge-site@$INSTANCE.service         # journalctl --user -u knowledge-site@$INSTANCE.service -f"
+  fi
   echo "  # add another vault:"
   echo "  KNOWLEDGE_INSTANCE=<name> KNOWLEDGE_REPO=/path/to/other-vault $SCRIPTS/install.sh"
 }
@@ -352,16 +415,30 @@ install_launchd() {
   [ -n "${KNOWLEDGE_REVIEW_CHANNEL:-}" ] && _env_kv KNOWLEDGE_REVIEW_CHANNEL "$KNOWLEDGE_REVIEW_CHANNEL"
   [ -n "${KNOWLEDGE_GITHUB_REPO:-}" ] && _env_kv KNOWLEDGE_GITHUB_REPO "$KNOWLEDGE_GITHUB_REPO"
   [ -n "${KNOWLEDGE_COMPILE_COOLDOWN:-}" ] && _env_kv KNOWLEDGE_COMPILE_COOLDOWN "$KNOWLEDGE_COMPILE_COOLDOWN"
+  # Static-site config baked into EVERY agent's environment: the standalone site agent needs it to
+  # build, and the compile/synthesize/resolve agents need KNOWLEDGE_SITE_ENABLED to fire their
+  # inline maybe_build_site. Written only when enabled (launchd has no EnvironmentFile, so this is
+  # the macOS analog of the systemd <inst>.env site block).
+  if [ -n "$SITE_ENABLED" ]; then
+    _env_kv KNOWLEDGE_SITE_ENABLED 1
+    [ -n "${KNOWLEDGE_SITE_ROOT:-}" ] && _env_kv KNOWLEDGE_SITE_ROOT "$KNOWLEDGE_SITE_ROOT"
+    [ -n "${KNOWLEDGE_SITE_BASE_URL:-}" ] && _env_kv KNOWLEDGE_SITE_BASE_URL "$KNOWLEDGE_SITE_BASE_URL"
+    [ -n "${KNOWLEDGE_SITE_TITLE:-}" ] && _env_kv KNOWLEDGE_SITE_TITLE "$KNOWLEDGE_SITE_TITLE"
+    [ -n "${KNOWLEDGE_QUARTZ_REF:-}" ] && _env_kv KNOWLEDGE_QUARTZ_REF "$KNOWLEDGE_QUARTZ_REF"
+    [ -n "${KNOWLEDGE_SITE_LOG_RETENTION_DAYS:-}" ] && _env_kv KNOWLEDGE_SITE_LOG_RETENTION_DAYS "$KNOWLEDGE_SITE_LOG_RETENTION_DAYS"
+  fi
   ENV_EXTRA="${ENV_EXTRA%$'\n'}"   # drop the trailing newline so the placeholder line is replaced cleanly
 
   # Validate + translate all three cadences up front (fail before writing any plist).
-  local sched_compile sched_synth sched_resolve
+  local sched_compile sched_synth sched_resolve sched_site=""
   sched_compile="$(oncalendar_to_launchd "$ONCALENDAR")" || exit 1
   sched_synth="$(oncalendar_to_launchd "$SYNTH_ONCALENDAR")" || exit 1
   sched_resolve="$(oncalendar_to_launchd "$RESOLVE_ONCALENDAR")" || exit 1
+  [ -n "$SITE_ENABLED" ] && { sched_site="$(oncalendar_to_launchd "$SITE_ONCALENDAR")" || exit 1; }
 
   echo "Installing vault '$INSTANCE' via launchd (tools: $TOOLS_REPO, vault: $VAULT_REPO)"
   echo "  cadence: compile=$ONCALENDAR synthesize=$SYNTH_ONCALENDAR resolve=$RESOLVE_ONCALENDAR (local time)"
+  [ -n "$SITE_ENABLED" ] && echo "  static site: enabled (rebuild cadence=$SITE_ONCALENDAR + inline after each content job)"
   mkdir -p "$LA_DIR" "$LOG_DIR_M" "$VAULT_REPO/inbox/.compile"
   # The compile agent's WatchPaths watches the request FILE; if it's absent launchd falls back to
   # watching the parent dir and the worker's own status.json writes would loop it. Create the file
@@ -406,6 +483,20 @@ install_launchd() {
   gen_plist knowledge-compile.plist.in    compile    "$sched_compile" || exit 1
   gen_plist knowledge-synthesize.plist.in synthesize "$sched_synth"   || exit 1
   gen_plist knowledge-resolve.plist.in    resolve    "$sched_resolve" || exit 1
+  if [ -n "$SITE_ENABLED" ]; then
+    gen_plist knowledge-site.plist.in     site       "$sched_site"    || exit 1
+    # gen_plist bootstraps with RunAtLoad=false, so seed the first build explicitly (best-effort) so
+    # the site is published right away rather than waiting for the first tick.
+    launchctl kickstart -k "gui/$uid/com.knowledge-tools.site.$INSTANCE" 2>/dev/null || true
+  else
+    # Site disabled: tear down a site agent a prior enabled run installed, so toggling off cleans up.
+    local site_label="com.knowledge-tools.site.$INSTANCE"
+    if [ -e "$LA_DIR/$site_label.plist" ]; then
+      echo "Removing site agent (KNOWLEDGE_SITE_ENABLED is off): $LA_DIR/$site_label.plist"
+      launchctl bootout "gui/$uid/$site_label" 2>/dev/null || true
+      rm -f "$LA_DIR/$site_label.plist"
+    fi
+  fi
 
   echo
   echo "Done. Loaded agents:"
@@ -421,6 +512,10 @@ install_launchd() {
   echo "  # run synthesize / resolve on demand:"
   echo "  launchctl kickstart -k gui/$uid/com.knowledge-tools.synthesize.$INSTANCE   # tail -f $LOG_DIR_M/$INSTANCE-synthesize.log"
   echo "  launchctl kickstart -k gui/$uid/com.knowledge-tools.resolve.$INSTANCE      # tail -f $LOG_DIR_M/$INSTANCE-resolve.log"
+  if [ -n "$SITE_ENABLED" ]; then
+    echo "  # rebuild the static site on demand:"
+    echo "  launchctl kickstart -k gui/$uid/com.knowledge-tools.site.$INSTANCE        # tail -f $LOG_DIR_M/$INSTANCE-site.log"
+  fi
   echo "  # add another vault:"
   echo "  KNOWLEDGE_INSTANCE=<name> KNOWLEDGE_REPO=/path/to/other-vault $SCRIPTS/install.sh"
 }
