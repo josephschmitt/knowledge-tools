@@ -1,0 +1,107 @@
+version: 2
+
+# The CLI is a subdirectory module of the knowledge-tools monorepo. Skill releases already use
+# plain vX.Y.Z tags (.github/workflows/package-skills.yml), so the CLI releases under a distinct
+# cli/vX.Y.Z prefix — that keeps the namespaces separate AND keeps skill version computation
+# (git tag -l 'v*.*.*') from ever seeing CLI tags.
+#
+# goreleaser's `monorepo` (prefix-aware) feature is Pro-only, so we publish on the *real* prefixed
+# tag (GORELEASER_CURRENT_TAG=cli/vX.Y.Z, set by the release workflow) and strip the "cli/" prefix
+# ourselves in every name/version template via `trimprefix`. ".Version" itself is the raw
+# "cli/vX.Y.Z" here, so it is never used directly — `clean` below is the prefix-stripped version.
+
+# Reusable template snippet: the prefix-stripped tag, e.g. cli/v1.2.3 -> v1.2.3.
+# (Used inline; goreleaser has no top-level "vars", so we repeat the trimprefix expression.)
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+
+builds:
+  - id: knowledge-tools
+    main: ./cmd/knowledge-tools
+    binary: knowledge-tools
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      # Clean version in the binary: cli/v1.2.3 -> 1.2.3.
+      - -X main.version={{ trimprefix .Tag "cli/v" }}
+
+archives:
+  - id: knowledge-tools
+    # cli/v1.2.3 -> v1.2.3 (no slash in the filename).
+    name_template: "{{ .ProjectName }}_{{ trimprefix .Tag \"cli/\" }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  use: git
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - '^build\(deps\):'
+      - Merge pull request
+      - Merge branch
+
+homebrew_casks:
+  - name: knowledge-tools
+    repository:
+      owner: josephschmitt
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/josephschmitt/knowledge-tools
+    description: "Host-side CLI for the personal LLM-wiki vault (compile/synthesize/resolve + daemon)"
+    # The cask's default download URL is releases/download/#{version}/<artifact>. Here #{version}
+    # is the raw .Version ("cli/vX.Y.Z" = the real release tag) and the artifact name is the
+    # prefix-stripped one above — so the URL resolves correctly (the release is published on the
+    # cli/vX.Y.Z tag). The cask's version string carrying the "cli/v" prefix is cosmetic.
+    # Short alias for daily use, plus strip the quarantine xattr so the unsigned binary runs.
+    hooks:
+      post:
+        install: |
+          system_command "/bin/ln", args: ["-sf", "#{staged_path}/knowledge-tools", "#{HOMEBREW_PREFIX}/bin/kt"]
+          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/knowledge-tools"]
+
+nfpms:
+  - id: knowledge-tools
+    package_name: knowledge-tools
+    file_name_template: "{{ .ProjectName }}_{{ trimprefix .Tag \"cli/\" }}_{{ .Os }}_{{ .Arch }}"
+    vendor: Joseph Schmitt
+    homepage: https://github.com/josephschmitt/knowledge-tools
+    maintainer: Joseph Schmitt <ai@joe.sh>
+    description: Host-side CLI for the personal LLM-wiki vault
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - apk
+      - archlinux
+    bindir: /usr/bin
+    contents:
+      # Short alias for daily use.
+      - src: /usr/bin/knowledge-tools
+        dst: /usr/bin/kt
+        type: symlink
+
+release:
+  github:
+    owner: josephschmitt
+    name: knowledge-tools
+  draft: false
+  prerelease: auto
+  name_template: "knowledge-tools CLI {{ trimprefix .Tag \"cli/\" }}"

@@ -1,0 +1,104 @@
+name: CLI CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cli/**'
+      - 'template/**'
+      - 'site/**'
+      - '.github/workflows/cli-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cli/**'
+      - 'template/**'
+      - 'site/**'
+      - '.github/workflows/cli-ci.yml'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: cli
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.12.0
+        with:
+          enable-cache: true
+          project-path: cli
+      - name: Run tests
+        run: devbox run -- make test
+
+  test-windows:
+    name: Test (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read Go version from devbox.json
+        id: go-version
+        shell: bash
+        run: |
+          version=$(jq -r '.packages[] | select(startswith("go@")) | split("@")[1]' devbox.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+          cache-dependency-path: cli/go.sum
+      - name: Build
+        run: go build ./...
+      - name: Test
+        run: go test ./...
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install devbox
+        uses: jetify-com/devbox-install-action@v0.12.0
+        with:
+          enable-cache: true
+          project-path: cli
+      - name: Run linter
+        run: devbox run -- make lint
+
+  embed-drift:
+    name: Embedded assets in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync embedded assets and check for drift
+        run: |
+          make sync-embed
+          if ! git diff --quiet -- internal/initvault/template; then
+            echo "::error::Embedded template is out of sync with template/. Run 'make sync-embed' in cli/ and commit."
+            git --no-pager diff -- internal/initvault/template
+            exit 1
+          fi
+
+  goreleaser-check:
+    name: GoReleaser Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          workdir: cli
+          args: check
