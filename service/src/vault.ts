@@ -161,7 +161,9 @@ export interface SearchHit {
 /**
  * Case-insensitive substring search with line-context snippets. `scope` selects which area(s) to
  * walk: `library` (default — authoritative), `notebook` (tentative thinking), or `both`. Hits
- * carry their `area` so callers can mark notebook results tentative. `maxHits` caps the total.
+ * carry their `area` so callers can mark notebook results tentative. `maxHits` caps the hits
+ * *per area* — so with `both` a flood of library matches can never starve the notebook (each area
+ * gets its own budget; the total is at most `maxHits × areas`).
  */
 export async function searchNotes(query: string, scope: SearchScope = 'library', maxHits = 20): Promise<SearchHit[]> {
   const q = query.trim().toLowerCase();
@@ -171,6 +173,7 @@ export async function searchNotes(query: string, scope: SearchScope = 'library',
   for (const area of areas) {
     const dir = areaDir(area);
     const files = await areaNotes(area);
+    let areaHits = 0;
     for (const file of files) {
       let content: string;
       try {
@@ -189,7 +192,7 @@ export async function searchNotes(query: string, scope: SearchScope = 'library',
         }
       }
       hits.push({ area, note: path.relative(dir, file), snippets });
-      if (hits.length >= maxHits) return hits;
+      if (++areaHits >= maxHits) break; // per-area cap — move to the next area, don't abort the search
     }
   }
   return hits;
