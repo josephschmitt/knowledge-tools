@@ -4,7 +4,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { VAULT_ROOT, VAULT_NAME, MAX_RESULT_CHARS } from './config.js';
 
-const WIKI_DIR = path.join(VAULT_ROOT, 'wiki');
+const LIBRARY_DIR = path.join(VAULT_ROOT, 'library');
 const INBOX_DIR = path.join(VAULT_ROOT, 'inbox');
 const INDEX_FILE = path.join(VAULT_ROOT, 'index.md');
 
@@ -53,7 +53,7 @@ async function walkMarkdown(dir: string): Promise<string[]> {
     // Container bind/overlay/network mounts often return DT_UNKNOWN from readdir,
     // so Dirent.isFile()/isDirectory() are *both* false even for a regular file —
     // and inconsistently so between calls, which is how a note can show up in one
-    // walk (search_wiki) but vanish from another (list_notes). Resolve the type
+    // walk (search_library) but vanish from another (list_notes). Resolve the type
     // with stat() (also follows symlinked notes) so nothing is silently dropped.
     // See issue #12.
     if (!isDir && !isFile) {
@@ -74,10 +74,10 @@ async function walkMarkdown(dir: string): Promise<string[]> {
   return out;
 }
 
-/** Relative-to-wiki paths of every note, sorted. */
+/** Relative-to-library paths of every note, sorted. */
 export async function listNotes(): Promise<string[]> {
-  const files = await walkMarkdown(WIKI_DIR);
-  return files.map((f) => path.relative(WIKI_DIR, f)).sort();
+  const files = await walkMarkdown(LIBRARY_DIR);
+  return files.map((f) => path.relative(LIBRARY_DIR, f)).sort();
 }
 
 /** The navigation index. */
@@ -89,11 +89,11 @@ export async function readIndex(): Promise<string> {
   }
 }
 
-/** Raw markdown of one note. Accepts `name` or `name.md`, relative to wiki/. */
+/** Raw markdown of one note. Accepts `name` or `name.md`, relative to library/. */
 export async function getNote(notePath: string): Promise<string> {
   let rel = notePath.trim();
   if (!rel.toLowerCase().endsWith('.md')) rel += '.md';
-  const full = confine(WIKI_DIR, rel);
+  const full = confine(LIBRARY_DIR, rel);
   return cap(await fs.readFile(full, 'utf8'));
 }
 
@@ -102,11 +102,11 @@ export interface SearchHit {
   snippets: string[];
 }
 
-/** Case-insensitive substring search across all wiki notes, with line-context snippets. */
-export async function searchWiki(query: string, maxHits = 20): Promise<SearchHit[]> {
+/** Case-insensitive substring search across all library notes, with line-context snippets. */
+export async function searchLibrary(query: string, maxHits = 20): Promise<SearchHit[]> {
   const q = query.trim().toLowerCase();
   if (!q) return [];
-  const files = await walkMarkdown(WIKI_DIR);
+  const files = await walkMarkdown(LIBRARY_DIR);
   const hits: SearchHit[] = [];
   for (const file of files) {
     let content: string;
@@ -125,7 +125,7 @@ export async function searchWiki(query: string, maxHits = 20): Promise<SearchHit
         snippets.push(lines.slice(start, end).join('\n').trim());
       }
     }
-    hits.push({ note: path.relative(WIKI_DIR, file), snippets });
+    hits.push({ note: path.relative(LIBRARY_DIR, file), snippets });
     if (hits.length >= maxHits) break;
   }
   return hits;

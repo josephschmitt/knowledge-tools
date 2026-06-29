@@ -47,7 +47,7 @@ working in the repo.
   share one per-instance flock (`vault-lib.sh`, keyed by `KNOWLEDGE_INSTANCE`) so they never run
   concurrently, while different vaults have different locks and *do*. In each the **wrapper** owns
   git (Claude only edits files + runs scoped `gh` calls).
-  - `vault-compile.sh` runs an ephemeral `/compile-inbox` pass (inbox→wiki). Cadence
+  - `vault-compile.sh` runs an ephemeral `/compile-inbox` pass (inbox→library). Cadence
     `KNOWLEDGE_COMPILE_ONCALENDAR` (default hourly); also triggered on demand via a `.path`
     unit when the MCP drops `inbox/.compile/request`.
   - `vault-job.sh <synthesize|resolve>` runs the two judgment-call jobs: `/synthesize` (heavy
@@ -63,7 +63,7 @@ working in the repo.
     `KNOWLEDGE_RESOLVE_ONCALENDAR`.
   - `vault-lib.sh` is sourced by all three — config, the per-instance lock (keyed by
     `KNOWLEDGE_INSTANCE`), portable date helpers (`now_iso`/`epoch_iso`, GNU vs BSD `date`), and
-    the commit/push side effect (issue jobs commit `wiki/ index.md log.md`, plus `inbox/.review/`
+    the commit/push side effect (issue jobs commit `library/ index.md log.md`, plus `inbox/.review/`
     in the files channel; compile stages everything). The lock uses `flock` on Linux and an atomic
     `mkdir` fallback on macOS (no `flock` there), same non-blocking semantics either way.
     `commit_and_push` no-ops cleanly when the vault is not a git repo (history left to external
@@ -86,7 +86,7 @@ working in the repo.
     `KNOWLEDGE_INSTANCE` (default `default`), idempotent. Stops + removes that instance's units
     (systemd) / agents (launchd) and its per-vault env file/logs; on the **last** instance also
     removes the shared systemd service templates and the empty macOS logs dir. Needs no
-    `KNOWLEDGE_REPO`; never touches the vault (`inbox/`/`wiki/`/`outputs/`), `gh.env`, or linger.
+    `KNOWLEDGE_REPO`; never touches the vault (`inbox/`/`library/`/`outputs/`), `gh.env`, or linger.
   - `init-vault.sh` seeds a fresh vault from `template/` (below). **One-shot scaffold, not
     `install.sh`**: strictly copy-if-absent, no `--force`, leaves git alone. Re-running only
     fills gaps — it never overwrites a tuned `CLAUDE.md` or command, because post-seed drift
@@ -134,7 +134,7 @@ present.
 - **Tool descriptions + field schemas** (`service/src/mcp.ts`) — per-tool invariants any
   caller must obey: what the tool does, hard usage rules (e.g. capture takes zero
   decisions), field-level facts (e.g. no separate source-URL field — fold it into
-  `text`), and one-clause pointers to companion tools (`search_wiki` → `get_note`,
+  `text`), and one-clause pointers to companion tools (`search_library` → `get_note`,
   `compile_run` → `vault_status`). Rules only, no rationale.
 - **Server `instructions`** (same file) — cross-tool policy and architecture only: the
   dumb-capture/smart-compile split, prefer-the-vault-over-general-knowledge, which tools

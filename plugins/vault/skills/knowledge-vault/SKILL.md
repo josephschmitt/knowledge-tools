@@ -1,6 +1,6 @@
 ---
 name: knowledge-vault
-description: Capture raw material — knowledge and tasks — into Joe's personal vault and answer questions from it, through the vault's MCP connector. Use whenever Joe wants to SAVE something — "save this", "remember this", "capture this", "file this away" — or stash an action — "remind me to…", "I need to…", "add a task", "todo" — or to RECALL — "what do I know about X", "what's on my plate", "what do I need to do" — or to handle the judgment calls the vault is waiting on — "what's my vault waiting on", "answer that vault question". Use it even when Joe doesn't name the vault but is clearly trying to stash a finding or action, pull up prior knowledge, or settle a question the vault raised. Capture writes raw material to the inbox and does NOT synthesize, categorize, or build tasks — the homelab compiler turns dumps into wiki notes and TaskNotes tasks, and Joe owns task lifecycle in Obsidian. Heavy compilation runs automatically on homelab and is out of scope here.
+description: Capture raw material — knowledge and tasks — into Joe's personal vault and answer questions from it, through the vault's MCP connector. Use whenever Joe wants to SAVE something — "save this", "remember this", "capture this", "file this away" — or stash an action — "remind me to…", "I need to…", "add a task", "todo" — or to RECALL — "what do I know about X", "what's on my plate", "what do I need to do" — or to handle the judgment calls the vault is waiting on — "what's my vault waiting on", "answer that vault question". Use it even when Joe doesn't name the vault but is clearly trying to stash a finding or action, pull up prior knowledge, or settle a question the vault raised. Capture writes raw material to the inbox and does NOT synthesize, categorize, or build tasks — the homelab compiler turns dumps into library notes and TaskNotes tasks, and Joe owns task lifecycle in Obsidian. Heavy compilation runs automatically on homelab and is out of scope here.
 ---
 
 # Knowledge & Tasks Vault
@@ -15,7 +15,7 @@ or tasks) and answering questions from what's already been compiled.
 The work is divided on purpose, so don't duplicate it:
 
 - **This interface (claude.ai): capture + query.** Drop raw material — a fact, a finding, or
-  an action item — into the inbox, and answer Joe's questions from the compiled wiki.
+  an action item — into the inbox, and answer Joe's questions from the compiled library.
 - **homelab (Claude Code + `CLAUDE.md` + a scheduled job): compile + maintain.** The heavy
   synthesis — turning the inbox into durable, cross-linked notes *and* TaskNotes task files,
   and keeping both healthy — runs there, where there's full filesystem access and the vault's
@@ -57,7 +57,7 @@ The connector's tools each arrive with their own name, description, and input sc
 choreography that matters:
 
 - **Capture** → `append_to_inbox`, then confirm.
-- **Query** → `search_wiki` to find, `get_note` to read; `list_index` / `list_notes` to orient.
+- **Query** → `search_library` to find, `get_note` to read; `list_index` / `list_notes` to orient.
 - **Judgment calls** → `list_questions` → `get_question` → `answer_question`.
 - **Compile** → `compile_run` to trigger, `vault_status` to poll for it to finish.
 
@@ -81,6 +81,14 @@ dup-searching, no judging worth; your job is the *why* and the wording.)
   conclusion, the snippet, the link — and capture that, not the transcript. Fold the source
   URL and a line of what it is into the `text`. Richness, not organization.
 - Confirm briefly what went in; the tool returns the inbox path.
+- **Optional area-of-life hint.** A capture may name its area-of-life lane *in the text* — a
+  light `Area: home` line, or just saying so naturally — and the compiler honors it; otherwise
+  it infers the lane from the substance, or omits it. The lanes the vault uses are `work`,
+  `home`, `personal-projects`, and `interests` (the vault owns this vocabulary — mirror it, don't
+  invent others). This is purely optional and there's **no schema field for it** — keep it in the
+  `text`. **Omission is costless, so never prompt Joe for it and never nag a hint-less capture.**
+  It only materializes as a stored tag when the capture compiles into a **library** note; on task
+  or notebook captures it's informational and stored nowhere.
 
 **Capturing tasks and action items.** When Joe asks you to remember an *action* — "remind me
 to…", "add a task", "I need to…" — that's still a raw capture, not a decision for you. Word it
@@ -93,7 +101,7 @@ become a task on the next compile" — never "I created a task" or "I scheduled 
 **Examples:**
 - Joe: "Save this — we landed on the Waterfield Legion Go 2 case for the GPD Win 5." →
   `append_to_inbox` with the decision (and any link) as `text` → "Captured: the GPD Win 5 case
-  decision (Waterfield Legion Go 2). It'll fold into the wiki on the next compile."
+  decision (Waterfield Legion Go 2). It'll fold into the library on the next compile."
 - Joe: "Remind me to order the Rivian charging cable by Friday." → `append_to_inbox` with
   `TODO: order Rivian charging cable — due Friday` → "Captured; it'll become a task on the
   next compile."
@@ -102,15 +110,15 @@ become a task on the next compile" — never "I created a task" or "I scheduled 
 
 When Joe asks what he knows, or to look something up, answer from the vault.
 
-- Search the wiki first with `search_wiki`, then read the relevant notes with `get_note`. Use
+- Search the library first with `search_library`, then read the relevant notes with `get_note`. Use
   `list_index` to orient if it helps, and `list_notes` to see everything when a search comes up
   empty or you're not sure what exists.
 - Answer from his own notes, not general web knowledge, when he's asking what *he* knows. Point
   to the notes you drew on by path.
-- If the wiki has nothing, say so plainly — don't invent a note or a citation. Offer to capture
+- If the library has nothing, say so plainly — don't invent a note or a citation. Offer to capture
   the current info, or to research it on the web if that's what he wants.
 - If notes conflict or look stale, surface that instead of silently picking one.
-- **Tasks aren't in the wiki.** `search_wiki` / `get_note` see only `wiki/`, not `tasks/`, so
+- **Tasks aren't in the library.** `search_library` / `get_note` see only `library/`, not `tasks/`, so
   they won't surface to-dos. When Joe asks "what's on my plate" or "what do I need to do," read
   the `## Tasks` block in `index.md` via `list_index` and relay its focus view, then point him
   to the `tasks/index` dashboard or TaskNotes in Obsidian for the live, filterable board. Don't
@@ -118,12 +126,12 @@ When Joe asks what he knows, or to look something up, answer from the vault.
 
 **Example:**
 Joe: "What do I know about lake house options for the trip with Adam?"
-You: `search_wiki` → `get_note` on the matching paths → answer from them, naming the note(s);
+You: `search_library` → `get_note` on the matching paths → answer from them, naming the note(s);
 if it's thin, say where the gap is.
 
 ## Triggering a compile
 
-A scheduled job on homelab compiles the inbox into the wiki hourly, so a manual compile is
+A scheduled job on homelab compiles the inbox into the library hourly, so a manual compile is
 occasional, not routine — capturing alone never requires it. When Joe explicitly wants the
 inbox processed sooner, call `compile_run` and relay what it returns: it reports its own
 outcome (triggered, throttled, busy, or empty) and whether to wait or not, and his captures
@@ -142,7 +150,7 @@ call**. These surface here when the vault routes them through its file channel.
   one-line summary.
 - `get_question` returns one call's full context; `answer_question` records Joe's decision in
   his own words.
-- **Don't apply the decision to the wiki yourself** — recording the answer is all this interface
+- **Don't apply the decision to the library yourself** — recording the answer is all this interface
   does; the next maintenance pass on homelab applies it and closes the call (or follows up here
   if the answer was ambiguous, which reappears as an open question).
 

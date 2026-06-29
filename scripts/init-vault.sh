@@ -44,7 +44,7 @@ while IFS= read -r src; do
   base="$(basename "$rel")"
 
   # A .gitkeep only exists to carry an otherwise-empty dir. Don't plant one in a directory
-  # that already has real content (e.g. a grown wiki/) — the dir no longer needs keeping.
+  # that already has real content (e.g. a grown library/) — the dir no longer needs keeping.
   if [ "$base" = ".gitkeep" ]; then
     parent="$(dirname "$dest")"
     if [ -d "$parent" ] && [ -n "$(ls -A "$parent" 2>/dev/null)" ]; then

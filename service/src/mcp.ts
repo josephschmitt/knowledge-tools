@@ -5,7 +5,7 @@ import {
   listNotes,
   readIndex,
   getNote,
-  searchWiki,
+  searchLibrary,
   appendToInbox,
   triggerCompile,
   getVaultStatus,
@@ -54,9 +54,9 @@ export function buildMcpServer(): McpServer {
       instructions:
         (VAULT_NAME ? `This vault is "${VAULT_NAME}". ` : '') +
         'Personal knowledge vault, split on purpose: capture is dumb, compilation is smart. ' +
-        'Answer questions from the compiled wiki (search_wiki / get_note / list_index / ' +
+        'Answer questions from the compiled library (search_library / get_note / list_index / ' +
         'list_notes), preferring it over general knowledge. Save material — knowledge or ' +
-        'tasks — raw with append_to_inbox; a scheduled compiler curates the inbox into the wiki. ' +
+        'tasks — raw with append_to_inbox; a scheduled compiler curates the inbox into the library. ' +
         'compile_run / vault_status trigger and track that compile. When that maintenance ' +
         'hits a judgment call it can\'t decide alone, list_questions / get_question surface ' +
         'it and answer_question records my decision for the next pass to apply.',
@@ -64,17 +64,17 @@ export function buildMcpServer(): McpServer {
   );
 
   server.registerTool(
-    'search_wiki',
+    'search_library',
     {
-      title: 'Search the wiki',
+      title: 'Search the library',
       description:
-        'Case-insensitive substring search across all compiled wiki notes (searches wiki/ only, ' +
+        'Case-insensitive substring search across all compiled library notes (searches library/ only, ' +
         'not tasks/). Returns matching note paths with snippets; pass a path to get_note to read a full note.',
       inputSchema: { query: z.string().min(1).describe('Text to search for') },
     },
     async ({ query }) => {
-      const hits = await searchWiki(query);
-      if (hits.length === 0) return text(`No wiki notes match "${query}".`);
+      const hits = await searchLibrary(query);
+      if (hits.length === 0) return text(`No library notes match "${query}".`);
       const out = hits
         .map((h) => `## ${h.note}\n${h.snippets.map((s) => `> ${s.replace(/\n/g, '\n> ')}`).join('\n\n')}`)
         .join('\n\n');
@@ -86,8 +86,8 @@ export function buildMcpServer(): McpServer {
     'get_note',
     {
       title: 'Get a note',
-      description: "Return the full markdown of one wiki note by its path or name (e.g. 'homelab-infrastructure').",
-      inputSchema: { path: z.string().min(1).describe("Note path or name relative to wiki/, with or without .md") },
+      description: "Return the full markdown of one library note by its path or name (e.g. 'homelab-infrastructure').",
+      inputSchema: { path: z.string().min(1).describe("Note path or name relative to library/, with or without .md") },
     },
     async ({ path: notePath }) => {
       try {
@@ -102,7 +102,7 @@ export function buildMcpServer(): McpServer {
     'list_index',
     {
       title: 'Read the index',
-      description: 'Return index.md — the navigation map of the wiki.',
+      description: 'Return index.md — the navigation map of the library.',
       inputSchema: {},
     },
     async () => text(await readIndex()),
@@ -112,7 +112,7 @@ export function buildMcpServer(): McpServer {
     'list_notes',
     {
       title: 'List notes',
-      description: 'List every wiki note by its path. Useful when a search comes up empty.',
+      description: 'List every library note by its path. Useful when a search comes up empty.',
       inputSchema: {},
     },
     async () => {
@@ -127,7 +127,7 @@ export function buildMcpServer(): McpServer {
       title: 'Capture to inbox',
       description:
         'Append a raw capture (a thought, link, or clipping) to the vault inbox. Capture takes ' +
-        'zero decisions: do NOT search the wiki for duplicates first and do NOT judge whether ' +
+        'zero decisions: do NOT search the library for duplicates first and do NOT judge whether ' +
         'the item is worth keeping — dedup and curation happen at compile time. When in doubt, ' +
         'capture. A capture may be knowledge or a task; for an action, lead the text with TODO: ' +
         'and include any deadline so the compiler files it as actionable.',
@@ -144,7 +144,7 @@ export function buildMcpServer(): McpServer {
     },
     async ({ text: body, title }) => {
       const rel = await appendToInbox(body, title);
-      return text(`Captured to ${rel}. It will be compiled into the wiki on the next scheduled compile.`);
+      return text(`Captured to ${rel}. It will be compiled into the library on the next scheduled compile.`);
     },
   );
 
@@ -153,7 +153,7 @@ export function buildMcpServer(): McpServer {
     {
       title: 'Trigger a compile',
       description:
-        'Request an on-demand compile of the inbox into the wiki. Asynchronous: returns ' +
+        'Request an on-demand compile of the inbox into the library. Asynchronous: returns ' +
         'immediately — poll vault_status to see when it finishes. Rate-limited to one manual ' +
         'compile per hour. Only needed to process the inbox sooner than the next scheduled ' +
         'compile; capturing alone does not require it.',
@@ -174,7 +174,7 @@ export function buildMcpServer(): McpServer {
           );
         case 'triggered':
           return text(
-            'Compile triggered. It runs on the home server and the wiki updates once it finishes; ' +
+            'Compile triggered. It runs on the home server and the library updates once it finishes; ' +
               'your captures are safe in the inbox until then.',
           );
       }
@@ -256,7 +256,7 @@ export function buildMcpServer(): McpServer {
       title: 'Answer a judgment call',
       description:
         'Record my decision on a review-queue question. Writes the answer and marks it answered ' +
-        'so the next maintenance pass applies it to the wiki and closes it out. If my answer is ' +
+        'so the next maintenance pass applies it to the library and closes it out. If my answer is ' +
         'ambiguous the maintenance pass will come back with a sharper follow-up question.',
       inputSchema: {
         id: z.string().min(1).describe('Question id from list_questions'),
@@ -271,7 +271,7 @@ export function buildMcpServer(): McpServer {
       }
       return text(
         `Answer recorded for ${id} and marked answered. The next maintenance pass will apply it ` +
-          `to the wiki (or follow up here if anything is unclear).`,
+          `to the library (or follow up here if anything is unclear).`,
       );
     },
   );

@@ -8,7 +8,7 @@ import {
   listNotes,
   readIndex,
   getNote,
-  searchWiki,
+  searchLibrary,
   appendToInbox,
   triggerCompile,
   getVaultStatus,
@@ -45,24 +45,24 @@ function isNotFound(err: unknown): boolean {
   );
 }
 
-// --- Wiki (read) -------------------------------------------------------------------------
+// --- Library (read) ----------------------------------------------------------------------
 
-apiRouter.get('/wiki/search', async (req, res) => {
+apiRouter.get('/library/search', async (req, res) => {
   const q = (req.query.q ?? '').toString();
   if (!q.trim()) {
     res.status(400).json({ error: 'query parameter "q" is required' });
     return;
   }
-  res.json({ query: q, hits: await searchWiki(q) });
+  res.json({ query: q, hits: await searchLibrary(q) });
 });
 
-apiRouter.get('/wiki/notes', async (_req, res) => {
+apiRouter.get('/library/notes', async (_req, res) => {
   res.json({ notes: await listNotes() });
 });
 
 // Notes can live in subdirs, so capture the rest of the path with a named wildcard. confine()
 // inside getNote() guards traversal, so an "escapes" error is a 400, a missing file a 404.
-apiRouter.get('/wiki/notes/*path', async (req, res) => {
+apiRouter.get('/library/notes/*path', async (req, res) => {
   const raw = (req.params as Record<string, unknown>).path;
   const notePath = (Array.isArray(raw) ? raw.join('/') : String(raw ?? '')).trim();
   if (!notePath) {

@@ -2,8 +2,8 @@
 # Parameterized runner for the vault's judgment-call jobs: /synthesize and /resolve.
 #
 #   synthesize — heavy, INFREQUENT whole-corpus pass. Reconciles drift + finds connections
-#                in wiki/ and OPENS judgment calls. Producer only. (synthesize.timer)
-#   resolve    — light, MORE FREQUENT pass. Reads my answers, applies them to wiki/ and
+#                in library/ and OPENS judgment calls. Producer only. (synthesize.timer)
+#   resolve    — light, MORE FREQUENT pass. Reads my answers, applies them to library/ and
 #                CLOSES the calls. Consumer only; often a no-op. (resolve.timer)
 #
 # Two interchangeable channels carry the judgment calls, chosen by KNOWLEDGE_REVIEW_CHANNEL
@@ -17,7 +17,7 @@
 #            exactly like compile. Works on a bare folder synced by Dropbox/Syncthing.
 #
 # Either way Claude only edits files (+ gh calls in the github channel); this WRAPPER owns git
-# (commit wiki/ + index.md + log.md — and inbox/.review/ in the files channel — push if origin
+# (commit library/ + index.md + log.md — and inbox/.review/ in the files channel — push if origin
 # exists) and the shared lock that serializes against compile. The commands self-declare model
 # (opus) + effort in frontmatter, so we do NOT pass --model. Neither job touches top-level
 # inbox/ captures.
@@ -58,7 +58,7 @@ fi
 case "$CHANNEL" in
   github)
     SLASH="/$JOB"
-    COMMIT_PATHS=(wiki index.md log.md)
+    COMMIT_PATHS=(library index.md log.md)
     if [ "$JOB" = synthesize ]; then
       GH_TOOLS=(
         "Bash(gh issue list:*)"
@@ -81,7 +81,7 @@ case "$CHANNEL" in
     GH_TOOLS=()
     # The files channel writes/updates question files under inbox/.review/, so commit that
     # subdir too — never the raw top-level inbox/ captures compile hasn't processed yet.
-    COMMIT_PATHS=(wiki index.md log.md inbox/.review)
+    COMMIT_PATHS=(library index.md log.md inbox/.review)
     ;;
   *)
     echo "vault-job.sh: unknown KNOWLEDGE_REVIEW_CHANNEL '$CHANNEL' (expected 'github' or 'files')" >&2
@@ -96,7 +96,7 @@ LOG="$LOG_DIR/$STAMP.log"
 
 log() { printf '%s %s\n' "$(now_iso)" "$*" | tee -a "$LOG"; }
 
-# Serialize against compile + the other issue job — they all edit wiki/ and commit.
+# Serialize against compile + the other issue job — they all edit library/ and commit.
 acquire_vault_lock
 
 # Refresh the schedule snapshot (last/next run of all three jobs) on every exit path now that we
@@ -126,7 +126,7 @@ if [ "$JOB" = resolve ]; then
   log "answered calls: $n"
 fi
 
-# Fresh, headless run. acceptEdits auto-applies Claude's wiki/ edits. In the github channel
+# Fresh, headless run. acceptEdits auto-applies Claude's library/ edits. In the github channel
 # --allowedTools grants exactly the gh issue subcommands the command needs (and nothing else);
 # the files channel passes no tool grants at all (file edits only). Claude never runs git.
 CLAUDE_ARGS=(-p "$SLASH" --permission-mode acceptEdits)
