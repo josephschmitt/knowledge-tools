@@ -25,7 +25,7 @@ SOURCES=()
 [ -f "$VAULT_ROOT/index.md" ] && SOURCES+=("$VAULT_ROOT/index.md")
 [ -d "$VAULT_ROOT/library" ] && SOURCES+=("$VAULT_ROOT/library")
 if [ "${#SOURCES[@]}" -eq 0 ]; then
-  echo "$(date -Is) site: ERROR: no content to publish — neither $VAULT_ROOT/index.md nor $VAULT_ROOT/library exists." >&2
+  log "ERROR: no content to publish — neither $VAULT_ROOT/index.md nor $VAULT_ROOT/library exists." >&2
   exit 1
 fi
 # rsync --delete prunes notes removed from within a synced dir, but only INSIDE the sources it's

@@ -14,7 +14,7 @@ ARG KNOWLEDGE_QUARTZ_URL=https://github.com/jackyzha0/quartz
 # git: clone Quartz at build time. rsync: the --delete staging delta in build.sh. ca-certificates:
 # HTTPS clone. bash: build.sh/entrypoint.sh use arrays.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git rsync ca-certificates \
+ && apt-get install -y --no-install-recommends git rsync ca-certificates bash \
  && rm -rf /var/lib/apt/lists/*
 
 # Bake the pinned Quartz checkout + its config overlay + deps. Imports in the overlay resolve
