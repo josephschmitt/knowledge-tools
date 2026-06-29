@@ -10,18 +10,14 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
 
 ## Components
 
-- **`service/`** — the vault service. One server exposing the vault over **two protocols** plus an
-  optional **static website**: a Streamable-HTTP **MCP** endpoint at `/mcp` (the claude.ai
-  connector), a **REST API** at `/api/v1` that mirrors the same operations for scripts and other
-  tooling, and (opt-in) a browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the library** at
-  `/`. The two protocols let you capture raw material into the vault's `inbox/` and query the
-  compiled `library/`; the static site is a pre-built artifact bind-mounted in
-  (`KNOWLEDGE_ENABLE_SITE` + `KNOWLEDGE_SITE_ROOT`) — its build pipeline is being reworked (see
-  `site/`). Auth
-  is **optional, off by default** and gates all surfaces: run it authless behind an authenticating
+- **`service/`** — the vault service. One server exposing the vault over **two protocols**: a
+  Streamable-HTTP **MCP** endpoint at `/mcp` (the claude.ai connector) and a **REST API** at
+  `/api/v1` that mirrors the same operations for scripts and other tooling. Together they let you
+  capture raw material into the vault's `inbox/` and query the compiled `library/`. Auth is
+  **optional, off by default** and gates both surfaces: run it authless behind an authenticating
   proxy, or enable built-in OAuth token validation against any OIDC issuer. Reads/writes the vault
-  via the `VAULT_ROOT` env var
-  (bind-mounted into the container). Deployed separately — see [`service/README.md`](service/README.md).
+  via the `VAULT_ROOT` env var (bind-mounted into the container). Deployed separately — see
+  [`service/README.md`](service/README.md).
 - **`plugins/`** — the Claude Code plugins, one per `plugins/<plugin>/`, each bundling a
   single skill plus (where needed) its MCP connector config. Two of them:
   - **`plugins/vault/`** (skill `knowledge-vault`) — the conversational front-door skill:
@@ -41,10 +37,12 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   self-managed `daemon` (one per vault), which `install`/`uninstall` register as a single OS
   autostart unit ([below](#vault-automation-host-setup)). `init` seeds a brand-new vault from
   `template/`. See [`cli/`](cli/).
-- **`site/`** — the [Quartz](https://quartz.jzhao.xyz) config for the optional static site the
-  service serves at `/`. Its build pipeline is **being reworked** (a live render in the service vs.
-  a standalone renderer image), so the CLI no longer builds it — see
-  [`service/README.md`](service/README.md#static-website-).
+- **`site/`** — the self-contained **`knowledge-site`** image: the
+  [Quartz](https://quartz.jzhao.xyz) config plus a Dockerfile/entrypoint/server that build the
+  library render **inside the container** from a bind-mounted vault (allowlist: only `index.md` +
+  `library/`) and serve it on its **own URL**, rebuilding on a token-gated `POST /rebuild` the
+  host's content jobs fire after a commit. Browser auth is handled by the proxy in front. Built and
+  pushed to GHCR by CI — see [`site/README.md`](site/README.md).
 - **`scripts/`** — only `validate_skills.py` remains (used by CI). The vault job/install scripts
   all moved into `cli/`.
 - **`template/`** — the starting point of a vault's own librarian (`CLAUDE.md`, the

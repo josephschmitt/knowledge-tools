@@ -1,0 +1,67 @@
+name: Build & push knowledge-site image
+
+# Builds the self-contained knowledge-site image (builds the vault's Quartz render INSIDE the
+# container from a bind-mounted vault and serves it on its own URL) and pushes it to GHCR, so the
+# homelab pulls a published image instead of building on disk. The published package is public
+# (set once in the package settings after the first push) even though this repo is private — the
+# image holds only the static-site builder + config, no vault content or secrets.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/build-site.yml'
+  # Build (but don't push) on PRs that touch the image, so a broken Dockerfile / `quartz build`
+  # is caught before merge — the local build can't always run (no registry egress in some envs).
+  pull_request:
+    paths:
+      - 'site/**'
+      - '.github/workflows/build-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/josephschmitt/knowledge-site
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3 # emulation for the arm64 build
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request' # only needed to push (main); PRs build-only
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./site
+          # amd64-only on PRs for fast validation; both arches when pushing on main.
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          push: ${{ github.event_name != 'pull_request' }} # build-only on PRs, push on main
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

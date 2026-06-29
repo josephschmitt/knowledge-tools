@@ -1,8 +1,10 @@
 package vault
 
 import (
+	"net/http"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // The wrapper owns all git — Claude only edits files. These port vault-lib.sh's git discipline:
@@ -106,7 +108,11 @@ func (e *SyncConflictError) Error() string {
 // isn't a git repo, or there's no origin (commit kept local). Returns a non-nil error ONLY when
 // the commit fails or the push fails — the latter so callers can surface it loudly (the commit is
 // preserved locally; origin is behind).
-func CommitAndPush(repo, msg string, pathspecs []string, log *Logger) error {
+//
+// When a commit lands and rebuild is configured, it fires a best-effort POST to trigger the
+// knowledge-site container (see SiteRebuild) — independent of push success, because a bind-mounted
+// site reads the local files, not origin. Pass nil to disable.
+func CommitAndPush(repo, msg string, pathspecs []string, rebuild *SiteRebuild, log *Logger) error {
 	if !IsGitRepo(repo) {
 		log.Logf("not a git repo — skipping commit (history left to external sync).")
 		return nil
@@ -130,6 +136,9 @@ func CommitAndPush(repo, msg string, pathspecs []string, log *Logger) error {
 		return err
 	}
 	log.Logf("committed.")
+	// A commit means the vault content changed — tell the site to rebuild (best-effort, before the
+	// push, since the bind-mounted site serves local files regardless of whether origin updates).
+	rebuild.trigger(log)
 	if !HasOrigin(repo) {
 		log.Logf("no origin remote — commit kept local.")
 		return nil
@@ -146,3 +155,35 @@ func CommitAndPush(repo, msg string, pathspecs []string, log *Logger) error {
 type PushError struct{}
 
 func (e *PushError) Error() string { return "git push failed; origin is behind local commits" }
+
+// SiteRebuild points CommitAndPush at a running knowledge-site container's POST /rebuild endpoint.
+// URL is KNOWLEDGE_SITE_REBUILD_URL; Token (optional) is the shared bearer secret it checks.
+type SiteRebuild struct {
+	URL   string
+	Token string
+}
+
+// trigger fires a best-effort POST to the site's /rebuild endpoint. It is deliberately
+// non-fatal: a down or misconfigured site must never fail a content job, so every failure is
+// logged and swallowed. A nil receiver or empty URL is a no-op (the trigger is unconfigured).
+func (r *SiteRebuild) trigger(log *Logger) {
+	if r == nil || r.URL == "" {
+		return
+	}
+	req, err := http.NewRequest(http.MethodPost, r.URL, nil)
+	if err != nil {
+		log.Logf("site rebuild: bad URL %q — skipping (%v).", r.URL, err)
+		return
+	}
+	if r.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+r.Token)
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Logf("site rebuild: POST %s failed (non-fatal): %v", r.URL, err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	log.Logf("site rebuild: POST %s -> %s", r.URL, resp.Status)
+}

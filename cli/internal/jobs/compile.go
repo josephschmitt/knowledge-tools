@@ -138,7 +138,7 @@ func Compile(ctx context.Context, cfg *config.Config, manual bool) error {
 		// Commit if anything changed; push only if origin exists. Defer a push failure so the
 		// cooldown/status bookkeeping still runs, then re-raise it so the run is flagged.
 		pushFailed := false
-		if err := vault.CommitAndPush(repo, fmt.Sprintf("Vault compile (%s)", st), nil, log); err != nil {
+		if err := vault.CommitAndPush(repo, fmt.Sprintf("Vault compile (%s)", st), nil, siteRebuild(cfg), log); err != nil {
 			if _, ok := err.(*vault.PushError); ok {
 				pushFailed = true
 			} else {

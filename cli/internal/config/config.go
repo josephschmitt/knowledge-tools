@@ -56,6 +56,12 @@ type Config struct {
 	CompileSchedule    string
 	SynthesizeSchedule string
 	ResolveSchedule    string
+	// SiteRebuildURL is KNOWLEDGE_SITE_REBUILD_URL — if set, CommitAndPush POSTs to it after a
+	// commit lands, telling the knowledge-site container to rebuild. Empty disables the trigger.
+	SiteRebuildURL string
+	// SiteRebuildToken is KNOWLEDGE_SITE_REBUILD_TOKEN — the bearer secret sent on that POST
+	// (must match the container's same-named value).
+	SiteRebuildToken string
 }
 
 // LoadDotenv reads a KEY=value .env file and exports any key NOT already set in the environment,
@@ -149,6 +155,8 @@ func Load(instance, repo string) (*Config, error) {
 		CompileSchedule:    envOr("KNOWLEDGE_COMPILE_SCHEDULE", DefaultCompileSchedule),
 		SynthesizeSchedule: envOr("KNOWLEDGE_SYNTHESIZE_SCHEDULE", DefaultSynthesizeSchedule),
 		ResolveSchedule:    envOr("KNOWLEDGE_RESOLVE_SCHEDULE", DefaultResolveSchedule),
+		SiteRebuildURL:     os.Getenv("KNOWLEDGE_SITE_REBUILD_URL"),
+		SiteRebuildToken:   os.Getenv("KNOWLEDGE_SITE_REBUILD_TOKEN"),
 	}
 	return cfg, nil
 }

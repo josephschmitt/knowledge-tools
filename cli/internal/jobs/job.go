@@ -83,7 +83,7 @@ func RunIssueJob(ctx context.Context, cfg *config.Config, job Job) error {
 		}
 		if len(stage) == 0 {
 			log.Logf("no tracked paths present to commit.")
-		} else if err := vault.CommitAndPush(repo, fmt.Sprintf("Vault %s (%s)", job, st), stage, log); err != nil {
+		} else if err := vault.CommitAndPush(repo, fmt.Sprintf("Vault %s (%s)", job, st), stage, siteRebuild(cfg), log); err != nil {
 			log.Logf("%s done (with push failure).", job)
 			return err
 		}
@@ -91,6 +91,15 @@ func RunIssueJob(ctx context.Context, cfg *config.Config, job Job) error {
 		log.Logf("%s done.", job)
 		return nil
 	})
+}
+
+// siteRebuild builds the CommitAndPush rebuild hook from config — nil (no trigger) when
+// KNOWLEDGE_SITE_REBUILD_URL is unset, so non-site deployments POST nowhere.
+func siteRebuild(cfg *config.Config) *vault.SiteRebuild {
+	if cfg.SiteRebuildURL == "" {
+		return nil
+	}
+	return &vault.SiteRebuild{URL: cfg.SiteRebuildURL, Token: cfg.SiteRebuildToken}
 }
 
 // channelConfig returns the slash command, gh tool grants, and commit pathspecs for a job+channel.
