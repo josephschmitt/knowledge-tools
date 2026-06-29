@@ -128,6 +128,7 @@ if command -v rsync >/dev/null 2>&1; then
   # copy behind — explicitly remove it so deleted content stops being published.
   [ ! -f "$REPO/index.md" ] && rm -f "$STAGE/index.md"
   [ ! -d "$REPO/library" ] && rm -rf "$STAGE/library"
+  [ -d "$STAGE/wiki" ] && rm -rf "$STAGE/wiki"  # migration: wiki/ renamed to library/ — drop the stale staged copy (wiki/ is no longer a source)
   rsync -a --delete "${SOURCES[@]}" "$STAGE/" >>"$LOG" 2>&1 || fail "staging (rsync) failed."
 else
   rm -rf "${STAGE:?}/"* && cp -a "${SOURCES[@]}" "$STAGE/" || fail "staging (cp) failed."
