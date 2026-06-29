@@ -1,14 +1,26 @@
 name: CLI Release
 
 # Releases the Go CLI under a distinct cli/vX.Y.Z tag prefix so it never collides with the skill
-# releases (which use plain vX.Y.Z — see package-skills.yml). Push a cli/v* tag to cut a release.
+# releases (which use a skills/vX.Y.Z prefix — see package-skills.yml). Two ways to cut a release:
+#   - Auto: a cli/** change merged to main computes the next cli/vX.Y.Z from the landed
+#     conventional-commit prefixes (see "Plan release"), creates the tag, and runs goreleaser — all
+#     in one run. A tag/release created by the workflow's GITHUB_TOKEN does NOT trigger other
+#     workflows, so the tag-create and goreleaser MUST happen in the same job (mirrors
+#     package-skills.yml).
+#   - Manual: push a cli/v* tag (re-cuts, hotfixes) and goreleaser publishes that exact tag.
 on:
   push:
+    branches: [main]
     tags:
       - 'cli/v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: cli-release
+  cancel-in-progress: false
 
 jobs:
   goreleaser:
@@ -20,16 +32,93 @@ jobs:
           fetch-depth: 0
       - name: Fetch all tags
         run: git fetch --force --tags
+
+      # Decide whether (and at what version) to release. We gate on cli/** *here* rather than via a
+      # trigger-level `paths:` filter, because `paths` interacts ambiguously with tag pushes and
+      # could suppress the manual cli/v* escape hatch. The same conventional-commit scan also
+      # implements the "skip docs/chore-only merges" rule. On a tag push we skip computation and
+      # release that exact tag.
+      - name: Plan release
+        id: plan
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "$REF_TYPE" = "tag" ]; then
+            echo "Manual release for tag $REF_NAME"
+            echo "mode=manual"   >> "$GITHUB_OUTPUT"
+            echo "release=1"      >> "$GITHUB_OUTPUT"
+            echo "tag=$REF_NAME"  >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "mode=auto" >> "$GITHUB_OUTPUT"
+
+          latest="$(git tag -l 'cli/v*' --sort=-v:refname | head -n1)"
+          if [ -z "$latest" ]; then
+            msgs="$(git log --format='%s%n%b' -- cli/)"          # first release: all history
+          else
+            msgs="$(git log "${latest}..HEAD" --format='%s%n%b' -- cli/)"
+          fi
+
+          # Pick the bump from the conventional-commit prefixes of the cli/-touching commits.
+          brk=0; feat=0; fix=0
+          printf '%s\n' "$msgs" | grep -qiE '^[a-z]+(\([^)]+\))?!:' && brk=1
+          printf '%s\n' "$msgs" | grep -q  'BREAKING CHANGE'        && brk=1
+          printf '%s\n' "$msgs" | grep -qiE '^feat(\([^)]+\))?:'    && feat=1
+          printf '%s\n' "$msgs" | grep -qiE '^fix(\([^)]+\))?:'     && fix=1
+
+          if [ "$brk$feat$fix" = "000" ]; then
+            echo "No releasable cli/ commits since ${latest:-repo start}; skipping."
+            echo "release=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -z "$latest" ]; then
+            next="cli/v0.1.0"                                     # first release pin
+          else
+            IFS=. read -r MA MI PA <<<"${latest#cli/v}"
+            if   [ "$brk" = 1 ] && [ "$MA" -ge 1 ]; then
+              next="cli/v$((MA+1)).0.0"                           # post-1.0 breaking -> major
+            elif [ "$brk" = 1 ] || [ "$feat" = 1 ]; then
+              next="cli/v${MA}.$((MI+1)).0"                       # pre-1.0 breaking, or feat -> minor
+            else
+              next="cli/v${MA}.${MI}.$((PA+1))"                   # fix only -> patch
+            fi
+          fi
+          echo "release=1" >> "$GITHUB_OUTPUT"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "Next CLI tag: $next"
+
+      # Auto path only: create + push the computed tag at HEAD so goreleaser has something to
+      # publish. Pushed with GITHUB_TOKEN, so it will NOT re-trigger this workflow (no loop) — which
+      # is exactly why goreleaser runs in this same job.
+      - name: Create and push tag
+        if: steps.plan.outputs.mode == 'auto' && steps.plan.outputs.release == '1'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+
       - name: Read Go version from devbox.json
         id: go-version
+        if: steps.plan.outputs.release == '1'
         run: |
           version=$(jq -r '.packages[] | select(startswith("go@")) | split("@")[1]' cli/devbox.json)
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@v5
+        if: steps.plan.outputs.release == '1'
         with:
           go-version: ${{ steps.go-version.outputs.version }}
           cache-dependency-path: cli/go.sum
       - name: Run GoReleaser
+        if: steps.plan.outputs.release == '1'
         uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
@@ -39,5 +128,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           # The real prefixed tag — goreleaser publishes the release here; the config's
-          # trimprefix templates strip "cli/" for artifact names + the binary version.
-          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+          # trimprefix templates strip "cli/" for artifact names + the binary version. Auto runs
+          # use the just-created tag; manual runs use the pushed cli/v* tag.
+          GORELEASER_CURRENT_TAG: ${{ steps.plan.outputs.tag }}

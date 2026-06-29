@@ -1,9 +1,11 @@
 name: Release skills
 
-# Two ways to ship skills:
+# Skills release under a skills/vX.Y.Z tag prefix (the CLI uses cli/vX.Y.Z — see cli-release.yml);
+# the prefixes keep the two namespaces isolated. Two ways to ship skills:
 #   - Auto: a skill change merged to main cuts a new release (version bumped from the
 #     landed commits — see "Compute next version") with the per-skill zips attached.
-#   - Manual: publish a GitHub release by hand and this packages it (the upload path).
+#   - Manual: publish a GitHub release by hand (tagged skills/v*) and this packages it (the
+#     upload path).
 #
 # The auto path builds the zips AND creates the release in one run on purpose: a release
 # created by the workflow's GITHUB_TOKEN does NOT trigger other workflows, so we can't
@@ -50,11 +52,17 @@ jobs:
           AFTER: ${{ github.sha }}
         run: |
           set -euo pipefail
-          latest="$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1)"
+          latest="$(git tag -l 'skills/v*' --sort=-v:refname | head -n1)"
           if [ -z "$latest" ]; then
-            next="v0.1.0"   # first release in this repo
+            # One-time transition: continue the lineage from the last plain v* tag (pre-prefix).
+            base="$(git tag -l 'v*.*.*' --sort=-v:refname | head -n1)"   # e.g. v2.0.0, else empty
           else
-            IFS=. read -r MA MI PA <<<"${latest#v}"
+            base="${latest#skills/}"   # skills/v2.1.0 -> v2.1.0
+          fi
+          if [ -z "$base" ]; then
+            next="skills/v0.1.0"   # very first release in this repo
+          else
+            IFS=. read -r MA MI PA <<<"${base#v}"
 
             # Messages of the commits that just landed, to pick the semver bump. On a
             # first push / force-push BEFORE is all-zeros, so fall back to the tip commit.
@@ -67,12 +75,12 @@ jobs:
             # Default minor; conventional-commit prefixes in the landed commits override.
             if printf '%s\n' "$msgs" | grep -qiE '^[a-z]+(\([^)]+\))?!:' \
                || printf '%s\n' "$msgs" | grep -q 'BREAKING CHANGE'; then
-              next="v$((MA+1)).0.0"
+              next="skills/v$((MA+1)).0.0"
             elif printf '%s\n' "$msgs" | grep -qiE '^fix(\([^)]+\))?:' \
                  && ! printf '%s\n' "$msgs" | grep -qiE '^feat(\([^)]+\))?:'; then
-              next="v${MA}.${MI}.$((PA+1))"
+              next="skills/v${MA}.${MI}.$((PA+1))"
             else
-              next="v${MA}.$((MI+1)).0"
+              next="skills/v${MA}.$((MI+1)).0"
             fi
           fi
           echo "next=$next" >>"$GITHUB_OUTPUT"
