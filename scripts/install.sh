@@ -8,7 +8,7 @@
 #
 # Two repo paths are filled into the generated jobs (tooling and the vault live in separate repos):
 #   - @TOOLS_REPO@ — this repo, where the worker scripts live (ExecStart / ProgramArguments).
-#   - @VAULT_REPO@ — the vault repo, whose inbox is watched and whose wiki is operated on
+#   - @VAULT_REPO@ — the vault repo, whose inbox is watched and whose library is operated on
 #                    (from the required KNOWLEDGE_REPO).
 #
 # What gets generated per run (Linux / systemd):

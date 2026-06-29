@@ -90,6 +90,6 @@ it should be rare. Worth-it-or-not is *not* a reason to ask — for that, just c
 
 This skill only *captures*. It never compiles, dedupes, files, or queries — turning the
 inbox into durable, cross-linked notes (and deciding where a task or note really belongs)
-happens on homelab on a schedule, under the vault's own `CLAUDE.md`. Querying the wiki and
+happens on homelab on a schedule, under the vault's own `CLAUDE.md`. Querying the library and
 answering judgment calls live in the `knowledge-vault` skill. Don't reproduce any of that
 here. Capture raw, announce briefly, move on.

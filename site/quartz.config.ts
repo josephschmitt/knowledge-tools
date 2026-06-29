@@ -12,7 +12,7 @@ import * as Plugin from "./quartz/plugins"
  * environment (set by vault-site.sh / the per-vault env file):
  *   - KNOWLEDGE_SITE_TITLE     page title           (default "Knowledge Vault")
  *   - KNOWLEDGE_SITE_BASE_URL  host for RSS/sitemap/404 absolute URLs, WITHOUT scheme (e.g.
- *                              "wiki.example.com"). Defaults to "example.com" — Quartz navigation
+ *                              "library.example.com"). Defaults to "example.com" — Quartz navigation
  *                              is relative, so this only affects absolute URLs in RSS/sitemap/404.
  *                              (An empty value breaks Quartz's 404 emitter, so we never pass "".)
  */
@@ -22,12 +22,12 @@ const config: QuartzConfig = {
     pageTitleSuffix: "",
     enableSPA: true,
     enablePopovers: true,
-    // No third-party analytics on a personal, auth-gated wiki.
+    // No third-party analytics on a personal, auth-gated library.
     analytics: null,
     locale: "en-US",
     baseUrl: process.env.KNOWLEDGE_SITE_BASE_URL || "example.com",
     // The staging step in vault-site.sh is the real privacy boundary (it copies only index.md +
-    // wiki/). These patterns are belt-and-suspenders so nothing private renders even if staging
+    // library/). These patterns are belt-and-suspenders so nothing private renders even if staging
     // ever changes; on top of Quartz's own defaults.
     ignorePatterns: [
       "private",

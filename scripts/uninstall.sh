@@ -5,7 +5,7 @@
 #
 # Removes ONLY the tooling artifacts install.sh creates (units/agents, the per-vault env file, and
 # — when the LAST instance goes — the shared systemd service templates). It NEVER touches the vault
-# itself (inbox/, wiki/, outputs/ and their logs) or linger. Unlike install.sh it needs no
+# itself (inbox/, library/, outputs/ and their logs) or linger. Unlike install.sh it needs no
 # KNOWLEDGE_REPO, since nothing it removes lives inside the vault.
 #
 #   scripts/uninstall.sh                           # remove the "default" vault's jobs
@@ -116,4 +116,4 @@ case "$OS" in
   *) echo "error: unsupported OS '$OS' — need Linux (systemd) or macOS (launchd)." >&2; exit 1 ;;
 esac
 
-echo "(Left untouched: the vault itself — inbox/, wiki/, outputs/ — and linger.)"
+echo "(Left untouched: the vault itself — inbox/, library/, outputs/ — and linger.)"

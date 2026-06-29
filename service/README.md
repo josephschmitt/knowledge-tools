@@ -9,7 +9,7 @@ website**, all backed by the same in-process vault core:
 - **REST** at `/api/v1` — a plain JSON HTTP API mirroring the MCP tools 1:1, for scripts,
   automation, and any other tooling that doesn't speak MCP. See [REST API](#rest-api).
 - **Static site** at `/` — an optional, pre-built [Quartz](https://quartz.jzhao.xyz) rendering of
-  the wiki you can browse in a web browser. **Off by default**; see [Static website](#static-website-).
+  the library you can browse in a web browser. **Off by default**; see [Static website](#static-website-).
 
 The two protocols are on by default; the static site is opt-in. Each surface toggles independently
 with `KNOWLEDGE_ENABLE_MCP` / `KNOWLEDGE_ENABLE_REST` / `KNOWLEDGE_ENABLE_SITE` (a disabled
@@ -31,10 +31,10 @@ can switch on built-in OAuth token validation pointed at any OIDC issuer. See
 
 | Tool | Purpose |
 |---|---|
-| `search_wiki(query)` | Full-text search across compiled wiki notes |
+| `search_library(query)` | Full-text search across compiled library notes |
 | `get_note(path)` | Return one note's markdown |
 | `list_index()` | Return `index.md` (the navigation map) |
-| `list_notes()` | List every wiki note |
+| `list_notes()` | List every library note |
 | `append_to_inbox(text, title?)` | Capture a raw note into `inbox/` for the scheduled compile |
 | `compile_run()` | Trigger an on-demand compile (async, rate-limited to one/hour) |
 | `vault_status()` | Pollable JSON: last successful compile time, pending inbox count, manual-compile cooldown, running flag, and per-job last/next scheduled run |
@@ -43,7 +43,7 @@ can switch on built-in OAuth token validation pointed at any OIDC issuer. See
 | `answer_question(id, answer)` | Record a decision on a judgment call (writes `inbox/.review/`, marks it answered) |
 
 `append_to_inbox` is the capture path: drop a thought from claude.ai, and the scheduled
-compile (`scripts/vault-compile.sh`) folds it into the wiki.
+compile (`scripts/vault-compile.sh`) folds it into the library.
 
 The `*_question` tools are the inbound half of the **judgment-call channel** — the calls the
 weekly maintenance pass can't decide on its own, answered from chat. They work against either
@@ -90,7 +90,7 @@ Because `compile_run` returns before the compile finishes, `vault_status` is the
 signal: the host records `last_compiled_at` at the *end* of every successful compile (both
 scheduled and on-demand), so a `last_compiled_at` newer than your trigger time means the run
 finished. It also reports `pending_inbox_count` and `manual_compile_available_at` (when the
-cooldown next clears) — poll it after a `compile_run` to know when the wiki is caught up.
+cooldown next clears) — poll it after a `compile_run` to know when the library is caught up.
 
 `vault_status` also returns a `jobs` map with the last/next *scheduled* run of each host job
 (`compile`, `synthesize`, `resolve`). The host can't be reached from the container, so — like
@@ -115,7 +115,7 @@ misconfiguration — the server logs `FATAL … nothing to serve` and exits non-
 
 ## Static website (`/`)
 
-Optionally serve a browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the wiki** at `/`,
+Optionally serve a browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the library** at `/`,
 alongside `/mcp` and `/api/v1` — a fast static site with full-text search, backlinks, a graph view,
 and Obsidian-style `[[wikilink]]` navigation. **Off by default**; turn it on with:
 
@@ -128,12 +128,12 @@ KNOWLEDGE_SITE_ROOT=/site      # where the pre-built site is mounted (default /s
 directory; it never runs Quartz and carries none of its dependencies. So there are two pieces:
 
 1. **Build the artifact** on the host with [`scripts/vault-site.sh`](../scripts/vault-site.sh). It
-   renders only `index.md` + `wiki/` (a strict allowlist — never `inbox/`, `outputs/`, logs, or
+   renders only `index.md` + `library/` (a strict allowlist — never `inbox/`, `outputs/`, logs, or
    task files) and publishes the static output **outside** the vault, swapped in atomically so the
    server never sees a half-built tree. See [Building the site](#building-the-site).
 2. **Serve it** — bind-mount that output directory into the container at `KNOWLEDGE_SITE_ROOT` and
    set `KNOWLEDGE_ENABLE_SITE=true`. A single `express.static` serves Quartz's clean URLs
-   (`/wiki/foo`); an unmatched path returns Quartz's `404.html`. The directory needn't exist at
+   (`/library/foo`); an unmatched path returns Quartz's `404.html`. The directory needn't exist at
    startup (the host populates it asynchronously) — the server logs a warning and serves it once it
    appears.
 
@@ -155,7 +155,7 @@ directory; it never runs Quartz and carries none of its dependencies. So there a
 
 `scripts/vault-site.sh` runs on the **host** (where the vault and Node live, not in the container).
 It maintains a pinned Quartz checkout, overlays the config in [`site/`](../site), stages
-`index.md` + `wiki/`, runs `quartz build`, and atomically swaps the result into the output
+`index.md` + `library/`, runs `quartz build`, and atomically swaps the result into the output
 directory. It's read-only w.r.t. the vault (no git, no commits), so it's safe to run any time — by
 hand, from cron, or from a systemd timer:
 
@@ -175,7 +175,7 @@ Host knobs (set in the repo-root `.env` or the environment):
 | `KNOWLEDGE_QUARTZ_REF` | `v4.5.2` | pinned Quartz version (a git checkout, not an npm dep) |
 | `KNOWLEDGE_SITE_LOG_RETENTION_DAYS` | `30` | prune `vault-site` build logs older than this |
 
-Re-run it whenever the wiki changes to refresh the published site. (A future host-automation pass
+Re-run it whenever the library changes to refresh the published site. (A future host-automation pass
 will wire systemd units to rebuild after each compile and on a timer; until then, schedule it
 yourself or run it on demand.)
 
@@ -208,9 +208,9 @@ token on every request).
 
 | Method & path | MCP tool | Success |
 |---|---|---|
-| `GET /api/v1/wiki/search?q=` | `search_wiki` | `200 {query, hits:[{note,snippets}]}` |
-| `GET /api/v1/wiki/notes` | `list_notes` | `200 {notes:[...]}` |
-| `GET /api/v1/wiki/notes/<path>` | `get_note` | `200 {path, content}` / `404` |
+| `GET /api/v1/library/search?q=` | `search_library` | `200 {query, hits:[{note,snippets}]}` |
+| `GET /api/v1/library/notes` | `list_notes` | `200 {notes:[...]}` |
+| `GET /api/v1/library/notes/<path>` | `get_note` | `200 {path, content}` / `404` |
 | `GET /api/v1/index` | `list_index` | `200 {content}` |
 | `POST /api/v1/inbox` | `append_to_inbox` | `201 {path}` |
 | `POST /api/v1/compile` | `compile_run` | `200 {status, available_at?}` |
@@ -220,7 +220,7 @@ token on every request).
 | `POST /api/v1/questions/<id>/answer` | `answer_question` | `200 {id, status}` |
 
 Notes:
-- The note path is taken from the rest of the URL (`/wiki/notes/sub/note.md`); the `.md`
+- The note path is taken from the rest of the URL (`/library/notes/sub/note.md`); the `.md`
   extension is optional. Paths are confined to the vault — traversal attempts get `400`.
 - `POST /inbox` body is `{ "text": "...", "title": "..."? }`; `POST .../answer` body is
   `{ "answer": "..." }`.
@@ -233,8 +233,8 @@ Notes:
 
 ```sh
 curl -s localhost:3000/api/v1/status
-curl -s 'localhost:3000/api/v1/wiki/search?q=networking'
-curl -s localhost:3000/api/v1/wiki/notes/some-note
+curl -s 'localhost:3000/api/v1/library/search?q=networking'
+curl -s localhost:3000/api/v1/library/notes/some-note
 curl -s -XPOST localhost:3000/api/v1/inbox \
   -H 'content-type: application/json' -d '{"text":"a thought","title":"My Note"}'
 curl -s -XPOST localhost:3000/api/v1/compile

@@ -32,7 +32,7 @@ epoch_iso() {  # <epoch-seconds> -> ISO-8601; empty input -> empty string
 }
 
 # One lockfile every vault-mutating job acquires, so compile / synthesize / resolve never run
-# at the same time — they all edit wiki/ and commit, and (say) a resolve commit must not race
+# at the same time — they all edit library/ and commit, and (say) a resolve commit must not race
 # a compile commit. Kept OUTSIDE the repo on purpose: it's runtime state, not vault content,
 # and synthesize/resolve must not write into inbox/ (where compile keeps its own state).
 #
@@ -98,7 +98,7 @@ acquire_vault_lock() {
 #   - histories DIVERGED                                         → REBASE local (unpushed) commits
 #     onto origin/<branch> and return 0. Divergence is now routine: the phone commits task-file
 #     edits to origin (Working Copy auto-push) while the host may carry an unpushed commit from
-#     a prior failed push. The agent and the phone touch DISJOINT paths (agent: inbox/, wiki/,
+#     a prior failed push. The agent and the phone touch DISJOINT paths (agent: inbox/, library/,
 #     index.md, log.md, new tasks/*.md, tasks/_dashboard.md, tasks/_completed.md; the human: the
 #     lifecycle frontmatter of EXISTING tasks/*.md), so the rebase replays cleanly. Only a GENUINE
 #     content conflict aborts the rebase (leaving the tree clean) and returns 1 for a human to
@@ -138,7 +138,7 @@ sync_from_origin() {
 # never runs git; the wrapper owns it. Handles "nothing changed" cleanly (no empty commit).
 #
 # Scoping the pathspec matters: compile owns inbox/ (archives processed captures) so it stages
-# everything, but the issue jobs must commit ONLY wiki/ + index.md + log.md — never sweeping up
+# everything, but the issue jobs must commit ONLY library/ + index.md + log.md — never sweeping up
 # the raw inbox/ captures compile hasn't processed yet.
 #
 # Returns non-zero if the push fails: the commit is preserved locally (no work lost), but origin

@@ -5,11 +5,11 @@
 # KNOWLEDGE_REVIEW_CHANNEL). Edit this template, then re-run install.sh.
 #
 # Runs one ephemeral /resolve pass for instance %i: reads my answers on open judgment-call issues,
-# applies the decisions to wiki/, and CLOSES the issues. Light + more frequent (cadence via
+# applies the decisions to library/, and CLOSES the issues. Light + more frequent (cadence via
 # KNOWLEDGE_RESOLVE_ONCALENDAR); often a no-op when nothing is answered. Like synthesize it runs
 # `gh` from *inside* the Claude run, so PATH must reach gh and HOME must reach its auth.
 [Unit]
-Description=Resolve answered %i vault judgment-call issues into the wiki (closes them)
+Description=Resolve answered %i vault judgment-call issues into the library (closes them)
 After=network-online.target
 Wants=network-online.target
 

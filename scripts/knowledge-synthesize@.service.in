@@ -4,12 +4,12 @@
 # %h/.config/knowledge-tools/%i.env (KNOWLEDGE_REPO, and any per-vault KNOWLEDGE_GITHUB_REPO /
 # KNOWLEDGE_REVIEW_CHANNEL). Edit this template, then re-run install.sh.
 #
-# Runs one ephemeral whole-corpus /synthesize pass for instance %i: reconciles wiki/ drift +
+# Runs one ephemeral whole-corpus /synthesize pass for instance %i: reconciles library/ drift +
 # contradictions, finds new cross-note connections, and OPENS judgment-call GitHub issues. Heavy +
 # infrequent (cadence via KNOWLEDGE_SYNTHESIZE_ONCALENDAR). Unlike the compile, it runs `gh` from
 # *inside* the Claude run, so PATH must reach gh and HOME must reach its auth (~/.config/gh).
 [Unit]
-Description=Synthesize the %i vault wiki (reconcile + connect; opens judgment-call issues)
+Description=Synthesize the %i vault library (reconcile + connect; opens judgment-call issues)
 After=network-online.target
 Wants=network-online.target
 

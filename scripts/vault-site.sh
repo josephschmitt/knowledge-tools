@@ -3,7 +3,7 @@
 #
 # Quartz is a clone-and-customize generator (NOT an npm dep), so this script maintains a pinned
 # upstream checkout in a host state dir, overlays this repo's config (site/quartz.config.ts +
-# quartz.layout.ts), STAGES a privacy-safe copy of the vault content (only index.md + wiki/ —
+# quartz.layout.ts), STAGES a privacy-safe copy of the vault content (only index.md + library/ —
 # never inbox/, outputs/, tasks/, logs), runs `quartz build`, and atomically publishes the output
 # OUTSIDE the vault (so compile's `git add -A` never sweeps it up; the service bind-mounts it).
 #
@@ -79,7 +79,7 @@ if [ "$NODE_MAJOR" -lt 20 ]; then
   fail "node $(node -v) is too old — Quartz needs Node >= 20."
 fi
 
-# Take the shared per-instance lock so we read a consistent wiki snapshot and never race a compile.
+# Take the shared per-instance lock so we read a consistent library snapshot and never race a compile.
 # Skipped with --no-lock (the caller already holds it; re-flocking the inherited fd would deadlock).
 if [ -z "$NO_LOCK" ]; then
   acquire_vault_lock
@@ -113,13 +113,13 @@ for f in quartz.config.ts quartz.layout.ts; do
   cp "$TOOLS_REPO/site/$f" "$QUARTZ_DIR/$f" || fail "could not copy site/$f into the checkout."
 done
 
-# --- Stage content (ALLOWLIST — privacy boundary). Only index.md + wiki/ ever reach the site. ---
+# --- Stage content (ALLOWLIST — privacy boundary). Only index.md + library/ ever reach the site. ---
 mkdir -p "$STAGE"
 SOURCES=()
 [ -f "$REPO/index.md" ] && SOURCES+=("$REPO/index.md")
-[ -d "$REPO/wiki" ] && SOURCES+=("$REPO/wiki")
+[ -d "$REPO/library" ] && SOURCES+=("$REPO/library")
 if [ "${#SOURCES[@]}" -eq 0 ]; then
-  fail "no content to publish — neither $REPO/index.md nor $REPO/wiki exists."
+  fail "no content to publish — neither $REPO/index.md nor $REPO/library exists."
 fi
 if command -v rsync >/dev/null 2>&1; then
   # --delete prunes notes removed from the vault within synced directories; only deltas copy, so
@@ -127,7 +127,8 @@ if command -v rsync >/dev/null 2>&1; then
   # source that's been dropped entirely (its vault path no longer exists) leaves its stale staged
   # copy behind — explicitly remove it so deleted content stops being published.
   [ ! -f "$REPO/index.md" ] && rm -f "$STAGE/index.md"
-  [ ! -d "$REPO/wiki" ] && rm -rf "$STAGE/wiki"
+  [ ! -d "$REPO/library" ] && rm -rf "$STAGE/library"
+  [ -d "$STAGE/wiki" ] && rm -rf "$STAGE/wiki"  # migration: wiki/ renamed to library/ — drop the stale staged copy (wiki/ is no longer a source)
   rsync -a --delete "${SOURCES[@]}" "$STAGE/" >>"$LOG" 2>&1 || fail "staging (rsync) failed."
 else
   rm -rf "${STAGE:?}/"* && cp -a "${SOURCES[@]}" "$STAGE/" || fail "staging (cp) failed."

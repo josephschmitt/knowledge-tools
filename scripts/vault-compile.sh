@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ephemeral inbox->wiki compile: turn inbox/ captures into wiki/ knowledge as a fresh,
+# Ephemeral inbox->library compile: turn inbox/ captures into library/ knowledge as a fresh,
 # short-lived Claude run, then archive the processed captures and commit.
 #
 # Triggered two ways, both starting the SAME per-vault systemd unit (so systemd's single-instance
@@ -19,7 +19,7 @@ set -euo pipefail
 
 # Shared config (REPO, CLAUDE_BIN), the cross-job lock, and git side effects. This sources
 # load-env.sh and requires KNOWLEDGE_REPO; the lock it provides is what serializes compile
-# against synthesize/resolve (all three edit wiki/ and commit).
+# against synthesize/resolve (all three edit library/ and commit).
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/vault-lib.sh"
 COOLDOWN_SECONDS="${KNOWLEDGE_COMPILE_COOLDOWN:-3600}"
 cd "$REPO"
