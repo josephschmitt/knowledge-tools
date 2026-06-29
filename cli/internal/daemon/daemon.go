@@ -63,12 +63,19 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	c.Start()
 	defer c.Stop()
 
+	// Watch for on-demand compile requests. Started BEFORE catch-up: a pre-existing request file
+	// fires no fsnotify event, so if catch-up (which can run for minutes) attached the watcher only
+	// afterward, a request landing during it would be lost. Any request that does arrive while
+	// catch-up holds the in-process mutex is skipped — but the watcher keeps the file (it consumes it
+	// only after a compile actually runs), and the post-catch-up drain below picks it up.
+	watchErr := make(chan error, 1)
+	go func() { watchErr <- d.watchRequests() }()
+
 	// Startup catch-up for ticks missed while the daemon was down.
 	d.catchUp()
 
-	// Watch for on-demand compile requests.
-	watchErr := make(chan error, 1)
-	go func() { watchErr <- d.watchRequests() }()
+	// Drain an on-demand request that arrived (and was skipped under the busy mutex) during catch-up.
+	d.handleRequest()
 
 	select {
 	case <-ctx.Done():
@@ -81,11 +88,12 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 // runJob runs one job, skipping (not queueing) if another daemon job is already running — the file
 // lock would make it a no-op anyway, so we skip early. ErrLocked (another process holds the lock)
-// is not an error.
-func (d *daemon) runJob(job jobs.Job, manual bool) {
+// is not an error. Returns whether the job actually ran (false = skipped because busy), so the
+// on-demand path can keep the request file for a later retry instead of consuming it on a skip.
+func (d *daemon) runJob(job jobs.Job, manual bool) (ran bool) {
 	if !d.mu.TryLock() {
 		log.Printf("%s: another job is running — skipping this tick", job)
-		return
+		return false
 	}
 	defer d.mu.Unlock()
 
@@ -113,6 +121,7 @@ func (d *daemon) runJob(job jobs.Job, manual bool) {
 			log.Printf("site: error: %v", serr)
 		}
 	}
+	return true
 }
 
 // catchUp runs each job once if its scheduled cadence elapsed since it last ran (or it has never
@@ -177,9 +186,7 @@ func (d *daemon) watchRequests() error {
 				return nil
 			}
 			if ev.Name == request && ev.Op&(fsnotify.Create|fsnotify.Write) != 0 {
-				log.Printf("on-demand compile requested")
-				_ = os.Remove(request) // consume so a later write re-triggers
-				d.runJob(jobs.JobCompile, true)
+				d.handleRequest()
 			}
 		case err, ok := <-w.Errors:
 			if !ok {
@@ -187,5 +194,19 @@ func (d *daemon) watchRequests() error {
 			}
 			log.Printf("watcher error: %v", err)
 		}
+	}
+}
+
+// handleRequest runs an on-demand compile if inbox/.compile/request exists, consuming the file only
+// after the compile actually runs. Removing on a skip (mutex busy) would drop the request silently;
+// keeping it lets the watcher re-fire on a later write and lets the post-catch-up drain pick it up.
+func (d *daemon) handleRequest() {
+	request := filepath.Join(d.cfg.CompileDir(), "request")
+	if _, err := os.Stat(request); err != nil {
+		return
+	}
+	log.Printf("on-demand compile requested")
+	if d.runJob(jobs.JobCompile, true) {
+		_ = os.Remove(request)
 	}
 }

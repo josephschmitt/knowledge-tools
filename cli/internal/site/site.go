@@ -220,12 +220,20 @@ func buildAndPublish(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 	_ = os.RemoveAll(prev)
+	movedPrev := false
 	if _, err := os.Stat(cfg.SiteRoot); err == nil {
 		if err := os.Rename(cfg.SiteRoot, prev); err != nil {
 			return err
 		}
+		movedPrev = true
 	}
 	if err := os.Rename(tmp, cfg.SiteRoot); err != nil {
+		// Swap-in failed and SiteRoot no longer exists — restore the previous build so the service
+		// keeps serving something instead of 404ing, and don't leave the new build orphaned.
+		if movedPrev {
+			_ = os.Rename(prev, cfg.SiteRoot)
+		}
+		_ = os.RemoveAll(tmp)
 		return err
 	}
 	_ = os.RemoveAll(prev)
@@ -267,8 +275,8 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = out.Close() }()
 	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
 		return err
 	}
 	return out.Close()
