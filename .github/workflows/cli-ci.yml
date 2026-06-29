@@ -81,9 +81,9 @@ jobs:
       - name: Sync embedded assets and check for drift
         run: |
           make sync-embed
-          if ! git diff --quiet -- internal/initvault/template internal/site/quartz; then
-            echo "::error::Embedded copies are out of sync with template/ or site/. Run 'make sync-embed' in cli/ and commit."
-            git --no-pager diff -- internal/initvault/template internal/site/quartz
+          if ! git diff --quiet -- internal/initvault/template; then
+            echo "::error::Embedded template is out of sync with template/. Run 'make sync-embed' in cli/ and commit."
+            git --no-pager diff -- internal/initvault/template
             exit 1
           fi
 

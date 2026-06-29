@@ -49,9 +49,10 @@ working in the repo.
   use plain `vX.Y.Z`); devbox (`go@1.23`) is the toolchain.
   - Commands: `install` / `uninstall` (register/remove the daemon autostart unit, per-instance,
     idempotent), `daemon` (the long-running scheduler + compile watcher), `compile` /
-    `synthesize` / `resolve` (one-shot jobs, also what the daemon runs on schedule), `site`
-    (build + publish the Quartz site), `init` (scaffold a vault from the embedded template —
-    copy-if-absent), `status` (print the compile + schedule snapshots and the daemon unit state).
+    `synthesize` / `resolve` (one-shot jobs, also what the daemon runs on schedule), `init`
+    (scaffold a vault from the embedded template — copy-if-absent), `status` (print the compile +
+    schedule snapshots and the daemon unit state). (Static-site building is intentionally out of
+    scope here — the Quartz pipeline is being reworked separately; see `site/` below.)
   - `internal/config` ports `load-env.sh` (a repo-root `.env`; real env wins) + the `KNOWLEDGE_*`
     knobs. **Schedules moved from systemd OnCalendar to cron expressions** (robfig/cron grammar):
     `KNOWLEDGE_COMPILE_SCHEDULE` (default `@hourly`), `KNOWLEDGE_SYNTHESIZE_SCHEDULE`
@@ -76,24 +77,21 @@ working in the repo.
     linger); macOS writes one `com.knowledge-tools.daemon.<inst>.plist` (KeepAlive). Both clean up
     the old per-job bash-era units on (re)install/uninstall; uninstall is idempotent, needs no
     `KNOWLEDGE_REPO`, and never touches the vault or linger.
-  - `internal/initvault` ports `init-vault.sh`; `internal/site` ports `vault-site.sh` (maintains
-    the pinned Quartz checkout, overlays config, stages the **privacy allowlist** — only
-    `index.md` + `library/` — runs `npx quartz build`, atomic publish; uses the **same** flock as the
-    jobs, so the old macOS lock-mechanism mismatch is gone). The vault `template/` *and* the
-    `site/quartz.{config,layout}.ts` are **embedded** (the binary is standalone) as committed
-    copies under `cli/internal/{initvault/template,site/quartz}/`; keep them in sync with the
-    repo-root `template/` + `site/` via `make sync-embed` (CI guards drift). When
-    `KNOWLEDGE_SITE_ENABLE` is set (install `--site`), the daemon rebuilds the site after each
-    compile.
+  - `internal/initvault` ports `init-vault.sh`. The vault `template/` is **embedded** (the binary
+    is standalone) as a committed copy under `cli/internal/initvault/template/`; keep it in sync
+    with the repo-root `template/` via `make sync-embed` (CI guards drift). (`vault-site.sh` is
+    **not** ported — see the static-site note above.)
   - The MCP service contract is unchanged: `inbox/.compile/{request,status.json,
     last-compiled-epoch,last-manual-epoch,schedules.json}` keep their paths + schemas, so
     `service/` needs no changes.
 - `scripts/` — only `validate_skills.py` remains (the skill linter CI runs; see constraints
-  below). All the vault job/install/site scripts (`vault-{compile,job,lib,site}.sh`,
-  `{in,un}install.sh`, `init-vault.sh`, `load-env.sh`) moved into `cli/`.
+  below). The vault job/install scripts (`vault-{compile,job,lib}.sh`, `{in,un}install.sh`,
+  `init-vault.sh`, `load-env.sh`) moved into `cli/`; `vault-site.sh` was retired without a CLI
+  port (the static-site pipeline is being reworked).
 - `site/` — the Quartz config (`quartz.config.ts` + `quartz.layout.ts`, read by
-  `KNOWLEDGE_SITE_TITLE` / `KNOWLEDGE_SITE_BASE_URL`) and its README. The source of truth; `cli`
-  embeds a committed copy (keep synced with `make sync-embed`).
+  `KNOWLEDGE_SITE_TITLE` / `KNOWLEDGE_SITE_BASE_URL`) and its README. Consumed by the static-site
+  build, which is **being reworked** (live render in the service vs. a standalone renderer image);
+  the CLI no longer builds or embeds it.
 - `template/` — the **starting point** of a vault's own librarian, mirroring the vault layout:
   `CLAUDE.md` (the librarian spec), `.claude/commands/{compile-inbox,synthesize,resolve}.md`
   plus the git/GitHub-free `{synthesize,resolve}-files.md` variants,

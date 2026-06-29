@@ -15,8 +15,9 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   connector), a **REST API** at `/api/v1` that mirrors the same operations for scripts and other
   tooling, and (opt-in) a browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the library** at
   `/`. The two protocols let you capture raw material into the vault's `inbox/` and query the
-  compiled `library/`; the static site is a pre-built artifact you build on the host with
-  `knowledge-tools site` and bind-mount in (`KNOWLEDGE_ENABLE_SITE` + `KNOWLEDGE_SITE_ROOT`). Auth
+  compiled `library/`; the static site is a pre-built artifact bind-mounted in
+  (`KNOWLEDGE_ENABLE_SITE` + `KNOWLEDGE_SITE_ROOT`) — its build pipeline is being reworked (see
+  `site/`). Auth
   is **optional, off by default** and gates all surfaces: run it authless behind an authenticating
   proxy, or enable built-in OAuth token validation against any OIDC issuer. Reads/writes the vault
   via the `VAULT_ROOT` env var
@@ -41,10 +42,11 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   autostart unit ([below](#vault-automation-host-setup)). `init` seeds a brand-new vault from
   `template/`. See [`cli/`](cli/).
 - **`site/`** — the [Quartz](https://quartz.jzhao.xyz) config for the optional static site the
-  service serves at `/` (`knowledge-tools site` renders `index.md` + `library/` only and publishes
-  outside the vault — see [`service/README.md`](service/README.md#static-website-)).
-- **`scripts/`** — only `validate_skills.py` remains (used by CI). The vault job/install/site
-  scripts all moved into `cli/`.
+  service serves at `/`. Its build pipeline is **being reworked** (a live render in the service vs.
+  a standalone renderer image), so the CLI no longer builds it — see
+  [`service/README.md`](service/README.md#static-website-).
+- **`scripts/`** — only `validate_skills.py` remains (used by CI). The vault job/install scripts
+  all moved into `cli/`.
 - **`template/`** — the starting point of a vault's own librarian (`CLAUDE.md`, the
   `/compile-inbox`, `/synthesize`, `/resolve` commands, and the folder skeleton). A seed, not
   a source of truth — once `knowledge-tools init` copies it into a new vault, those files belong to

@@ -3,14 +3,15 @@
 This directory holds **only the configuration** for the [Quartz](https://quartz.jzhao.xyz)
 rendering of the vault that the service serves at `/`. It is **not** a full Quartz project.
 
-Quartz is a clone-and-customize static site generator, not an npm dependency. So
-`knowledge-tools site` maintains a pinned upstream Quartz checkout in a host state dir
-(`~/.local/state/knowledge-tools/quartz` by default, pinned to `KNOWLEDGE_QUARTZ_REF`), copies the
-two files here on top of it, stages the vault content, and runs `quartz build`. The build output
-is published outside the vault and bind-mounted into the service container at `SITE_ROOT` (`/site`).
+Quartz is a clone-and-customize static site generator, not an npm dependency: a build overlays the
+two files here onto a pinned upstream Quartz checkout, stages the vault content (`index.md` +
+`library/`), and runs `quartz build`; the output is published outside the vault and bind-mounted
+into the service container at `SITE_ROOT` (`/site`).
 
-> The CLI embeds a committed copy of these two files (the binary is standalone); after editing
-> them here, run `make sync-embed` in `cli/` to refresh the copy (CI guards against drift).
+> **The build pipeline is being reworked** — the host-side builder (`vault-site.sh`, then a
+> `knowledge-tools site` command) has been retired while two directions are evaluated: a live
+> render inside the service image, or a standalone Quartz-backed renderer in its own image. These
+> config files are the starting point for whichever lands; until then, build with your own tooling.
 
 - `quartz.config.ts` — site config: title/baseUrl from env, no analytics, Obsidian wikilinks
   enabled, private dirs in `ignorePatterns` (belt-and-suspenders on top of the staging allowlist).
@@ -25,9 +26,9 @@ build (`service/src/**` only) never compiles them.
 
 ## Pinned version
 
-Pinned to **Quartz v4** (`v4.5.2`) via `KNOWLEDGE_QUARTZ_REF`. Quartz v5 changed the configuration
-model (YAML) and is a deliberate future upgrade, not a drop-in — bumping the pin requires porting
-these two files. To change the pin, set `KNOWLEDGE_QUARTZ_REF` and update these overlays to match.
+These overlays target **Quartz v4** (`v4.5.2`). Quartz v5 changed the configuration model (YAML)
+and is a deliberate future upgrade, not a drop-in — moving to it requires porting these two files.
+Whatever the reworked build pipeline pins to should match the version these overlays target.
 
 ## Local preview
 

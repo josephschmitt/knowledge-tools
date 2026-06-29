@@ -125,10 +125,10 @@ KNOWLEDGE_SITE_ROOT=/site      # where the pre-built site is mounted (default /s
 **Quartz is a build-time generator, not a renderer** — the server only *serves* a pre-built
 directory; it never runs Quartz and carries none of its dependencies. So there are two pieces:
 
-1. **Build the artifact** on the host with `knowledge-tools site`. It renders only `index.md` +
-   `library/` (a strict allowlist — never `inbox/`, `outputs/`, logs, or task files) and publishes the
-   static output **outside** the vault, swapped in atomically so the server never sees a half-built
-   tree. See [Building the site](#building-the-site).
+1. **Build the artifact** — a static render of `index.md` + `library/` (a strict allowlist — never
+   `inbox/`, `outputs/`, logs, or task files), published **outside** the vault. The build pipeline
+   is currently **being reworked** (see [Building the site](#building-the-site)); the server just
+   serves whatever pre-built directory you point it at.
 2. **Serve it** — bind-mount that output directory into the container at `KNOWLEDGE_SITE_ROOT` and
    set `KNOWLEDGE_ENABLE_SITE=true`. A single `express.static` serves Quartz's clean URLs
    (`/library/foo`); an unmatched path returns Quartz's `404.html`. The directory needn't exist at
@@ -151,31 +151,13 @@ directory; it never runs Quartz and carries none of its dependencies. So there a
 
 ### Building the site
 
-`knowledge-tools site` runs on the **host** (where the vault and Node live, not in the container).
-It maintains a pinned Quartz checkout, overlays the config in [`site/`](../site), stages
-`index.md` + `library/`, runs `quartz build`, and atomically swaps the result into the output
-directory. It's read-only w.r.t. the vault (no git, no commits), so it's safe to run any time — by
-hand, or automatically after each compile by setting `KNOWLEDGE_SITE_ENABLE` (or
-`knowledge-tools install --site`), which the daemon honors:
-
-```sh
-# Needs Node >= 20 on the host (for Quartz). Build the default vault's site once:
-KNOWLEDGE_REPO=/path/to/vault knowledge-tools site
-# Output: ~/.local/state/knowledge-tools/site/<instance>/ — bind-mount THAT dir into the container.
-```
-
-Host knobs (set in the repo-root `.env` or the environment):
-
-| Var | Default | What |
-|---|---|---|
-| `KNOWLEDGE_SITE_ROOT` | `~/.local/state/knowledge-tools/site/<instance>` | where the built site is published — bind-mount this into the container |
-| `KNOWLEDGE_SITE_BASE_URL` | `example.com` | public host for absolute URLs in RSS/sitemap (navigation is relative, so cosmetic); set to your real host |
-| `KNOWLEDGE_SITE_TITLE` | `Knowledge Vault` | the site's page title |
-| `KNOWLEDGE_QUARTZ_REF` | `v4.5.2` | pinned Quartz version (a git checkout, not an npm dep) |
-| `KNOWLEDGE_SITE_ENABLE` | `false` | when set, the daemon rebuilds the site after each compile |
-
-Re-run it whenever the library changes to refresh the published site — or set `KNOWLEDGE_SITE_ENABLE`
-(equivalently `knowledge-tools install --site`) so the daemon rebuilds it after every compile.
+> **The site build pipeline is being reworked** and is not currently shipped. The previous
+> host-side builder (`vault-site.sh`, then a `knowledge-tools site` command) has been retired while
+> two directions are evaluated: rendering the site live inside this service image, or a standalone
+> Quartz-backed renderer in its own image. Until that lands, build the static artifact with your own
+> tooling (the Quartz config in [`site/`](../site) is the starting point), publish it outside the
+> vault, and point `KNOWLEDGE_SITE_ROOT` at it as above. The serving half (this section) is
+> unaffected — the server serves whatever pre-built directory it's given.
 
 ## Multiple vaults
 
