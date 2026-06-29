@@ -266,11 +266,14 @@ manual escape hatch (re-cuts, hotfixes).
 - `cli-release.yml` — triggers on `cli/**` merges to `main` **and** on `cli/v*` tag pushes. On a
   merge it computes the next `cli/vX.Y.Z` from the landed conventional-commit prefixes; on a tag
   push it uses that exact tag. Because OSS goreleaser (no Pro `monorepo`) parses the *raw* tag as
-  semver and chokes on the `cli/` prefix, the job builds artifacts with `goreleaser release --clean
-  --snapshot` — injecting the clean version via `CLI_VERSION` (snapshot mode parses no tag and
-  publishes nothing) — and then **publishes the GitHub release itself with `gh`** on the real
-  `cli/vX.Y.Z` tag (a GITHUB_TOKEN-created tag/release can't trigger a second workflow, so the build
-  and release must share one run). The `cli/v*` prefix keeps the CLI out of the skill releases'
-  `skills/vX.Y.Z` namespace. The Homebrew cask is **deferred** (commented in `cli/.goreleaser.yaml`)
-  until the `HOMEBREW_TAP_GITHUB_TOKEN` secret is set and the cask gets a prefixed-tag `url.template`
-  — binaries + deb/rpm/apk/archlinux + checksums still ship.
+  semver and chokes on the `cli/` prefix, the job feeds goreleaser a clean `vX.Y.Z` via
+  `GORELEASER_CURRENT_TAG` (and `CLI_VERSION`) and runs `goreleaser release --clean --skip=validate`
+  — a real publish, with `release.disable: true` keeping goreleaser from creating the GitHub release
+  — then **publishes the GitHub release itself with `gh`** on the real `cli/vX.Y.Z` tag (a
+  GITHUB_TOKEN-created tag/release can't trigger a second workflow, so the build and release must
+  share one run). The `cli/v*` prefix keeps the CLI out of the skill releases' `skills/vX.Y.Z`
+  namespace. That same non-snapshot run **publishes the Homebrew cask** to `josephschmitt/homebrew-tap`
+  (`HOMEBREW_TAP_GITHUB_TOKEN` secret; a `url.template` override points the cask at the prefixed
+  `cli/vX.Y.Z` release, and post-install hooks symlink `kt` + strip the quarantine xattr), so
+  `brew install --cask josephschmitt/tap/knowledge-tools` works — alongside binaries +
+  deb/rpm/apk/archlinux + checksums.

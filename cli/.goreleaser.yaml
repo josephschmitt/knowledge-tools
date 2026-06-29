@@ -7,11 +7,12 @@ version: 2
 #
 # goreleaser's `monorepo` (prefix-aware) feature is Pro-only, and OSS goreleaser parses the *raw*
 # tag as semver before any template runs — so it cannot release directly from a "cli/vX.Y.Z" tag
-# (it fails with "invalid semantic version"). Instead the release workflow builds artifacts in
-# **snapshot** mode with the clean version injected via $CLI_VERSION (snapshot mode parses no tag
-# and uploads nothing), then publishes the GitHub release itself on the real cli/vX.Y.Z tag with
-# `gh`. Every name/version template below therefore uses {{ .Env.CLI_VERSION }} (e.g. 0.1.0), never
-# {{ .Tag }}.
+# (it fails with "invalid semantic version"). Instead the release workflow feeds it a CLEAN semver
+# via $GORELEASER_CURRENT_TAG (=vX.Y.Z) plus $CLI_VERSION, and runs `release --clean --skip=validate`
+# (a real publish, NOT snapshot — see the homebrew_casks note below for why). release.disable keeps
+# goreleaser from creating the GitHub release; the workflow publishes that itself on the real
+# cli/vX.Y.Z tag with `gh`. Every name/version template below uses {{ .Env.CLI_VERSION }} (e.g.
+# 0.1.0); the cask url.template uses {{ .Version }} (the same clean semver, from the tag env).
 
 before:
   hooks:
@@ -36,8 +37,9 @@ builds:
       # Clean version in the binary, injected by the workflow (e.g. 0.1.0).
       - -X main.version={{ .Env.CLI_VERSION }}
 
-# Snapshot mode lets us build real artifacts without a parseable git tag (OSS goreleaser can't
-# parse the cli/ prefix). The workflow runs `release --snapshot` and publishes via gh.
+# Snapshot mode builds real artifacts without a parseable git tag — used by local `make
+# release-local` (and `--skip=publish` dry runs). CI no longer uses snapshot (it needs a real
+# publish for the cask); it feeds $GORELEASER_CURRENT_TAG instead. Kept so local builds still work.
 snapshot:
   version_template: "{{ .Env.CLI_VERSION }}"
 
@@ -62,27 +64,30 @@ changelog:
       - Merge pull request
       - Merge branch
 
-# Homebrew cask is deferred until two things are in place:
-#   1. the HOMEBREW_TAP_GITHUB_TOKEN repo secret is set (write to josephschmitt/homebrew-tap), and
-#   2. a url.template override, because goreleaser is run in snapshot mode (no publish) so it won't
-#      push the cask anyway — and its default download URL (releases/download/#{version}/...) would
-#      point at a clean vX.Y.Z tag, not the real cli/vX.Y.Z release the workflow publishes.
-# To re-enable: set the token, give the cask a url.template of
-#   https://github.com/josephschmitt/knowledge-tools/releases/download/cli/v{{.Version}}/{{.ArtifactName}}
-# and have the workflow drop --snapshot for a real publish (or push the cask in a separate step).
-# homebrew_casks:
-#   - name: knowledge-tools
-#     repository:
-#       owner: josephschmitt
-#       name: homebrew-tap
-#       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-#     homepage: https://github.com/josephschmitt/knowledge-tools
-#     description: "Host-side CLI for the personal LLM-wiki vault (compile/synthesize/resolve + daemon)"
-#     hooks:
-#       post:
-#         install: |
-#           system_command "/bin/ln", args: ["-sf", "#{staged_path}/knowledge-tools", "#{HOMEBREW_PREFIX}/bin/kt"]
-#           system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/knowledge-tools"]
+# Homebrew cask, published to josephschmitt/homebrew-tap on each release. Two things make this work
+# despite the cli/ tag prefix:
+#   1. The workflow runs a real (non-snapshot) `goreleaser release` so the cask pipe actually
+#      publishes — snapshot mode skips ALL publishing, including the cask push. release.disable
+#      (below) keeps goreleaser from also creating the GitHub release; the `gh` step still owns that
+#      on the real cli/vX.Y.Z tag, while the cask pushes to the separate tap repo regardless.
+#   2. url.template overrides goreleaser's default download URL (releases/download/#{version}/...),
+#      which would point at a clean vX.Y.Z tag (the *skill* namespace) instead of the real
+#      cli/vX.Y.Z release. {{ .Version }} is the clean semver (from $GORELEASER_CURRENT_TAG=vX.Y.Z).
+homebrew_casks:
+  - name: knowledge-tools
+    repository:
+      owner: josephschmitt
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    url:
+      template: "https://github.com/josephschmitt/knowledge-tools/releases/download/cli/v{{ .Version }}/{{ .ArtifactName }}"
+    homepage: https://github.com/josephschmitt/knowledge-tools
+    description: "Host-side CLI for the personal LLM-wiki vault (compile/synthesize/resolve + daemon)"
+    hooks:
+      post:
+        install: |
+          system_command "/bin/ln", args: ["-sf", "#{staged_path}/knowledge-tools", "#{HOMEBREW_PREFIX}/bin/kt"]
+          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/knowledge-tools"]
 
 nfpms:
   - id: knowledge-tools
@@ -105,10 +110,10 @@ nfpms:
         dst: /usr/bin/kt
         type: symlink
 
-# Snapshot mode skips goreleaser's own GitHub release — the workflow publishes the release on the
-# real cli/vX.Y.Z tag with `gh` (see cli-release.yml). Kept here for config completeness and in case
-# the cask is ever re-enabled with a real (non-snapshot) publish; `disable: true` guards against a
-# stray `goreleaser release` trying to publish on the unparseable cli/ tag.
+# goreleaser does NOT create the GitHub release — the workflow publishes it on the real cli/vX.Y.Z
+# tag with `gh` (see cli-release.yml). `disable: true` is what makes the non-snapshot publish safe:
+# the homebrew_casks pipe still pushes the cask to the tap (a separate repo, unaffected by this),
+# while goreleaser is kept from creating a release on the clean vX.Y.Z tag we feed it.
 release:
   github:
     owner: josephschmitt
