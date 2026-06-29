@@ -8,11 +8,12 @@ version: 2
 # goreleaser's `monorepo` (prefix-aware) feature is Pro-only, and OSS goreleaser parses the *raw*
 # tag as semver before any template runs — so it cannot release directly from a "cli/vX.Y.Z" tag
 # (it fails with "invalid semantic version"). Instead the release workflow feeds it a CLEAN semver
-# via $GORELEASER_CURRENT_TAG (=vX.Y.Z) plus $CLI_VERSION, and runs `release --clean --skip=validate`
-# (a real publish, NOT snapshot — see the homebrew_casks note below for why). release.disable keeps
-# goreleaser from creating the GitHub release; the workflow publishes that itself on the real
-# cli/vX.Y.Z tag with `gh`. Every name/version template below uses {{ .Env.CLI_VERSION }} (e.g.
-# 0.1.0); the cask url.template uses {{ .Version }} (the same clean semver, from the tag env).
+# via $GORELEASER_CURRENT_TAG (=vX.Y.Z) plus $CLI_VERSION, and runs `release --clean --skip=validate
+# --skip=publish` — which builds artifacts and GENERATES the Homebrew cask under dist/ but pushes
+# nothing. The workflow then publishes the GitHub release itself on the real cli/vX.Y.Z tag with `gh`
+# and pushes the generated cask to the tap (see the homebrew_casks note below). Every name/version
+# template below uses {{ .Env.CLI_VERSION }} (e.g. 0.1.0); the cask url.template uses {{ .Version }}
+# (the same clean semver, from the tag env).
 
 before:
   hooks:
@@ -38,8 +39,8 @@ builds:
       - -X main.version={{ .Env.CLI_VERSION }}
 
 # Snapshot mode builds real artifacts without a parseable git tag — used by local `make
-# release-local` (and `--skip=publish` dry runs). CI no longer uses snapshot (it needs a real
-# publish for the cask); it feeds $GORELEASER_CURRENT_TAG instead. Kept so local builds still work.
+# release-local`. CI no longer uses snapshot; it feeds a clean tag via $GORELEASER_CURRENT_TAG and
+# runs --skip=publish instead. Kept so local builds still work.
 snapshot:
   version_template: "{{ .Env.CLI_VERSION }}"
 
@@ -66,10 +67,13 @@ changelog:
 
 # Homebrew cask, published to josephschmitt/homebrew-tap on each release. Two things make this work
 # despite the cli/ tag prefix:
-#   1. The workflow runs a real (non-snapshot) `goreleaser release` so the cask pipe actually
-#      publishes — snapshot mode skips ALL publishing, including the cask push. release.disable
-#      (below) keeps goreleaser from also creating the GitHub release; the `gh` step still owns that
-#      on the real cli/vX.Y.Z tag, while the cask pushes to the separate tap repo regardless.
+#   1. goreleaser GENERATES this cask file under dist/homebrew/Casks/ even when run with
+#      --skip=publish (which the workflow uses), but does NOT push it. The workflow pushes the
+#      generated file to the tap itself, AFTER the gh release + assets exist — so a failed release
+#      never leaves a broken cask, and the cask's sha256s always match the uploaded archives (one
+#      build). The `repository`/`token` below name the push target goreleaser bakes into the cask;
+#      the workflow's own push targets the same repo. (release.disable, below, also keeps goreleaser
+#      from creating the GitHub release — the `gh` step owns that on the real cli/vX.Y.Z tag.)
 #   2. url.template overrides goreleaser's default download URL (releases/download/#{version}/...),
 #      which would point at a clean vX.Y.Z tag (the *skill* namespace) instead of the real
 #      cli/vX.Y.Z release. {{ .Version }} is the clean semver (from $GORELEASER_CURRENT_TAG=vX.Y.Z).
@@ -111,9 +115,9 @@ nfpms:
         type: symlink
 
 # goreleaser does NOT create the GitHub release — the workflow publishes it on the real cli/vX.Y.Z
-# tag with `gh` (see cli-release.yml). `disable: true` is what makes the non-snapshot publish safe:
-# the homebrew_casks pipe still pushes the cask to the tap (a separate repo, unaffected by this),
-# while goreleaser is kept from creating a release on the clean vX.Y.Z tag we feed it.
+# tag with `gh` (see cli-release.yml). `disable: true` belt-and-suspenders with the workflow's
+# --skip=publish: it keeps any `goreleaser release` invocation from creating a release on the clean
+# vX.Y.Z tag we feed it (which would collide with the skill namespace).
 release:
   github:
     owner: josephschmitt

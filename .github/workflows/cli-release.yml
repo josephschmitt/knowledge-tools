@@ -5,13 +5,14 @@ name: CLI Release
 #   - Auto: a cli/** change merged to main computes the next cli/vX.Y.Z from the landed
 #     conventional-commit prefixes (see "Plan release").
 #   - Manual: push a cli/v* tag (re-cuts, hotfixes).
-# Either way the job runs a real `goreleaser release` (OSS goreleaser can't parse the cli/ prefix as
-# semver, so we feed it a clean vX.Y.Z via GORELEASER_CURRENT_TAG and skip git-state validation). It
-# publishes the Homebrew cask to josephschmitt/homebrew-tap (release.disable keeps goreleaser from
-# creating the GitHub release), then the workflow publishes the GitHub release itself on the real
-# cli/vX.Y.Z tag with `gh`. Doing the build and the release in one run is required: a tag/release
-# created by the workflow's GITHUB_TOKEN does NOT trigger other workflows, so we can't split this
-# across a tag-push event (mirrors package-skills.yml).
+# Either way the job runs `goreleaser release --skip=publish` (OSS goreleaser can't parse the cli/
+# prefix as semver, so we feed it a clean vX.Y.Z via GORELEASER_CURRENT_TAG and skip git-state
+# validation) to build artifacts and GENERATE the Homebrew cask without pushing anything, then
+# publishes the GitHub release itself on the real cli/vX.Y.Z tag with `gh`, then pushes goreleaser's
+# generated cask to josephschmitt/homebrew-tap — in that order, so the cask lands only after its
+# release assets exist. Doing the build and the release in one run is required: a tag/release created
+# by the workflow's GITHUB_TOKEN does NOT trigger other workflows, so we can't split this across a
+# tag-push event (mirrors package-skills.yml).
 on:
   push:
     branches: [main]
@@ -110,24 +111,27 @@ jobs:
           go-version: ${{ steps.go-version.outputs.version }}
           cache-dependency-path: cli/go.sum
 
-      # Build artifacts AND publish the Homebrew cask to josephschmitt/homebrew-tap. OSS goreleaser
-      # can't parse the cli/ prefix as semver, so we feed it a clean vX.Y.Z via GORELEASER_CURRENT_TAG
-      # (and inject the same clean version via CLI_VERSION) and skip git-state validation — in the
-      # auto path HEAD isn't tagged yet (the gh step creates cli/vX.Y.Z afterward), so `validate`
-      # would object. This is a real (non-snapshot) publish so the cask pipe actually pushes; the
-      # GitHub release stays disabled in .goreleaser.yaml (the gh step below owns it). Artifacts land
-      # in cli/dist/.
-      - name: Build artifacts + publish Homebrew cask (GoReleaser)
+      # Build artifacts and GENERATE (don't push) the Homebrew cask. OSS goreleaser can't parse the
+      # cli/ prefix as semver, so we feed it a clean vX.Y.Z via GORELEASER_CURRENT_TAG (and inject the
+      # same clean version via CLI_VERSION) and skip git-state validation — in the auto path HEAD
+      # isn't tagged yet (the gh step creates cli/vX.Y.Z afterward), so `validate` would object.
+      # `--skip=publish` keeps goreleaser from pushing anything (no GitHub release — also disabled in
+      # .goreleaser.yaml — and no tap push) while STILL writing the cask to
+      # cli/dist/homebrew/Casks/knowledge-tools.rb. A later step pushes that exact file to the tap,
+      # but only after the gh release + assets exist, so a failed release never leaves a broken cask;
+      # because it's the same single build, the cask's sha256s are guaranteed to match the uploaded
+      # archives. Artifacts land in cli/dist/.
+      - name: Build artifacts + generate Homebrew cask (GoReleaser)
         if: steps.plan.outputs.release == '1'
         uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
           workdir: cli
-          args: release --clean --skip=validate
+          args: release --clean --skip=validate --skip=publish
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CLI_VERSION: ${{ steps.plan.outputs.version }}
           GORELEASER_CURRENT_TAG: v${{ steps.plan.outputs.version }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
       # Publish the GitHub release ourselves on the real cli/vX.Y.Z tag. We create the tag as an
       # *annotated* tag (the auto path) to match the old behavior — `cli/Makefile` derives its local
@@ -168,3 +172,35 @@ jobs:
               --title "knowledge-tools CLI v${VERSION}" \
               --generate-notes
           fi
+
+      # Publish the Homebrew cask to josephschmitt/homebrew-tap. We push goreleaser's generated cask
+      # file (cli/dist/homebrew/Casks/knowledge-tools.rb) ourselves rather than letting goreleaser
+      # push it, so it lands ONLY after the release above succeeded — its url.template points at the
+      # cli/vX.Y.Z release assets, which now exist, and its sha256s match them (same single build).
+      # Idempotent: a re-cut with an unchanged cask is a clean no-op.
+      - name: Publish Homebrew cask
+        if: steps.plan.outputs.release == '1'
+        env:
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          cask="cli/dist/homebrew/Casks/knowledge-tools.rb"
+          if [ ! -f "$cask" ]; then echo "Cask not generated at $cask" >&2; exit 1; fi
+
+          tap="$(mktemp -d)"
+          git clone --depth 1 \
+            "https://x-access-token:${HOMEBREW_TAP_GITHUB_TOKEN}@github.com/josephschmitt/homebrew-tap.git" "$tap"
+          mkdir -p "$tap/Casks"
+          cp "$cask" "$tap/Casks/knowledge-tools.rb"
+
+          cd "$tap"
+          git add Casks/knowledge-tools.rb
+          if git diff --cached --quiet; then
+            echo "Cask already up to date; nothing to push."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "knowledge-tools cli v${VERSION}"
+          git push
