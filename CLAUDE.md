@@ -99,8 +99,11 @@ working in the repo.
   `CLAUDE.md` (the librarian spec), `.claude/commands/{compile-inbox,synthesize,resolve}.md`
   plus the git/GitHub-free `{synthesize,resolve}-files.md` variants,
   `.claude/settings.json`, `.gitignore`, the folder skeleton (`inbox/`, `inbox/archive/`,
-  `wiki/`, `outputs/`), and empty `index.md`/`log.md`. `scripts/init-vault.sh` copies these
-  into a new vault. This is a seed, **not** a source of truth: the commands and `CLAUDE.md`
+  `library/`, `notebook/`, `outputs/`), and empty `index.md`/`log.md`. `scripts/init-vault.sh` copies these
+  into a new vault. The seed deliberately scopes to the **library + notebook** knowledge areas and
+  **defers `tasks/`** (the live vault's third area): the task workflow is coupled to the TaskNotes
+  Obsidian plugin and its `.obsidian/` config, which a generic seed can't ship — a seeder layers
+  that on per-vault. This is a seed, **not** a source of truth: the commands and `CLAUDE.md`
   belong to the vault once seeded and are *expected* to diverge as the content grows — the
   tooling only schedules them.
 - `.claude-plugin/` — the Claude Code plugin marketplace (`marketplace.json`) and plugin

@@ -6,17 +6,21 @@ effort: xhigh
 allowed-tools: "Bash(gh issue list:*), Bash(gh issue view:*), Bash(gh issue create:*), Bash(gh search issues:*)"
 ---
 
-A deliberate, infrequent maintenance-and-synthesis pass over the **whole** `wiki/`.
+A deliberate, infrequent maintenance-and-synthesis pass over the **whole vault**.
 This is the opposite of the nightly compile: the compile processes fresh captures one
 at a time with a local view; this pass reads the entire corpus at once to keep it true
-and to discover structure that only emerges across many notes.
+and to discover structure that only emerges across many notes. The writing is
+**library-centric** — reconcile and synthesize land in the library — but the pass also
+repairs `notebook/`↔library origin links (Phase 1), while otherwise leaving the notebook
+alone (it's audit-exempt and never re-judged for ripeness).
 
 If an argument is given (`$ARGUMENTS`), focus the pass on that topic/cluster and notes
 adjacent to it. With no argument, sweep the entire vault.
 
-Read `index.md` and every note in `wiki/` before changing anything — both phases need a
-whole-corpus view. Also list the already-open judgment calls so you don't raise the same
-thing twice (two calls — `--label` flags AND together, so query each separately):
+Read `index.md` and every note in `library/` before changing anything — both phases need a
+whole-corpus view. Also skim `notebook/` (and `notebook/index.md`) for the origin-link integrity
+check. Then list the already-open judgment calls so you don't raise the same thing twice (two
+calls — `--label` flags AND together, so query each separately):
 
 ```
 gh issue list --state open --label "vault:judgment-call"
@@ -30,6 +34,12 @@ Then work in two phases, **in order**.
 Knowledge changes. Get the vault to a correct, consistent baseline *before* synthesizing,
 so new connections build on current truth rather than propagating stale claims.
 
+Phase 1's truth-maintenance is **library-scoped**. `notebook/` is exempt from the contradiction,
+stale-entry, and near-duplicate checks — its entries are *meant* to conflict and sit unfinished,
+so reconciling them would destroy the very tentativeness the area exists to hold. (Broken
+`[[links]]` are still worth fixing anywhere, and the notebook↔library origin-link check below does
+apply.)
+
 - **Broken / orphaned `[[links]]`** — fix links that point to renamed or missing notes;
   add the obvious missing backlink where two notes clearly reference each other.
 - **Internal contradictions** — where note A asserts something note B contradicts: if one
@@ -40,6 +50,12 @@ so new connections build on current truth rather than propagating stale claims.
 - **Stale / superseded entries** — when a newer note has overtaken an older one, update or
   retire the old claim rather than leaving two versions of the truth in the vault.
 - **Near-duplicates** — fold a small redundant note into the fuller one and redirect links.
+- **Notebook → library origin links** — for every library note carrying an `origins:` key, confirm the
+  named notebook entries still exist and link back inline; for notebook entries that have
+  hardened into library notes, confirm the inline `[[wikilink]]` forward and the `origins:` back-link
+  agree. Repair drift in **both** directions. (Library side: `origins:` frontmatter; notebook side:
+  the inline body link — never add frontmatter to a notebook entry.) Preserve frontmatter on any
+  library note you edit.
 - Keep `index.md` in sync with anything you rename, merge, or retire.
 
 ## Phase 2 — Synthesize (find new structure)
@@ -67,7 +83,7 @@ check it against the open issues you listed at the start so you don't duplicate 
 
 - **Ambiguous contradictions** — the unresolved conflicts from Phase 1 you refused to guess
   on. One issue each, labeled `vault:judgment-call`. Title names the conflict; body states
-  both sides, names the notes (`wiki/<file>.md`), and asks the specific question I need to
+  both sides, names the notes (`library/<file>.md`), and asks the specific question I need to
   answer.
 - **Needs external verification** — internal contradictions are fixable from the corpus
   alone, but the vault can't know the *outside world* changed. Claims that look
@@ -103,8 +119,8 @@ Then:
   what you reconciled, what you synthesized, how many notes touched, and how many issues you
   opened.
 - **Do not** touch `inbox/` or `inbox/archive/`, and **do not** run git — leave the commit
-  to me so I can review the wiki changes first. (Issues are separate from the commit; file
-  them directly.)
+  to me so I can review the library and notebook changes first. (Issues are separate from the
+  commit; file them directly.)
 
 End by telling me, briefly: what you fixed, what new connections/hubs you added, and the
 issues you opened (with their numbers). The terminal summary is a convenience echo — the
