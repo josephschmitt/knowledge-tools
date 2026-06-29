@@ -42,7 +42,7 @@ type CLI struct {
 	Install    InstallCmd       `cmd:"" help:"Install the vault daemon as an OS autostart unit (systemd/launchd)."`
 	Uninstall  UninstallCmd     `cmd:"" help:"Remove the vault daemon autostart unit (idempotent)."`
 	Daemon     DaemonCmd        `cmd:"" help:"Run the long-running vault daemon (scheduler + compile watcher)."`
-	Compile    CompileCmd       `cmd:"" help:"Run a one-shot inbox→wiki compile."`
+	Compile    CompileCmd       `cmd:"" help:"Run a one-shot inbox→library compile."`
 	Synthesize SynthesizeCmd    `cmd:"" help:"Run a one-shot whole-corpus synthesize (opens judgment calls)."`
 	Resolve    ResolveCmd       `cmd:"" help:"Run a one-shot resolve (applies answered judgment calls)."`
 	Init       InitCmd          `cmd:"" help:"Scaffold a fresh vault from the template (copy-if-absent)."`

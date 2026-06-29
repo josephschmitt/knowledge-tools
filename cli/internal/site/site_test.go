@@ -23,8 +23,8 @@ func TestStageContentAllowlist(t *testing.T) {
 	stage := filepath.Join(t.TempDir(), "stage")
 	// Public content.
 	write(t, filepath.Join(repo, "index.md"), "home")
-	write(t, filepath.Join(repo, "wiki", "note.md"), "a note")
-	write(t, filepath.Join(repo, "wiki", "sub", "deep.md"), "deep")
+	write(t, filepath.Join(repo, "library", "note.md"), "a note")
+	write(t, filepath.Join(repo, "library", "sub", "deep.md"), "deep")
 	// Private content that must NEVER be published.
 	write(t, filepath.Join(repo, "inbox", "secret.md"), "raw capture")
 	write(t, filepath.Join(repo, "outputs", "report.md"), "output")
@@ -35,7 +35,7 @@ func TestStageContentAllowlist(t *testing.T) {
 		t.Fatalf("stageContent: %v", err)
 	}
 
-	mustExist := []string{"index.md", filepath.Join("wiki", "note.md"), filepath.Join("wiki", "sub", "deep.md")}
+	mustExist := []string{"index.md", filepath.Join("library", "note.md"), filepath.Join("library", "sub", "deep.md")}
 	for _, f := range mustExist {
 		if _, err := os.Stat(filepath.Join(stage, f)); err != nil {
 			t.Errorf("expected %s in stage: %v", f, err)
@@ -53,30 +53,30 @@ func TestStageContentPrunesRemovedNotes(t *testing.T) {
 	repo := t.TempDir()
 	stage := filepath.Join(t.TempDir(), "stage")
 	write(t, filepath.Join(repo, "index.md"), "home")
-	write(t, filepath.Join(repo, "wiki", "old.md"), "old")
+	write(t, filepath.Join(repo, "library", "old.md"), "old")
 
 	cfg := &config.Config{Repo: repo, SiteStage: stage}
 	if err := stageContent(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(stage, "wiki", "old.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(stage, "library", "old.md")); err != nil {
 		t.Fatal("old.md should be staged on first run")
 	}
 
 	// Remove the note from the vault and re-stage; the staged copy must be pruned.
-	if err := os.Remove(filepath.Join(repo, "wiki", "old.md")); err != nil {
+	if err := os.Remove(filepath.Join(repo, "library", "old.md")); err != nil {
 		t.Fatal(err)
 	}
 	if err := stageContent(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(stage, "wiki", "old.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(stage, "library", "old.md")); !os.IsNotExist(err) {
 		t.Error("old.md should be pruned from the stage after removal from the vault")
 	}
 }
 
 func TestStageContentNoContent(t *testing.T) {
-	repo := t.TempDir() // no index.md, no wiki/
+	repo := t.TempDir() // no index.md, no library/
 	cfg := &config.Config{Repo: repo, SiteStage: filepath.Join(t.TempDir(), "stage")}
 	if err := stageContent(cfg); err == nil {
 		t.Error("stageContent with no public content should error")

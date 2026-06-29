@@ -59,7 +59,7 @@ working in the repo.
     (`CRON_TZ=America/Detroit 30 3 * * *`).
   - `internal/vault` ports `vault-lib.sh`: the per-instance lock (now `flock(2)` on **both** Linux
     and macOS — no mkdir fallback), `sync_from_origin` + `commit_and_push` git discipline (shells
-    out to `git`; issue jobs commit `wiki/ index.md log.md` [+ `inbox/.review/` in files], compile
+    out to `git`; issue jobs commit `library/ index.md log.md` [+ `inbox/.review/` in files], compile
     stages everything; no-ops cleanly when not a git repo), the headless `claude` invocation, and
     RFC3339 dates (no GNU/BSD branching).
   - `internal/jobs` ports `vault-compile.sh` + `vault-job.sh`: compile snapshot/archive/
@@ -78,7 +78,7 @@ working in the repo.
     `KNOWLEDGE_REPO`, and never touches the vault or linger.
   - `internal/initvault` ports `init-vault.sh`; `internal/site` ports `vault-site.sh` (maintains
     the pinned Quartz checkout, overlays config, stages the **privacy allowlist** — only
-    `index.md` + `wiki/` — runs `npx quartz build`, atomic publish; uses the **same** flock as the
+    `index.md` + `library/` — runs `npx quartz build`, atomic publish; uses the **same** flock as the
     jobs, so the old macOS lock-mechanism mismatch is gone). The vault `template/` *and* the
     `site/quartz.{config,layout}.ts` are **embedded** (the binary is standalone) as committed
     copies under `cli/internal/{initvault/template,site/quartz}/`; keep them in sync with the
@@ -134,7 +134,7 @@ present.
 - **Tool descriptions + field schemas** (`service/src/mcp.ts`) — per-tool invariants any
   caller must obey: what the tool does, hard usage rules (e.g. capture takes zero
   decisions), field-level facts (e.g. no separate source-URL field — fold it into
-  `text`), and one-clause pointers to companion tools (`search_wiki` → `get_note`,
+  `text`), and one-clause pointers to companion tools (`search_library` → `get_note`,
   `compile_run` → `vault_status`). Rules only, no rationale.
 - **Server `instructions`** (same file) — cross-tool policy and architecture only: the
   dumb-capture/smart-compile split, prefer-the-vault-over-general-knowledge, which tools

@@ -35,7 +35,7 @@ func NewLogger(path string) (*Logger, error) {
 
 // Logf writes a timestamped line to the log file and stdout.
 func (l *Logger) Logf(format string, args ...any) {
-	fmt.Fprintf(l.tee, "%s %s\n", NowISO(), fmt.Sprintf(format, args...))
+	_, _ = fmt.Fprintf(l.tee, "%s %s\n", NowISO(), fmt.Sprintf(format, args...))
 }
 
 // File is the raw log-file writer for subprocess stdout/stderr (log-file only, no stdout echo).

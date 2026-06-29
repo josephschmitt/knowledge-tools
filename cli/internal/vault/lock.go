@@ -13,7 +13,7 @@ var ErrLocked = errors.New("another vault job holds the lock")
 
 // Lock is a held per-instance vault lock. Close releases it (closing the file drops the OS lock).
 //
-// This serializes compile / synthesize / resolve within one vault instance: they all edit wiki/
+// This serializes compile / synthesize / resolve within one vault instance: they all edit library/
 // and commit, so they must not run concurrently. The lock is keyed by the lock path (which the
 // config derives from KNOWLEDGE_INSTANCE), so different instances use different files and DO run
 // concurrently — exactly the multi-vault isolation vault-lib.sh provided.
@@ -35,7 +35,7 @@ func AcquireLock(path string) (*Lock, error) {
 		return nil, err
 	}
 	if err := flockNB(f); err != nil {
-		f.Close()
+		_ = f.Close()
 		if errors.Is(err, errWouldBlock) {
 			return nil, ErrLocked
 		}

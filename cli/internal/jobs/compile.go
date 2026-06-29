@@ -25,7 +25,7 @@ type compileStatus struct {
 }
 
 // Compile ports scripts/vault-compile.sh: a fresh, headless /compile-inbox pass that turns inbox/
-// captures into wiki/ knowledge, archives the processed captures, and commits.
+// captures into library/ knowledge, archives the processed captures, and commits.
 //
 // manual marks an on-demand compile (the daemon's fsnotify trigger when the MCP drops
 // inbox/.compile/request) — those are cooldown-throttled and consume the manual cooldown. A
@@ -47,7 +47,7 @@ func Compile(ctx context.Context, cfg *config.Config, manual bool) error {
 	if err != nil {
 		return err
 	}
-	defer log.Close()
+	defer func() { _ = log.Close() }()
 
 	compileDir := cfg.CompileDir()
 	if err := os.MkdirAll(compileDir, 0o755); err != nil {
@@ -110,7 +110,7 @@ func Compile(ctx context.Context, cfg *config.Config, manual bool) error {
 
 		log.Logf("compiling %d inbox item(s):", len(items))
 		for _, it := range items {
-			fmt.Fprintf(log.File(), "  %s\n", it)
+			_, _ = fmt.Fprintf(log.File(), "  %s\n", it)
 		}
 		writeStatus(true, fmt.Sprintf("compiling %d item(s)", len(items)))
 

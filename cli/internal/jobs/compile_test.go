@@ -99,8 +99,8 @@ func TestCompileEndToEnd(t *testing.T) {
 	// Seed one capture.
 	must(t, os.WriteFile(filepath.Join(repo, "inbox", "capture.md"), []byte("a thought"), 0o644))
 
-	// Stub claude: on /compile-inbox it writes a wiki note (what the real compile would produce).
-	claude := stubClaude(t, "mkdir -p wiki && echo compiled > wiki/note.md")
+	// Stub claude: on /compile-inbox it writes a library note (what the real compile would produce).
+	claude := stubClaude(t, "mkdir -p library && echo compiled > library/note.md")
 
 	cfg := &config.Config{
 		Repo:               repo,
@@ -132,9 +132,9 @@ func TestCompileEndToEnd(t *testing.T) {
 		t.Error("capture.md should exist under inbox/archive/")
 	}
 
-	// The wiki note the stub produced is present.
-	if _, err := os.Stat(filepath.Join(repo, "wiki", "note.md")); err != nil {
-		t.Errorf("wiki/note.md missing: %v", err)
+	// The library note the stub produced is present.
+	if _, err := os.Stat(filepath.Join(repo, "library", "note.md")); err != nil {
+		t.Errorf("library/note.md missing: %v", err)
 	}
 
 	// status.json reports a finished, successful compile.

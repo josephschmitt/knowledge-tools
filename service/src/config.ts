@@ -32,7 +32,7 @@ export const VAULT_NAME = process.env.KNOWLEDGE_VAULT_NAME ?? '';
 export const ENABLE_MCP = (process.env.KNOWLEDGE_ENABLE_MCP ?? 'true') !== 'false';
 export const ENABLE_REST = (process.env.KNOWLEDGE_ENABLE_REST ?? 'true') !== 'false';
 
-// Static website surface — serve a pre-built Quartz rendering of the wiki at /. OFF by default
+// Static website surface — serve a pre-built Quartz rendering of the library at /. OFF by default
 // (opt-in): it needs a build artifact bind-mounted at SITE_ROOT (produced by the host's
 // vault-site.sh job; see scripts/ and service/README.md), so it stays off until deliberately
 // enabled. Gated by the same `requireToken` as the other surfaces (a no-op when auth is off —

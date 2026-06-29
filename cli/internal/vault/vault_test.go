@@ -68,7 +68,7 @@ func newTestLogger(t *testing.T) *Logger {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() { _ = l.Close() })
 	return l
 }
 

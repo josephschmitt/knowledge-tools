@@ -1,7 +1,7 @@
 # knowledge-tools
 
 Infrastructure for a personal "LLM wiki" — a knowledge base where raw captures land in
-`inbox/` and Claude Code compiles them into durable, cross-linked notes in `wiki/`,
+`inbox/` and Claude Code compiles them into durable, cross-linked notes in `library/`,
 following Andrej Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)
 pattern: immutable raw sources, an LLM-owned wiki of markdown files, and a schema document
 (`CLAUDE.md`) that defines the workflows. This repo holds everything that operates *on* the
@@ -13,9 +13,9 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
 - **`service/`** — the vault service. One server exposing the vault over **two protocols** plus an
   optional **static website**: a Streamable-HTTP **MCP** endpoint at `/mcp` (the claude.ai
   connector), a **REST API** at `/api/v1` that mirrors the same operations for scripts and other
-  tooling, and (opt-in) a browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the wiki** at
+  tooling, and (opt-in) a browsable **[Quartz](https://quartz.jzhao.xyz) rendering of the library** at
   `/`. The two protocols let you capture raw material into the vault's `inbox/` and query the
-  compiled `wiki/`; the static site is a pre-built artifact you build on the host with
+  compiled `library/`; the static site is a pre-built artifact you build on the host with
   `knowledge-tools site` and bind-mount in (`KNOWLEDGE_ENABLE_SITE` + `KNOWLEDGE_SITE_ROOT`). Auth
   is **optional, off by default** and gates all surfaces: run it authless behind an authenticating
   proxy, or enable built-in OAuth token validation against any OIDC issuer. Reads/writes the vault
@@ -41,7 +41,7 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
   autostart unit ([below](#vault-automation-host-setup)). `init` seeds a brand-new vault from
   `template/`. See [`cli/`](cli/).
 - **`site/`** — the [Quartz](https://quartz.jzhao.xyz) config for the optional static site the
-  service serves at `/` (`knowledge-tools site` renders `index.md` + `wiki/` only and publishes
+  service serves at `/` (`knowledge-tools site` renders `index.md` + `library/` only and publishes
   outside the vault — see [`service/README.md`](service/README.md#static-website-)).
 - **`scripts/`** — only `validate_skills.py` remains (used by CI). The vault job/install/site
   scripts all moved into `cli/`.
@@ -146,11 +146,11 @@ A single long-running **daemon** runs on the host per vault and supervises the t
 an internal schedule — **one daemon per vault instance**, kept alive by one OS autostart unit (a
 **systemd user service** on Linux, a **launchd LaunchAgent** on macOS) that `knowledge-tools
 install` registers. On a single-vault host the instance is just `default` and you can ignore the
-naming. The three jobs all edit `wiki/` and commit, so they share **one lockfile**
+naming. The three jobs all edit `library/` and commit, so they share **one lockfile**
 (`~/.local/state/knowledge-tools/vault-<vault>.lock`, keyed by the instance and overridable with
 `KNOWLEDGE_VAULT_LOCK`) and never run concurrently — while different vaults have different locks and
 *do* run concurrently. In every case Claude only edits files (and, in the GitHub review channel,
-runs scoped `gh` calls) — the **wrapper** owns git: it commits any `wiki/` + `index.md` + `log.md`
+runs scoped `gh` calls) — the **wrapper** owns git: it commits any `library/` + `index.md` + `log.md`
 changes and pushes if an `origin` remote exists.
 
 The vault **need not be a git repo**: when the wrapper finds no work tree it skips the commit
@@ -176,7 +176,7 @@ MCP `compile_run` tool triggers it on demand (cooldown-throttled).
   anything only you can decide.
 - **Resolve** — a `/resolve` pass (default **daily, ~3:30am local**,
   `KNOWLEDGE_RESOLVE_SCHEDULE` = `CRON_TZ=America/Detroit 30 3 * * *`). Reads your answers to open
-  calls, applies the decisions to `wiki/`, and **closes** them. Short-circuits cheaply when nothing
+  calls, applies the decisions to `library/`, and **closes** them. Short-circuits cheaply when nothing
   is answered.
 
 Both default to the middle of the night (pinned to `America/Detroit` so they track local night
@@ -267,7 +267,7 @@ It stops and removes that instance's daemon unit and its per-vault config
 (`~/Library/Logs/knowledge-tools/<vault>.log` on macOS). When the **last** vault is removed it also
 cleans up the shared pieces — the systemd service template (Linux) and the empty logs dir (macOS) —
 so nothing is left behind. It needs no `KNOWLEDGE_REPO`, and it deliberately leaves the **vault
-itself** (`inbox/`, `wiki/`, `outputs/`), the optional `gh.env`, and linger untouched.
+itself** (`inbox/`, `library/`, `outputs/`), the optional `gh.env`, and linger untouched.
 
 ### Bot account (optional)
 

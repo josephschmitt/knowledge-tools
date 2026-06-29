@@ -153,7 +153,7 @@ func uninstallSystemd(cfg *config.Config) error {
 	} else {
 		fmt.Printf("Nothing to remove for instance '%s'.\n", cfg.Instance)
 	}
-	fmt.Println("(Left untouched: the vault itself — inbox/, wiki/, outputs/ — and linger.)")
+	fmt.Println("(Left untouched: the vault itself — inbox/, library/, outputs/ — and linger.)")
 	return nil
 }
 

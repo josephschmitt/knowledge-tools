@@ -5,7 +5,7 @@
 //
 // Quartz is a clone-and-customize generator (NOT an npm dependency): the script maintains a pinned
 // upstream git checkout, overlays this repo's config (embedded below, since the binary is
-// standalone), stages a privacy-safe copy of the vault content (ONLY index.md + wiki/), runs
+// standalone), stages a privacy-safe copy of the vault content (ONLY index.md + library/), runs
 // `npx quartz build`, and atomically publishes the output. Read-only w.r.t. the vault.
 package site
 
@@ -171,7 +171,7 @@ func overlayConfig(cfg *config.Config) error {
 	return nil
 }
 
-// stageContent copies the privacy allowlist (ONLY index.md + wiki/) into a clean staging dir.
+// stageContent copies the privacy allowlist (ONLY index.md + library/) into a clean staging dir.
 // Rebuilding the stage from scratch each run gives the bash rsync --delete semantics (notes
 // removed from the vault stop being published).
 func stageContent(cfg *config.Config) error {
@@ -188,17 +188,17 @@ func stageContent(cfg *config.Config) error {
 		}
 		staged++
 	}
-	if src := filepath.Join(cfg.Repo, "wiki"); dirExists(src) {
-		n, err := copyTree(src, filepath.Join(cfg.SiteStage, "wiki"))
+	if src := filepath.Join(cfg.Repo, "library"); dirExists(src) {
+		n, err := copyTree(src, filepath.Join(cfg.SiteStage, "library"))
 		if err != nil {
 			return err
 		}
 		staged += n
 	}
 	if staged == 0 {
-		return fmt.Errorf("no content to publish — neither %s/index.md nor %s/wiki exists", cfg.Repo, cfg.Repo)
+		return fmt.Errorf("no content to publish — neither %s/index.md nor %s/library exists", cfg.Repo, cfg.Repo)
 	}
-	log.Printf("site: staged content from index.md + wiki/")
+	log.Printf("site: staged content from index.md + library/")
 	return nil
 }
 
@@ -262,12 +262,12 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	if _, err := io.Copy(out, in); err != nil {
 		return err
 	}

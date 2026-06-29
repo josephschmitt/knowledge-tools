@@ -159,7 +159,7 @@ func (d *daemon) watchRequests() error {
 	if err != nil {
 		return err
 	}
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	dir := d.cfg.CompileDir()
 	if err := w.Add(dir); err != nil {

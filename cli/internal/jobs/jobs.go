@@ -1,5 +1,5 @@
 // Package jobs runs the three vault-mutating host jobs ported from scripts/vault-compile.sh and
-// scripts/vault-job.sh: compile (inbox→wiki), synthesize (open judgment calls), and resolve
+// scripts/vault-job.sh: compile (inbox→library), synthesize (open judgment calls), and resolve
 // (apply answered calls). Each acquires the shared per-instance lock, syncs from origin, runs a
 // headless Claude pass, and commits via internal/vault — and refreshes the schedules.json
 // snapshot on every exit path so vault_status stays current.

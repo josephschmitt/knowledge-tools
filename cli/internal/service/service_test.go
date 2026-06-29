@@ -119,8 +119,9 @@ func TestTildify(t *testing.T) {
 	if home == "" {
 		t.Skip("no home dir")
 	}
-	if got := tildify(filepath.Join(home, "x", "y")); got != "~/x/y" {
-		t.Errorf("tildify = %q, want ~/x/y", got)
+	want := filepath.Join("~", "x", "y")
+	if got := tildify(filepath.Join(home, "x", "y")); got != want {
+		t.Errorf("tildify = %q, want %q", got, want)
 	}
 	if got := tildify("/etc/passwd"); got != "/etc/passwd" {
 		t.Errorf("tildify non-home = %q", got)

@@ -59,7 +59,7 @@ func Seed(vaultDir string) (Result, error) {
 		base := filepath.Base(rel)
 
 		// A .gitkeep only carries an otherwise-empty dir. Don't plant one where real content
-		// already exists (e.g. a grown wiki/) — the dir no longer needs keeping.
+		// already exists (e.g. a grown library/) — the dir no longer needs keeping.
 		if base == ".gitkeep" {
 			if dirHasContent(filepath.Dir(dest)) {
 				res.Skipped++

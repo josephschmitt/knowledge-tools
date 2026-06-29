@@ -24,10 +24,10 @@ ALREADY_SET=fromfile
 	// A real env var must win over the file.
 	t.Setenv("ALREADY_SET", "fromenv")
 	// Ensure the keys we assert on start unset.
-	os.Unsetenv("KNOWLEDGE_REPO")
-	os.Unsetenv("QUOTED")
-	os.Unsetenv("SQUOTED")
-	os.Unsetenv("KNOWLEDGE_INSTANCE")
+	_ = os.Unsetenv("KNOWLEDGE_REPO")
+	_ = os.Unsetenv("QUOTED")
+	_ = os.Unsetenv("SQUOTED")
+	_ = os.Unsetenv("KNOWLEDGE_INSTANCE")
 
 	if err := LoadDotenv(env); err != nil {
 		t.Fatalf("LoadDotenv: %v", err)

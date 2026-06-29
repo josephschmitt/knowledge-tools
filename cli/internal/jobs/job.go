@@ -15,8 +15,8 @@ import (
 // RunIssueJob ports scripts/vault-job.sh for the two judgment-call jobs:
 //
 //	synthesize — heavy, infrequent whole-corpus pass. Reconciles drift + finds connections in
-//	             wiki/ and OPENS judgment calls. Producer only.
-//	resolve    — light, more frequent pass. Reads answered calls, applies them to wiki/ and
+//	             library/ and OPENS judgment calls. Producer only.
+//	resolve    — light, more frequent pass. Reads answered calls, applies them to library/ and
 //	             CLOSES them. Consumer only; often a no-op (short-circuits when nothing answered).
 //
 // The channel (github | files) is auto-detected when KNOWLEDGE_REVIEW_CHANNEL is unset. github
@@ -46,7 +46,7 @@ func RunIssueJob(ctx context.Context, cfg *config.Config, job Job) error {
 	if err != nil {
 		return err
 	}
-	defer log.Close()
+	defer func() { _ = log.Close() }()
 
 	// Serialize against compile + the other issue job, under the shared lock (held → clean no-op).
 	// withVaultLock records the run and refreshes the schedule snapshot on exit.
@@ -100,10 +100,10 @@ func channelConfig(job Job, channel string) (slash string, ghTools, commitPaths 
 	if channel == "files" {
 		// The files channel writes question files under inbox/.review/, so commit that subdir too
 		// — never the raw top-level inbox/ captures compile hasn't processed yet.
-		return "/" + string(job) + "-files", nil, []string{"wiki", "index.md", "log.md", "inbox/.review"}
+		return "/" + string(job) + "-files", nil, []string{"library", "index.md", "log.md", "inbox/.review"}
 	}
 	// github channel.
-	commitPaths = []string{"wiki", "index.md", "log.md"}
+	commitPaths = []string{"library", "index.md", "log.md"}
 	if job == JobSynthesize {
 		ghTools = []string{
 			"Bash(gh issue list:*)",
