@@ -96,10 +96,10 @@ func (d *daemon) runJob(job jobs.Job, manual bool) {
 	} else {
 		err = jobs.RunIssueJob(d.ctx, d.cfg, job)
 	}
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		log.Printf("%s: done", job)
-	case err == vault.ErrLocked:
+	case vault.ErrLocked:
 		log.Printf("%s: lock held by another process — skipped", job)
 	default:
 		log.Printf("%s: error: %v", job, err)

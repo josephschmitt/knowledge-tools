@@ -74,7 +74,7 @@ func TestLoadDefaults(t *testing.T) {
 		"KNOWLEDGE_REVIEW_CHANNEL", "KNOWLEDGE_VAULT_LOCK", "KNOWLEDGE_COMPILE_SCHEDULE",
 		"KNOWLEDGE_SYNTHESIZE_SCHEDULE", "KNOWLEDGE_RESOLVE_SCHEDULE",
 	} {
-		os.Unsetenv(k)
+		_ = os.Unsetenv(k)
 	}
 
 	cfg, err := Load("", "/my/vault")
