@@ -55,28 +55,13 @@ WantedBy=default.target
 `, bin)
 }
 
-// instanceEnvContents is the per-instance env file the shared template reads.
+// instanceEnvContents is the per-instance env file the shared template reads. KNOWLEDGE_INSTANCE is
+// not set here — the unit supplies it via Environment=%i.
 func instanceEnvContents(cfg *config.Config) string {
 	var b strings.Builder
 	b.WriteString("# Written by `knowledge-tools install` for instance " + cfg.Instance + ". Re-run install to update.\n")
-	fmt.Fprintf(&b, "KNOWLEDGE_REPO=%s\n", cfg.Repo)
-	fmt.Fprintf(&b, "KNOWLEDGE_COMPILE_SCHEDULE=%s\n", cfg.CompileSchedule)
-	fmt.Fprintf(&b, "KNOWLEDGE_SYNTHESIZE_SCHEDULE=%s\n", cfg.SynthesizeSchedule)
-	fmt.Fprintf(&b, "KNOWLEDGE_RESOLVE_SCHEDULE=%s\n", cfg.ResolveSchedule)
-	fmt.Fprintf(&b, "KNOWLEDGE_COMPILE_COOLDOWN=%d\n", cfg.CompileCooldown)
-	if cfg.ClaudeBin != "" {
-		fmt.Fprintf(&b, "CLAUDE_BIN=%s\n", cfg.ClaudeBin)
-	}
-	if cfg.ReviewChannel != "" {
-		fmt.Fprintf(&b, "KNOWLEDGE_REVIEW_CHANNEL=%s\n", cfg.ReviewChannel)
-	}
-	if cfg.GithubRepo != "" {
-		fmt.Fprintf(&b, "KNOWLEDGE_GITHUB_REPO=%s\n", cfg.GithubRepo)
-	}
-	if cfg.SiteEnable {
-		b.WriteString("KNOWLEDGE_SITE_ENABLE=true\n")
-		fmt.Fprintf(&b, "KNOWLEDGE_QUARTZ_REF=%s\n", cfg.QuartzRef)
-		fmt.Fprintf(&b, "KNOWLEDGE_SITE_ROOT=%s\n", cfg.SiteRoot)
+	for _, kv := range commonEnv(cfg) {
+		fmt.Fprintf(&b, "%s=%s\n", kv.k, kv.v)
 	}
 	return b.String()
 }

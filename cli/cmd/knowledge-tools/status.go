@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/josephschmitt/knowledge-tools/cli/internal/config"
 	"github.com/josephschmitt/knowledge-tools/cli/internal/vault"
@@ -59,32 +60,14 @@ func daemonState(instance string) string {
 }
 
 func runOK(name string, args ...string) bool {
-	return execRun(name, args...) == nil
+	return exec.Command(name, args...).Run() == nil
 }
 
-func execRun(name string, args ...string) error {
-	return exec.Command(name, args...).Run()
-}
-
+// indent prefixes every line of s with two spaces.
 func indent(s string) string {
-	out := ""
-	for _, line := range splitLines(s) {
-		out += "  " + line + "\n"
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
+		b.WriteString("  " + line + "\n")
 	}
-	return out
-}
-
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
+	return b.String()
 }

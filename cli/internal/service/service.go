@@ -9,10 +9,45 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 
 	"github.com/josephschmitt/knowledge-tools/cli/internal/config"
 	"github.com/josephschmitt/knowledge-tools/cli/internal/jobs"
 )
+
+// envKV is one environment entry baked into the daemon unit.
+type envKV struct{ k, v string }
+
+// commonEnv is the KNOWLEDGE_* set both the systemd env file and the launchd plist carry for the
+// daemon — defined once so the two renderers can't drift (e.g. when a new knob is added). The
+// OS-specific extras (systemd's KNOWLEDGE_INSTANCE via Environment=%i; launchd's KNOWLEDGE_INSTANCE
+// + PATH) are added by each renderer.
+func commonEnv(cfg *config.Config) []envKV {
+	env := []envKV{
+		{"KNOWLEDGE_REPO", cfg.Repo},
+		{"KNOWLEDGE_COMPILE_SCHEDULE", cfg.CompileSchedule},
+		{"KNOWLEDGE_SYNTHESIZE_SCHEDULE", cfg.SynthesizeSchedule},
+		{"KNOWLEDGE_RESOLVE_SCHEDULE", cfg.ResolveSchedule},
+		{"KNOWLEDGE_COMPILE_COOLDOWN", strconv.Itoa(cfg.CompileCooldown)},
+	}
+	if cfg.ClaudeBin != "" {
+		env = append(env, envKV{"CLAUDE_BIN", cfg.ClaudeBin})
+	}
+	if cfg.ReviewChannel != "" {
+		env = append(env, envKV{"KNOWLEDGE_REVIEW_CHANNEL", cfg.ReviewChannel})
+	}
+	if cfg.GithubRepo != "" {
+		env = append(env, envKV{"KNOWLEDGE_GITHUB_REPO", cfg.GithubRepo})
+	}
+	if cfg.SiteEnable {
+		env = append(env,
+			envKV{"KNOWLEDGE_SITE_ENABLE", "true"},
+			envKV{"KNOWLEDGE_QUARTZ_REF", cfg.QuartzRef},
+			envKV{"KNOWLEDGE_SITE_ROOT", cfg.SiteRoot},
+		)
+	}
+	return env
+}
 
 // Options carries everything install/uninstall needs beyond the resolved config.
 type Options struct {

@@ -2,11 +2,11 @@ package jobs
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/josephschmitt/knowledge-tools/cli/internal/config"
 	"github.com/josephschmitt/knowledge-tools/cli/internal/vault"
@@ -48,60 +48,49 @@ func RunIssueJob(ctx context.Context, cfg *config.Config, job Job) error {
 	}
 	defer log.Close()
 
-	// Serialize against compile + the other issue job. Held → clean no-op (before the schedules
-	// refresh, like the bash lock exit that precedes the trap).
-	lock, err := vault.AcquireLock(cfg.VaultLock)
-	if err != nil {
-		if err == vault.ErrLocked {
-			log.Logf("another vault job holds the lock (%s) — exiting.", cfg.VaultLock)
-			return vault.ErrLocked
+	// Serialize against compile + the other issue job, under the shared lock (held → clean no-op).
+	// withVaultLock records the run and refreshes the schedule snapshot on exit.
+	return withVaultLock(cfg, job, log, func() error {
+		if err := vault.SyncFromOrigin(repo, log); err != nil {
+			return err
 		}
-		return err
-	}
-	defer func() { _ = lock.Release() }()
 
-	recordRun(cfg, job)
-	defer RefreshSchedules(cfg)
+		log.Logf("%s starting (%s, channel=%s)", job, slash, channel)
 
-	if err := vault.SyncFromOrigin(repo, log); err != nil {
-		return err
-	}
-
-	log.Logf("%s starting (%s, channel=%s)", job, slash, channel)
-
-	// resolve acts ONLY on calls I've marked answered. Nothing answered → skip the (opus) run
-	// entirely, the same short-circuit compile does on an empty inbox.
-	if job == JobResolve {
-		n := answeredCount(cfg, channel, log)
-		if n == 0 {
-			log.Logf("nothing answered — nothing to resolve.")
-			return nil
+		// resolve acts ONLY on calls I've marked answered. Nothing answered → skip the (opus) run
+		// entirely, the same short-circuit compile does on an empty inbox.
+		if job == JobResolve {
+			n := answeredCount(cfg, channel, log)
+			if n == 0 {
+				log.Logf("nothing answered — nothing to resolve.")
+				return nil
+			}
+			log.Logf("answered calls: %d", n)
 		}
-		log.Logf("answered calls: %d", n)
-	}
 
-	if err := vault.RunClaude(ctx, cfg.ClaudeBin, repo, slash, ghTools, log); err != nil {
-		log.Logf("claude exited non-zero — leaving the vault as-is for inspection.")
-		return err
-	}
-
-	// Commit the scoped pathspec — only paths that actually exist (git add errors on a missing
-	// pathspec, and inbox/.review or a freshly-seeded log.md may not be there yet).
-	var stage []string
-	for _, p := range commitPaths {
-		if _, statErr := os.Stat(filepath.Join(repo, p)); statErr == nil {
-			stage = append(stage, p)
+		if err := vault.RunClaude(ctx, cfg.ClaudeBin, repo, slash, ghTools, log); err != nil {
+			log.Logf("claude exited non-zero — leaving the vault as-is for inspection.")
+			return err
 		}
-	}
-	if len(stage) == 0 {
-		log.Logf("no tracked paths present to commit.")
-	} else if err := vault.CommitAndPush(repo, fmt.Sprintf("Vault %s (%s)", job, st), stage, log); err != nil {
-		log.Logf("%s done (with push failure).", job)
-		return err
-	}
 
-	log.Logf("%s done.", job)
-	return nil
+		// Commit the scoped pathspec — only paths that actually exist (git add errors on a missing
+		// pathspec, and inbox/.review or a freshly-seeded log.md may not be there yet).
+		var stage []string
+		for _, p := range commitPaths {
+			if _, statErr := os.Stat(filepath.Join(repo, p)); statErr == nil {
+				stage = append(stage, p)
+			}
+		}
+		if len(stage) == 0 {
+			log.Logf("no tracked paths present to commit.")
+		} else if err := vault.CommitAndPush(repo, fmt.Sprintf("Vault %s (%s)", job, st), stage, log); err != nil {
+			log.Logf("%s done (with push failure).", job)
+			return err
+		}
+
+		log.Logf("%s done.", job)
+		return nil
+	})
 }
 
 // channelConfig returns the slash command, gh tool grants, and commit pathspecs for a job+channel.
@@ -176,27 +165,10 @@ func countAnsweredFiles(dir string) int {
 
 // hasAnsweredLine reports whether any line equals "status: answered" (anchored, like grep '^...').
 func hasAnsweredLine(b []byte) bool {
-	start := 0
-	for i := 0; i <= len(b); i++ {
-		if i == len(b) || b[i] == '\n' {
-			if string(b[start:i]) == "status: answered" {
-				return true
-			}
-			start = i + 1
+	for _, line := range strings.Split(string(b), "\n") {
+		if line == "status: answered" {
+			return true
 		}
 	}
 	return false
-}
-
-// writeJSON marshals v indented and writes it to path (creating parent dirs).
-func writeJSON(path string, v any) {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return
-	}
-	data = append(data, '\n')
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
-	}
-	_ = os.WriteFile(path, data, 0o644)
 }

@@ -26,11 +26,6 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// cronParser matches internal/jobs: 5-field standard cron plus @descriptors and a CRON_TZ= prefix.
-var cronParser = cron.NewParser(
-	cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
-)
-
 type daemon struct {
 	ctx context.Context
 	cfg *config.Config
@@ -55,7 +50,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	// Publish next-run times right away.
 	jobs.RefreshSchedules(cfg)
 
-	c := cron.New(cron.WithParser(cronParser), cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
+	c := cron.New(cron.WithParser(jobs.CronParser), cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
 	if _, err := c.AddFunc(cfg.CompileSchedule, func() { d.runJob(jobs.JobCompile, false) }); err != nil {
 		return err
 	}
@@ -147,7 +142,7 @@ func (d *daemon) overdue(schedule string, lastRun time.Time, now time.Time) bool
 	if lastRun.IsZero() {
 		return true
 	}
-	sched, err := cronParser.Parse(schedule)
+	sched, err := jobs.CronParser.Parse(schedule)
 	if err != nil {
 		return false
 	}

@@ -40,31 +40,12 @@ func plistContents(opts Options) string {
 	cfg := opts.Cfg
 	logFile := filepath.Join(launchdLogDir(), cfg.Instance+".log")
 
-	env := []envKV{
-		{"KNOWLEDGE_REPO", cfg.Repo},
+	// launchd starts with a bare PATH and has no Environment=%i, so it carries KNOWLEDGE_INSTANCE +
+	// PATH on top of the shared set.
+	env := append([]envKV{
 		{"KNOWLEDGE_INSTANCE", cfg.Instance},
-		{"KNOWLEDGE_COMPILE_SCHEDULE", cfg.CompileSchedule},
-		{"KNOWLEDGE_SYNTHESIZE_SCHEDULE", cfg.SynthesizeSchedule},
-		{"KNOWLEDGE_RESOLVE_SCHEDULE", cfg.ResolveSchedule},
-		{"KNOWLEDGE_COMPILE_COOLDOWN", strconv.Itoa(cfg.CompileCooldown)},
 		{"PATH", launchdPATH()},
-	}
-	if cfg.ClaudeBin != "" {
-		env = append(env, envKV{"CLAUDE_BIN", cfg.ClaudeBin})
-	}
-	if cfg.ReviewChannel != "" {
-		env = append(env, envKV{"KNOWLEDGE_REVIEW_CHANNEL", cfg.ReviewChannel})
-	}
-	if cfg.GithubRepo != "" {
-		env = append(env, envKV{"KNOWLEDGE_GITHUB_REPO", cfg.GithubRepo})
-	}
-	if cfg.SiteEnable {
-		env = append(env,
-			envKV{"KNOWLEDGE_SITE_ENABLE", "true"},
-			envKV{"KNOWLEDGE_QUARTZ_REF", cfg.QuartzRef},
-			envKV{"KNOWLEDGE_SITE_ROOT", cfg.SiteRoot},
-		)
-	}
+	}, commonEnv(cfg)...)
 
 	var envXML strings.Builder
 	for _, kv := range env {
@@ -100,8 +81,6 @@ func plistContents(opts Options) string {
 `, xmlEscape(daemonLabel(cfg.Instance)), xmlEscape(opts.BinPath), xmlEscape(cfg.Instance),
 		envXML.String(), xmlEscape(logFile), xmlEscape(logFile))
 }
-
-type envKV struct{ k, v string }
 
 func installLaunchd(opts Options) error {
 	cfg := opts.Cfg

@@ -67,113 +67,100 @@ func Compile(ctx context.Context, cfg *config.Config, manual bool) error {
 			CooldownSeconds:     cfg.CompileCooldown,
 			Summary:             summary,
 		}
-		writeJSON(statusFile, s)
+		_ = writeJSONAtomic(statusFile, s)
 	}
 
-	// Take the shared lock. Held by another job → clean no-op (before the schedules refresh, like
-	// the bash "couldn't get the lock" exit that precedes the trap).
-	lock, err := vault.AcquireLock(cfg.VaultLock)
-	if err != nil {
-		if err == vault.ErrLocked {
-			log.Logf("another vault job holds the lock (%s) — exiting.", cfg.VaultLock)
-			return vault.ErrLocked
-		}
-		return err
-	}
-	defer func() { _ = lock.Release() }()
-
-	// From here, refresh the schedule snapshot on every exit path (the bash trap). Record this run
-	// attempt first so last_run_at reflects it.
-	recordRun(cfg, JobCompile)
-	defer RefreshSchedules(cfg)
-
-	// Catch up to origin before compiling + committing, so the push fast-forwards.
-	if err := vault.SyncFromOrigin(repo, log); err != nil {
-		writeStatus(false, "aborted: local diverged from origin")
-		return err
-	}
-
-	mode := "scheduled"
-	if manual {
-		mode = "manual"
-	}
-	log.Logf("compile mode: %s", mode)
-
-	// Manual runs are throttled; the scheduled run is exempt and never consumes the cooldown.
-	if manual {
-		if last := readEpoch(lastManualFile); last > 0 {
-			elapsed := time.Now().Unix() - last
-			if elapsed < int64(cfg.CompileCooldown) {
-				log.Logf("throttled — last manual compile was %ds ago (< %ds). Skipping.", elapsed, cfg.CompileCooldown)
-				return nil
-			}
-		}
-	}
-
-	// Snapshot the inbox items to process: top-level files, excluding dotfiles (.gitkeep) and the
-	// .compile/ control dir.
-	items, err := snapshotInbox(repo)
-	if err != nil {
-		return err
-	}
-	if len(items) == 0 {
-		log.Logf("inbox empty — nothing to compile.")
-		writeStatus(false, "inbox empty")
-		return nil
-	}
-
-	log.Logf("compiling %d inbox item(s):", len(items))
-	for _, it := range items {
-		fmt.Fprintf(log.File(), "  %s\n", it)
-	}
-	writeStatus(true, fmt.Sprintf("compiling %d item(s)", len(items)))
-
-	// Fresh, headless compile. acceptEdits auto-applies Write/Edit without prompting.
-	if err := vault.RunClaude(ctx, cfg.ClaudeBin, repo, "/compile-inbox", nil, log); err != nil {
-		log.Logf("claude exited non-zero — leaving inbox untouched for inspection.")
-		writeStatus(false, "compile failed")
-		return err
-	}
-
-	// Archive the captures we processed (preserve a raw trail per the vault's CLAUDE.md).
-	archive := filepath.Join(repo, "inbox", "archive", st)
-	if err := os.MkdirAll(archive, 0o755); err != nil {
-		return err
-	}
-	for _, it := range items {
-		src := filepath.Join(repo, it)
-		if _, statErr := os.Stat(src); statErr == nil {
-			_ = os.Rename(src, filepath.Join(archive, filepath.Base(it)))
-		}
-	}
-	log.Logf("archived processed captures to inbox/archive/%s", st)
-
-	// Commit if anything changed; push only if origin exists. Defer a push failure so the
-	// cooldown/status bookkeeping still runs, then re-raise it so the run is flagged.
-	pushFailed := false
-	if err := vault.CommitAndPush(repo, fmt.Sprintf("Vault compile (%s)", st), nil, log); err != nil {
-		if _, ok := err.(*vault.PushError); ok {
-			pushFailed = true
-		} else {
-			writeStatus(false, "compile failed at commit")
+	// Run under the shared lock (held by another job → clean no-op). withVaultLock records the run
+	// and refreshes the schedule snapshot on exit.
+	return withVaultLock(cfg, JobCompile, log, func() error {
+		// Catch up to origin before compiling + committing, so the push fast-forwards.
+		if err := vault.SyncFromOrigin(repo, log); err != nil {
+			writeStatus(false, "aborted: local diverged from origin")
 			return err
 		}
-	}
 
-	// Record completion timestamps for the cooldown + status surface.
-	_ = writeEpochNow(lastCompiledFile)
-	if manual {
-		_ = writeEpochNow(lastManualFile)
-	}
+		mode := "scheduled"
+		if manual {
+			mode = "manual"
+		}
+		log.Logf("compile mode: %s", mode)
 
-	if pushFailed {
-		writeStatus(false, fmt.Sprintf("compiled %d item(s) but push failed", len(items)))
-		log.Logf("done (with push failure).")
-		return &vault.PushError{}
-	}
-	writeStatus(false, fmt.Sprintf("compiled %d item(s)", len(items)))
-	log.Logf("done.")
-	return nil
+		// Manual runs are throttled; the scheduled run is exempt and never consumes the cooldown.
+		if manual {
+			if last := readEpoch(lastManualFile); last > 0 {
+				elapsed := time.Now().Unix() - last
+				if elapsed < int64(cfg.CompileCooldown) {
+					log.Logf("throttled — last manual compile was %ds ago (< %ds). Skipping.", elapsed, cfg.CompileCooldown)
+					return nil
+				}
+			}
+		}
+
+		// Snapshot the inbox items to process: top-level files, excluding dotfiles (.gitkeep) and
+		// the .compile/ control dir.
+		items, err := snapshotInbox(repo)
+		if err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			log.Logf("inbox empty — nothing to compile.")
+			writeStatus(false, "inbox empty")
+			return nil
+		}
+
+		log.Logf("compiling %d inbox item(s):", len(items))
+		for _, it := range items {
+			fmt.Fprintf(log.File(), "  %s\n", it)
+		}
+		writeStatus(true, fmt.Sprintf("compiling %d item(s)", len(items)))
+
+		// Fresh, headless compile. acceptEdits auto-applies Write/Edit without prompting.
+		if err := vault.RunClaude(ctx, cfg.ClaudeBin, repo, "/compile-inbox", nil, log); err != nil {
+			log.Logf("claude exited non-zero — leaving inbox untouched for inspection.")
+			writeStatus(false, "compile failed")
+			return err
+		}
+
+		// Archive the captures we processed (preserve a raw trail per the vault's CLAUDE.md).
+		archive := filepath.Join(repo, "inbox", "archive", st)
+		if err := os.MkdirAll(archive, 0o755); err != nil {
+			return err
+		}
+		for _, it := range items {
+			src := filepath.Join(repo, it)
+			if _, statErr := os.Stat(src); statErr == nil {
+				_ = os.Rename(src, filepath.Join(archive, filepath.Base(it)))
+			}
+		}
+		log.Logf("archived processed captures to inbox/archive/%s", st)
+
+		// Commit if anything changed; push only if origin exists. Defer a push failure so the
+		// cooldown/status bookkeeping still runs, then re-raise it so the run is flagged.
+		pushFailed := false
+		if err := vault.CommitAndPush(repo, fmt.Sprintf("Vault compile (%s)", st), nil, log); err != nil {
+			if _, ok := err.(*vault.PushError); ok {
+				pushFailed = true
+			} else {
+				writeStatus(false, "compile failed at commit")
+				return err
+			}
+		}
+
+		// Record completion timestamps for the cooldown + status surface.
+		_ = writeEpochNow(lastCompiledFile)
+		if manual {
+			_ = writeEpochNow(lastManualFile)
+		}
+
+		if pushFailed {
+			writeStatus(false, fmt.Sprintf("compiled %d item(s) but push failed", len(items)))
+			log.Logf("done (with push failure).")
+			return &vault.PushError{}
+		}
+		writeStatus(false, fmt.Sprintf("compiled %d item(s)", len(items)))
+		log.Logf("done.")
+		return nil
+	})
 }
 
 // snapshotInbox returns the top-level inbox capture files (relative to repo), excluding dotfiles

@@ -57,6 +57,25 @@ func writeEpochNow(path string) error {
 	return os.WriteFile(path, []byte(strconv.FormatInt(time.Now().Unix(), 10)), 0o644)
 }
 
+// withVaultLock runs fn under the shared per-instance lock with the common job preamble: it
+// records the run and refreshes the schedule snapshot on exit (the bash `trap 'refresh_schedules'
+// EXIT` placed after the lock). If another vault job holds the lock it returns vault.ErrLocked
+// cleanly — no run recorded, no refresh — matching the bash lock-held exit that precedes the trap.
+func withVaultLock(cfg *config.Config, job Job, log *vault.Logger, fn func() error) error {
+	lock, err := vault.AcquireLock(cfg.VaultLock)
+	if err != nil {
+		if err == vault.ErrLocked {
+			log.Logf("another vault job holds the lock (%s) — exiting.", cfg.VaultLock)
+			return vault.ErrLocked
+		}
+		return err
+	}
+	defer func() { _ = lock.Release() }()
+	recordRun(cfg, job)
+	defer RefreshSchedules(cfg)
+	return fn()
+}
+
 // LastRun returns when a job last ran (from its last-run epoch file), or the zero time if it has
 // never run. The daemon uses this for startup catch-up.
 func LastRun(cfg *config.Config, job Job) time.Time {

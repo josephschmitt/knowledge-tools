@@ -38,8 +38,9 @@ type schedulesFile struct {
 	Jobs      schedulesJobs `json:"jobs"`
 }
 
-// cronParser matches the daemon's: 5-field standard cron plus @descriptors and a CRON_TZ= prefix.
-var cronParser = cron.NewParser(
+// CronParser is the cron grammar used everywhere: 5-field standard cron plus @descriptors and a
+// CRON_TZ= prefix. Shared so the daemon's scheduler and the schedules.json snapshot agree.
+var CronParser = cron.NewParser(
 	cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 )
 
@@ -49,7 +50,7 @@ func nextRunISO(schedule string, now time.Time) *string {
 	if schedule == "" {
 		return nil
 	}
-	sched, err := cronParser.Parse(schedule)
+	sched, err := CronParser.Parse(schedule)
 	if err != nil {
 		return nil
 	}
@@ -84,23 +85,29 @@ func RefreshSchedules(cfg *config.Config) {
 			Resolve:    jobSchedule{LastRunAt: lastRunISO(cfg, JobResolve), NextRunAt: nextRunISO(cfg.ResolveSchedule, now)},
 		},
 	}
-	data, err := json.MarshalIndent(snap, "", "  ")
+	_ = writeJSONAtomic(filepath.Join(cfg.CompileDir(), "schedules.json"), snap)
+}
+
+// writeJSONAtomic marshals v (indented, trailing newline) and writes it via a temp file + rename,
+// so a reader (the MCP service) never sees a half-written file. Used for status.json and
+// schedules.json. Creates parent dirs.
+func writeJSONAtomic(path string, v any) error {
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
 	data = append(data, '\n')
-
-	dir := cfg.CompileDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
 	}
-	out := filepath.Join(dir, "schedules.json")
-	tmp := out + ".tmp." + strconv.Itoa(os.Getpid())
+	tmp := path + ".tmp." + strconv.Itoa(os.Getpid())
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		_ = os.Remove(tmp)
-		return
+		return err
 	}
-	if err := os.Rename(tmp, out); err != nil {
+	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
+		return err
 	}
+	return nil
 }
