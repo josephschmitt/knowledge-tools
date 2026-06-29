@@ -1,5 +1,5 @@
 ---
-description: Apply my answered judgment-call issues to the wiki and close them — the inbound half of the issue loop; pairs with /synthesize. Acts only on issues I've labeled `vault:answered`.
+description: Apply my answered judgment-call issues to the library and close them — the inbound half of the issue loop; pairs with /synthesize. Acts only on issues I've labeled `vault:answered`.
 model: opus
 effort: high
 allowed-tools: "Bash(gh issue list:*), Bash(gh issue view:*), Bash(gh issue comment:*), Bash(gh issue edit:*), Bash(gh issue close:*)"
@@ -7,7 +7,11 @@ allowed-tools: "Bash(gh issue list:*), Bash(gh issue view:*), Bash(gh issue comm
 
 The consumer side of the judgment-call loop. `/synthesize` files GitHub issues when it hits
 something only I can decide; this command reads my answers back out and lands them in the
-wiki. It is targeted, not a whole-corpus pass — only touch the issues and the notes they name.
+library. It is targeted, not a whole-corpus pass — only touch the issues and the notes they name.
+
+It is **library-scoped by design**: judgment calls arise from library contradictions, so answers
+apply to `library/` notes only. The notebook is audit-exempt (it never generates these issues), so
+it is not in scope here.
 
 ## The label is the go-signal
 
@@ -44,13 +48,13 @@ gh issue view <number> --comments
 
 1. **My answer is clear and actionable** (which note is current, what to retire, the verified
    fact). Apply it:
-   - Edit, merge, or retire the `wiki/` notes per my answer, written as established fact in the
-     vault's voice and preserving the *why*. Fix any links and update `index.md` if structure
-     changed.
+   - Edit, merge, or retire the `library/` notes per my answer, written as established fact in the
+     vault's voice and preserving the *why* (and the note's OKF frontmatter — mint `type`/`tags`
+     if a touched note still lacks it). Fix any links and update `index.md` if structure changed.
    - Post a marked `gh issue comment` stating exactly what you changed (name the notes), then
      `gh issue close <number>`.
 2. **The premise is already moot** — a later compile or synthesis resolved it, so there's nothing
-   to apply. Post a marked comment noting it's resolved by the current state of the wiki, then
+   to apply. Post a marked comment noting it's resolved by the current state of the library, then
    close. No edit.
 3. **My answer is ambiguous, partial, or asks a follow-up.** Do **not** guess and do **not** edit.
    Instead:
@@ -61,7 +65,7 @@ gh issue view <number> --comments
      ```
      gh issue edit <number> --remove-label "vault:answered"
      ```
-   - Leave the issue open and the wiki untouched. It re-enters the queue only when I reply and
+   - Leave the issue open and the library untouched. It re-enters the queue only when I reply and
      re-add `vault:answered`.
 
 ## Closing
@@ -69,7 +73,7 @@ gh issue view <number> --comments
 - Append a one-line, ISO-dated entry to `log.md` (newest at the bottom): which issues you applied
   and closed (with numbers), which you bounced back with a follow-up, and what notes changed.
 - **Do not** touch `inbox/` or `inbox/archive/`, and **do not** run git — leave the commit to me
-  (or the tools-repo wrapper) so the wiki changes get reviewed. Commenting, removing labels, and
+  (or the tools-repo wrapper) so the library changes get reviewed. Commenting, removing labels, and
   closing issues are side effects you do directly; they're separate from the commit.
 
 End by telling me, briefly: which issues you closed and what you applied for each, which you

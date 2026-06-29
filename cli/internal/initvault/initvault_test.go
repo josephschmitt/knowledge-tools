@@ -55,16 +55,16 @@ func TestSeedSkipsGitkeepInPopulatedDir(t *testing.T) {
 	if _, err := Seed(dir); err != nil {
 		t.Fatal(err)
 	}
-	// Simulate a grown wiki/: remove the seeded .gitkeep, add real content.
-	_ = os.Remove(filepath.Join(dir, "wiki", ".gitkeep"))
-	if err := os.WriteFile(filepath.Join(dir, "wiki", "note.md"), []byte("x"), 0o644); err != nil {
+	// Simulate a grown library/: remove the seeded .gitkeep, add real content.
+	_ = os.Remove(filepath.Join(dir, "library", ".gitkeep"))
+	if err := os.WriteFile(filepath.Join(dir, "library", "note.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Seed(dir); err != nil {
 		t.Fatal(err)
 	}
-	// The .gitkeep must NOT be re-planted into the now-populated wiki/.
-	if _, err := os.Stat(filepath.Join(dir, "wiki", ".gitkeep")); !os.IsNotExist(err) {
+	// The .gitkeep must NOT be re-planted into the now-populated library/.
+	if _, err := os.Stat(filepath.Join(dir, "library", ".gitkeep")); !os.IsNotExist(err) {
 		t.Error(".gitkeep should not be re-planted in a populated dir")
 	}
 }

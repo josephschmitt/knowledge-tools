@@ -31,10 +31,10 @@ can switch on built-in OAuth token validation pointed at any OIDC issuer. See
 
 | Tool | Purpose |
 |---|---|
-| `search_library(query)` | Full-text search across compiled library notes |
-| `get_note(path)` | Return one note's markdown |
-| `list_index()` | Return `index.md` (the navigation map) |
-| `list_notes()` | List every library note |
+| `search_notes(query, scope?)` | Full-text search across compiled notes; `scope` is `library` (default), `notebook`, or `both` (never `tasks/`) |
+| `get_note(path)` | Return one note's markdown (path may be area-qualified: `library/…` / `notebook/…`) |
+| `list_index()` | Return the library and notebook navigation maps |
+| `list_notes()` | List every note, area-qualified, across `library/` and `notebook/` |
 | `append_to_inbox(text, title?)` | Capture a raw note into `inbox/` for the scheduled compile |
 | `compile_run()` | Trigger an on-demand compile (async, rate-limited to one/hour) |
 | `vault_status()` | Pollable JSON: last successful compile time, pending inbox count, manual-compile cooldown, running flag, and per-job last/next scheduled run |
@@ -206,9 +206,9 @@ token on every request).
 
 | Method & path | MCP tool | Success |
 |---|---|---|
-| `GET /api/v1/library/search?q=` | `search_library` | `200 {query, hits:[{note,snippets}]}` |
-| `GET /api/v1/library/notes` | `list_notes` | `200 {notes:[...]}` |
-| `GET /api/v1/library/notes/<path>` | `get_note` | `200 {path, content}` / `404` |
+| `GET /api/v1/search?q=&scope=` | `search_notes` | `200 {query, scope, hits:[{area,note,snippets}]}` |
+| `GET /api/v1/notes` | `list_notes` | `200 {notes:[...]}` |
+| `GET /api/v1/notes/<path>` | `get_note` | `200 {path, content}` / `404` |
 | `GET /api/v1/index` | `list_index` | `200 {content}` |
 | `POST /api/v1/inbox` | `append_to_inbox` | `201 {path}` |
 | `POST /api/v1/compile` | `compile_run` | `200 {status, available_at?}` |
@@ -218,8 +218,15 @@ token on every request).
 | `POST /api/v1/questions/<id>/answer` | `answer_question` | `200 {id, status}` |
 
 Notes:
-- The note path is taken from the rest of the URL (`/library/notes/sub/note.md`); the `.md`
-  extension is optional. Paths are confined to the vault — traversal attempts get `400`.
+- The query surface spans two areas — `library/` (settled) and `notebook/` (loose, tentative
+  thinking); `tasks/` is excluded. `search` takes `scope=library` (default) | `notebook` | `both`
+  (bad value → `400`); each hit carries its `area`, and `note` is the area-relative path —
+  combine them (`<area>/<note>`) to read it back. `list_notes` returns area-qualified paths
+  across both areas, and `index` returns the library index plus the notebook index, each labeled.
+- The note path is taken from the rest of the URL (`/notes/sub/note.md`), and may be
+  area-qualified (`/notes/notebook/some-note`); an unqualified path resolves under
+  `library/`. The `.md` extension is optional. Paths are confined to the vault — traversal
+  attempts get `400`.
 - `POST /inbox` body is `{ "text": "...", "title": "..."? }`; `POST .../answer` body is
   `{ "answer": "..." }`.
 - `POST /compile` always returns `200` with a discriminated `status`
@@ -231,8 +238,8 @@ Notes:
 
 ```sh
 curl -s localhost:3000/api/v1/status
-curl -s 'localhost:3000/api/v1/library/search?q=networking'
-curl -s localhost:3000/api/v1/library/notes/some-note
+curl -s 'localhost:3000/api/v1/search?q=networking&scope=both'
+curl -s localhost:3000/api/v1/notes/some-note
 curl -s -XPOST localhost:3000/api/v1/inbox \
   -H 'content-type: application/json' -d '{"text":"a thought","title":"My Note"}'
 curl -s -XPOST localhost:3000/api/v1/compile

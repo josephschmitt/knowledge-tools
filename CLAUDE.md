@@ -59,7 +59,7 @@ working in the repo.
     (`CRON_TZ=America/Detroit 30 3 * * *`).
   - `internal/vault` ports `vault-lib.sh`: the per-instance lock (now `flock(2)` on **both** Linux
     and macOS — no mkdir fallback), `sync_from_origin` + `commit_and_push` git discipline (shells
-    out to `git`; issue jobs commit `library/ index.md log.md` [+ `inbox/.review/` in files], compile
+    out to `git`; issue jobs commit `library/ notebook/ index.md log.md` [+ `inbox/.review/` in files], compile
     stages everything; no-ops cleanly when not a git repo), the headless `claude` invocation, and
     RFC3339 dates (no GNU/BSD branching).
   - `internal/jobs` ports `vault-compile.sh` + `vault-job.sh`: compile snapshot/archive/
@@ -98,11 +98,14 @@ working in the repo.
   `CLAUDE.md` (the librarian spec), `.claude/commands/{compile-inbox,synthesize,resolve}.md`
   plus the git/GitHub-free `{synthesize,resolve}-files.md` variants,
   `.claude/settings.json`, `.gitignore`, the folder skeleton (`inbox/`, `inbox/archive/`,
-  `wiki/`, `outputs/`), and empty `index.md`/`log.md`. `knowledge-tools init` copies these into a
-  new vault (from its embedded copy — keep `cli/internal/initvault/template/` in sync via `make
-  sync-template`). This is a seed, **not** a source of truth: the commands and `CLAUDE.md` belong
-  to the vault once seeded and are *expected* to diverge as the content grows — the tooling only
-  schedules them.
+  `library/`, `notebook/`, `outputs/`), and empty `index.md`/`log.md`. `knowledge-tools init` copies
+  these into a new vault (from its embedded copy — keep `cli/internal/initvault/template/` in sync
+  via `make sync-template`). The seed deliberately scopes to the **library + notebook** knowledge
+  areas and **defers `tasks/`** (the live vault's third area): the task workflow is coupled to the
+  TaskNotes Obsidian plugin and its `.obsidian/` config, which a generic seed can't ship — a seeder
+  layers that on per-vault. This is a seed, **not** a source of truth: the commands and `CLAUDE.md`
+  belong to the vault once seeded and are *expected* to diverge as the content grows — the tooling
+  only schedules them.
 - `.claude-plugin/` — the Claude Code plugin marketplace (`marketplace.json`) and plugin
   manifest (`plugin.json`).
 
@@ -134,7 +137,7 @@ present.
 - **Tool descriptions + field schemas** (`service/src/mcp.ts`) — per-tool invariants any
   caller must obey: what the tool does, hard usage rules (e.g. capture takes zero
   decisions), field-level facts (e.g. no separate source-URL field — fold it into
-  `text`), and one-clause pointers to companion tools (`search_library` → `get_note`,
+  `text`), and one-clause pointers to companion tools (`search_notes` → `get_note`,
   `compile_run` → `vault_status`). Rules only, no rationale.
 - **Server `instructions`** (same file) — cross-tool policy and architecture only: the
   dumb-capture/smart-compile split, prefer-the-vault-over-general-knowledge, which tools

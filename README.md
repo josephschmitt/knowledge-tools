@@ -133,7 +133,7 @@ knowledge-tools init /path/to/new-vault
 ```
 
 This lays down the librarian (`CLAUDE.md`), the `/compile-inbox`, `/synthesize`, and
-`/resolve` commands, and the folder skeleton (`inbox/`, `wiki/`, empty `index.md`/`log.md`).
+`/resolve` commands, and the folder skeleton (`inbox/`, `library/`, `notebook/`, empty `index.md`/`log.md`).
 It's a **one-shot scaffold, not a sync**: strictly copy-if-absent (existing files are never
 touched, there's no `--force`), and it leaves git to you — `cd` into the new vault, `git init`,
 and make the first commit. After seeding, the librarian belongs to the vault and is meant to
