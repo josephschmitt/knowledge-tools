@@ -266,11 +266,15 @@ manual escape hatch (re-cuts, hotfixes).
 - `cli-release.yml` — triggers on `cli/**` merges to `main` **and** on `cli/v*` tag pushes. On a
   merge it computes the next `cli/vX.Y.Z` from the landed conventional-commit prefixes; on a tag
   push it uses that exact tag. Because OSS goreleaser (no Pro `monorepo`) parses the *raw* tag as
-  semver and chokes on the `cli/` prefix, the job builds artifacts with `goreleaser release --clean
-  --snapshot` — injecting the clean version via `CLI_VERSION` (snapshot mode parses no tag and
-  publishes nothing) — and then **publishes the GitHub release itself with `gh`** on the real
-  `cli/vX.Y.Z` tag (a GITHUB_TOKEN-created tag/release can't trigger a second workflow, so the build
-  and release must share one run). The `cli/v*` prefix keeps the CLI out of the skill releases'
-  `skills/vX.Y.Z` namespace. The Homebrew cask is **deferred** (commented in `cli/.goreleaser.yaml`)
-  until the `HOMEBREW_TAP_GITHUB_TOKEN` secret is set and the cask gets a prefixed-tag `url.template`
-  — binaries + deb/rpm/apk/archlinux + checksums still ship.
+  semver and chokes on the `cli/` prefix, the job feeds goreleaser a clean `vX.Y.Z` via
+  `GORELEASER_CURRENT_TAG` (and `CLI_VERSION`) and runs `goreleaser release --clean --skip=validate
+  --skip=publish` — which builds artifacts and **generates** the Homebrew cask under `dist/` but
+  pushes nothing (`release.disable: true` is belt-and-suspenders) — then **publishes the GitHub
+  release itself with `gh`** on the real `cli/vX.Y.Z` tag (a GITHUB_TOKEN-created tag/release can't
+  trigger a second workflow, so the build and release must share one run). The `cli/v*` prefix keeps
+  the CLI out of the skill releases' `skills/vX.Y.Z` namespace. A final step then **pushes goreleaser's
+  generated cask** to `josephschmitt/homebrew-tap` (`HOMEBREW_TAP_GITHUB_TOKEN` secret) — done after
+  the release so the cask's assets exist and its sha256s match them (one build); a `url.template`
+  override points the cask at the prefixed `cli/vX.Y.Z` release, and post-install hooks symlink `kt`
+  + strip the quarantine xattr. So `brew install --cask josephschmitt/tap/knowledge-tools` works —
+  alongside binaries + deb/rpm/apk/archlinux + checksums.
