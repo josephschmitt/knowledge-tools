@@ -26,6 +26,10 @@ permissions:
 jobs:
   package:
     runs-on: ubuntu-latest
+    # Only handle skills releases. A `release: published` event for a non-skills tag (e.g. a
+    # hand-published cli/v* release) must not build/attach skill zips to it; the auto path
+    # (push to main / workflow_dispatch) always proceeds.
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'skills/v')
     steps:
       - uses: actions/checkout@v4
         with:
