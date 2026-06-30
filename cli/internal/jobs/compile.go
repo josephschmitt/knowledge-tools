@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/josephschmitt/knowledge-tools/cli/internal/agent"
 	"github.com/josephschmitt/knowledge-tools/cli/internal/config"
 	"github.com/josephschmitt/knowledge-tools/cli/internal/vault"
 )
@@ -114,9 +115,26 @@ func Compile(ctx context.Context, cfg *config.Config, manual bool) error {
 		}
 		writeStatus(true, fmt.Sprintf("compiling %d item(s)", len(items)))
 
-		// Fresh, headless compile. acceptEdits auto-applies Write/Edit without prompting.
-		if err := vault.RunClaude(ctx, cfg.ClaudeBin, repo, "/compile-inbox", nil, log); err != nil {
-			log.Logf("claude exited non-zero — leaving inbox untouched for inspection.")
+		// Fresh, headless compile via the configured agent. The driver runs unattended and
+		// auto-applies file edits; compile needs no shell grants (file edits only).
+		driver, err := agent.NewDriver(agent.Spec{Agent: cfg.Agent, Bin: cfg.AgentBin, Cmd: cfg.AgentCmd})
+		if err != nil {
+			writeStatus(false, "compile failed: agent config")
+			return err
+		}
+		prompt, err := skillPrompt(repo, "compile-inbox", "")
+		if err != nil {
+			writeStatus(false, "compile failed: missing skill")
+			return err
+		}
+		inv := agent.Invocation{
+			Repo:   repo,
+			Prompt: prompt,
+			Model:  cfg.JobModel("compile"),
+			Effort: cfg.JobEffort("compile"),
+		}
+		if err := agent.Run(ctx, driver, inv, log.File()); err != nil {
+			log.Logf("agent exited non-zero — leaving inbox untouched for inspection.")
 			writeStatus(false, "compile failed")
 			return err
 		}

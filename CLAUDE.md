@@ -2,9 +2,10 @@
 
 This repo is the **tooling** for a personal "LLM wiki" — everything that operates
 *on* the vault from the outside. The vault itself (the notes, plus the `CLAUDE.md`
-librarian spec and `/compile-inbox` command Claude runs *inside* it) lives in a separate
+librarian spec and the `compile-inbox` skill the agent runs *inside* it) lives in a separate
 repo whose location is configured by whoever sets this up (the `KNOWLEDGE_REPO` /
-`VAULT_ROOT` knobs below). This repo holds none of the vault's content — only the
+`VAULT_ROOT` knobs below). The agent harness is configurable (`KNOWLEDGE_AGENT`: claude by
+default, codex, opencode, or custom); the vault's procedures ship as harness-neutral skills. This repo holds none of the vault's content — only the
 generic *starting point* of its librarian (see `template/`), which a fresh vault is
 seeded from once and then tunes on its own as the corpus grows.
 
@@ -58,12 +59,25 @@ working in the repo.
     knobs. **Schedules moved from systemd OnCalendar to cron expressions** (robfig/cron grammar):
     `KNOWLEDGE_COMPILE_SCHEDULE` (default `@hourly`), `KNOWLEDGE_SYNTHESIZE_SCHEDULE`
     (`CRON_TZ=America/Detroit 30 4 * * 0`), `KNOWLEDGE_RESOLVE_SCHEDULE`
-    (`CRON_TZ=America/Detroit 30 3 * * *`).
+    (`CRON_TZ=America/Detroit 30 3 * * *`). Also the **agent-harness knobs**: `KNOWLEDGE_AGENT`
+    (claude | codex | opencode | custom), `KNOWLEDGE_AGENT_BIN` (deprecated `CLAUDE_BIN` is a
+    fallback), `KNOWLEDGE_AGENT_CMD` (custom template), and per-job `*_MODEL`/`*_EFFORT` overrides
+    with an `KNOWLEDGE_AGENT_MODEL`/`_EFFORT` fallback (`JobModel`/`JobEffort`; only the claude
+    agent defaults a model — opus — which the old slash-command frontmatter used to declare).
+  - `internal/agent` (new): the headless-agent abstraction that replaced `vault.RunClaude`. A
+    `Driver` (selected by `KNOWLEDGE_AGENT`) turns a harness-neutral `Invocation` (prompt, model,
+    effort, neutral shell-grant prefixes) into one harness's argv: `claude -p … --permission-mode
+    acceptEdits [--model] [--allowedTools Bash(<grant>:*)]` (reproduces the old argv), `codex exec
+    … --full-auto`, `opencode run …` (materializes an ephemeral permission config), or a `custom`
+    argv-tokenized template. `SupportsShellGrants()` reports whether a driver can scope unattended
+    shell to the gh allowlist — codex/grant-less custom can't, so `RunIssueJob` downgrades an
+    auto-detected `github` channel to the grant-free `files` channel rather than over-grant.
   - `internal/vault` ports `vault-lib.sh`: the per-instance lock (now `flock(2)` on **both** Linux
     and macOS — no mkdir fallback), `sync_from_origin` + `commit_and_push` git discipline (shells
     out to `git`; issue jobs commit `library/ notebook/ index.md log.md` [+ `inbox/.review/` in files], compile
-    stages everything; no-ops cleanly when not a git repo), the headless `claude` invocation, and
-    RFC3339 dates (no GNU/BSD branching). After a commit lands, `commit_and_push` fires a
+    stages everything; no-ops cleanly when not a git repo), and RFC3339 dates (no GNU/BSD
+    branching). (The headless agent invocation moved to `internal/agent`; the jobs feed it a skill
+    body read from `<repo>/.agents/skills/<name>/SKILL.md` as the prompt.) After a commit lands, `commit_and_push` fires a
     best-effort `POST` to the `knowledge-site` container's `/rebuild` when `KNOWLEDGE_SITE_REBUILD_URL`
     is set (bearer `KNOWLEDGE_SITE_REBUILD_TOKEN`; non-fatal — a down site never fails a job).
   - `internal/jobs` ports `vault-compile.sh` + `vault-job.sh`: compile snapshot/archive/
@@ -101,15 +115,21 @@ working in the repo.
   (browser auth at the proxy), rebuilding when a content job POSTs after a commit. The `service/`
   image no longer serves the site. See `site/README.md`.
 - `template/` — the **starting point** of a vault's own librarian, mirroring the vault layout:
-  `CLAUDE.md` (the librarian spec), `.claude/commands/{compile-inbox,synthesize,resolve}.md`
-  plus the git/GitHub-free `{synthesize,resolve}-files.md` variants,
-  `.claude/settings.json`, `.gitignore`, the folder skeleton (`inbox/`, `inbox/archive/`,
-  `library/`, `notebook/`, `outputs/`), and empty `index.md`/`log.md`. `knowledge-tools init` copies
-  these into a new vault (from its embedded copy — keep `cli/internal/initvault/template/` in sync
-  via `make sync-template`). The seed deliberately scopes to the **library + notebook** knowledge
-  areas and **defers `tasks/`** (the live vault's third area): the task workflow is coupled to the
-  TaskNotes Obsidian plugin and its `.obsidian/` config, which a generic seed can't ship — a seeder
-  layers that on per-vault. This is a seed, **not** a source of truth: the commands and `CLAUDE.md`
+  `CLAUDE.md` (the librarian spec), the `.agents/skills/{compile-inbox,synthesize,resolve}/SKILL.md`
+  skills plus the git/GitHub-free `{synthesize,resolve}-files` variants (at the cross-client
+  standard `.agents/skills/` path; `knowledge-tools init` symlinks `.claude/skills → ../.agents/skills`
+  so Claude Code discovers them too — the symlink isn't committed in either template tree because
+  Go's `embed` can't hold one, so `init` creates it post-extract), `.claude/settings.json`,
+  `.gitignore`, the folder skeleton (`inbox/`, `inbox/archive/`, `library/`, `notebook/`,
+  `outputs/`), and empty `index.md`/`log.md`. The jobs feed each skill's **body** (frontmatter
+  stripped, `$ARGUMENTS` substituted) to the agent as the prompt — deterministic across harnesses,
+  not reliant on slash-command resolution or auto-activation; model/effort live in the CLI config,
+  and the gh grant list lives in Go (`channelConfig`), not skill frontmatter. `knowledge-tools init`
+  copies these into a new vault (from its embedded copy — keep `cli/internal/initvault/template/` in
+  sync via `make sync-template`). The seed deliberately scopes to the **library + notebook**
+  knowledge areas and **defers `tasks/`** (the live vault's third area): the task workflow is coupled
+  to the TaskNotes Obsidian plugin and its `.obsidian/` config, which a generic seed can't ship — a
+  seeder layers that on per-vault. This is a seed, **not** a source of truth: the skills and `CLAUDE.md`
   belong to the vault once seeded and are *expected* to diverge as the content grows — the tooling
   only schedules them.
 - `.claude-plugin/` — the Claude Code plugin marketplace (`marketplace.json`) and plugin
@@ -117,13 +137,19 @@ working in the repo.
 
 ## Skills
 
-Every `plugins/<plugin>/skills/<name>/SKILL.md` must satisfy `scripts/validate_skills.py`
-(CI gate):
+Every `plugins/<plugin>/skills/<name>/SKILL.md` **and** every vault skill at
+`template/.agents/skills/<name>/SKILL.md` must satisfy `scripts/validate_skills.py` (CI gate):
 
 - YAML frontmatter with `name` and `description`.
 - `name`: lowercase `[a-z0-9-]`, ≤64 chars, and **must equal the directory name**.
-- `description`: non-empty, ≤1024 chars.
+- `description`: non-empty, ≤1024 chars. (Mind the unquoted-colon YAML trap — a `key: value`
+  shape inside a description, like `` `status: answered` ``, must be quoted; `resolve-files` is.)
 - No two skills share a `name`.
+
+The vault skills are the procedures the CLI jobs feed to the agent (the plugin skills are the
+claude.ai/Claude-Code connector front-door — different surface, same SKILL.md format). Only the
+repo-root `template/` is linted; the embedded `cli/internal/initvault/template/` mirror is skipped
+(the drift guard keeps it byte-identical, so linting it too would trip the duplicate-name check).
 
 Run it before pushing a skill change:
 

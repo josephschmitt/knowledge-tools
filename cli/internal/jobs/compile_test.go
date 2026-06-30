@@ -99,13 +99,15 @@ func TestCompileEndToEnd(t *testing.T) {
 	// Seed one capture.
 	must(t, os.WriteFile(filepath.Join(repo, "inbox", "capture.md"), []byte("a thought"), 0o644))
 
+	// The compile reads the skill body from the vault and feeds it as the prompt — seed it.
+	mkSkill(t, repo, "compile-inbox")
 	// Stub claude: on /compile-inbox it writes a library note (what the real compile would produce).
 	claude := stubClaude(t, "mkdir -p library && echo compiled > library/note.md")
 
 	cfg := &config.Config{
 		Repo:               repo,
 		Instance:           "test",
-		ClaudeBin:          claude,
+		AgentBin:           claude,
 		CompileCooldown:    3600,
 		VaultLock:          filepath.Join(t.TempDir(), "vault.lock"),
 		CompileSchedule:    "@hourly",
@@ -176,7 +178,7 @@ func TestCompileEmptyInbox(t *testing.T) {
 	claude := stubClaude(t, "echo should-not-run >&2; exit 1") // must not be invoked
 
 	cfg := &config.Config{
-		Repo: repo, Instance: "test", ClaudeBin: claude, CompileCooldown: 3600,
+		Repo: repo, Instance: "test", AgentBin: claude, CompileCooldown: 3600,
 		VaultLock:       filepath.Join(t.TempDir(), "vault.lock"),
 		CompileSchedule: "@hourly", SynthesizeSchedule: "@daily", ResolveSchedule: "@daily",
 	}
@@ -209,7 +211,7 @@ func TestCompileLockHeld(t *testing.T) {
 	defer held()
 
 	cfg := &config.Config{
-		Repo: repo, Instance: "test", ClaudeBin: stubClaude(t, "exit 1"), CompileCooldown: 3600,
+		Repo: repo, Instance: "test", AgentBin: stubClaude(t, "exit 1"), CompileCooldown: 3600,
 		VaultLock: lockPath, CompileSchedule: "@hourly", SynthesizeSchedule: "@daily", ResolveSchedule: "@daily",
 	}
 	err = Compile(context.Background(), cfg, false)
@@ -227,6 +229,16 @@ func TestCompileLockHeld(t *testing.T) {
 func mkInbox(t *testing.T, repo string) {
 	t.Helper()
 	must(t, os.MkdirAll(filepath.Join(repo, "inbox"), 0o755))
+}
+
+// mkSkill seeds a minimal .agents/skills/<name>/SKILL.md so the job can read a prompt body. The
+// stub agent ignores the prompt, so the content only has to exist and parse.
+func mkSkill(t *testing.T, repo, name string) {
+	t.Helper()
+	dir := filepath.Join(repo, ".agents", "skills", name)
+	must(t, os.MkdirAll(dir, 0o755))
+	body := "---\nname: " + name + "\ndescription: test skill\n---\n\nDo the " + name + " work.\n"
+	must(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644))
 }
 
 func must(t *testing.T, err error) {

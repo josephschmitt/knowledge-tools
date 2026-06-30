@@ -1,12 +1,14 @@
 # knowledge-tools
 
 Infrastructure for a personal "LLM wiki" — a knowledge base where raw captures land in
-`inbox/` and Claude Code compiles them into durable, cross-linked notes in `library/`,
+`inbox/` and a coding agent compiles them into durable, cross-linked notes in `library/`,
 following Andrej Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)
 pattern: immutable raw sources, an LLM-owned wiki of markdown files, and a schema document
-(`CLAUDE.md`) that defines the workflows. This repo holds everything that operates *on* the
-vault from the outside; the vault itself — the notes plus the `CLAUDE.md` librarian spec and
-`/compile-inbox` command Claude runs inside it — lives in a separate repo.
+(`CLAUDE.md`) that defines the workflows. The agent is configurable — Claude Code by default,
+or Codex / OpenCode / any custom command via `KNOWLEDGE_AGENT` — and the vault's procedures ship
+as harness-neutral skills under `.agents/skills/`. This repo holds everything that operates *on*
+the vault from the outside; the vault itself — the notes plus the `CLAUDE.md` librarian spec and
+the `compile-inbox` skill the agent runs inside it — lives in a separate repo.
 
 ## Components
 
@@ -31,9 +33,10 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
     plugin and its own release zip.
 - **`cli/`** — the host-side automation, a single Go CLI (`knowledge-tools`, alias `kt`) that
   replaced the old bash scripts. It runs the three vault-mutating jobs — `compile`
-  (`/compile-inbox`), `synthesize`, and `resolve` (the two judgment-call jobs, carrying their
+  (the `compile-inbox` skill), `synthesize`, and `resolve` (the two judgment-call jobs, carrying their
   calls over either GitHub issues or a git-free file queue; `KNOWLEDGE_REVIEW_CHANNEL`, see
-  [below](#judgment-call-channel-github-or-files)) — and supervises them on a schedule via a
+  [below](#judgment-call-channel-github-or-files)) — driving a configurable agent harness
+  (`KNOWLEDGE_AGENT`: claude by default, codex, opencode, or custom) and supervising them on a schedule via a
   self-managed `daemon` (one per vault), which `install`/`uninstall` register as a single OS
   autostart unit ([below](#vault-automation-host-setup)). `init` seeds a brand-new vault from
   `template/`. See [`cli/`](cli/).
@@ -46,9 +49,10 @@ vault from the outside; the vault itself — the notes plus the `CLAUDE.md` libr
 - **`scripts/`** — only `validate_skills.py` remains (used by CI). The vault job/install scripts
   all moved into `cli/`.
 - **`template/`** — the starting point of a vault's own librarian (`CLAUDE.md`, the
-  `/compile-inbox`, `/synthesize`, `/resolve` commands, and the folder skeleton). A seed, not
-  a source of truth — once `knowledge-tools init` copies it into a new vault, those files belong to
-  the vault and are expected to drift as the corpus grows. See [Starting a new vault](#starting-a-new-vault).
+  `compile-inbox` / `synthesize` / `resolve` skills under `.agents/skills/` — the cross-client
+  standard location, with `.claude/skills` symlinked to it for Claude — and the folder skeleton). A
+  seed, not a source of truth — once `knowledge-tools init` copies it into a new vault, those files
+  belong to the vault and are expected to drift as the corpus grows. See [Starting a new vault](#starting-a-new-vault).
 
 ## Installing the skill
 
@@ -132,8 +136,9 @@ KNOWLEDGE_REPO=/path/to/new-vault knowledge-tools init
 knowledge-tools init /path/to/new-vault
 ```
 
-This lays down the librarian (`CLAUDE.md`), the `/compile-inbox`, `/synthesize`, and
-`/resolve` commands, and the folder skeleton (`inbox/`, `library/`, `notebook/`, empty `index.md`/`log.md`).
+This lays down the librarian (`CLAUDE.md`), the `compile-inbox`, `synthesize`, and
+`resolve` skills (under `.agents/skills/`, with `.claude/skills` symlinked for Claude), and the
+folder skeleton (`inbox/`, `library/`, `notebook/`, empty `index.md`/`log.md`).
 It's a **one-shot scaffold, not a sync**: strictly copy-if-absent (existing files are never
 touched, there's no `--force`), and it leaves git to you — `cd` into the new vault, `git init`,
 and make the first commit. After seeding, the librarian belongs to the vault and is meant to
@@ -149,9 +154,11 @@ install` registers. On a single-vault host the instance is just `default` and yo
 naming. The three jobs all edit `library/` and commit, so they share **one lockfile**
 (`~/.local/state/knowledge-tools/vault-<vault>.lock`, keyed by the instance and overridable with
 `KNOWLEDGE_VAULT_LOCK`) and never run concurrently — while different vaults have different locks and
-*do* run concurrently. In every case Claude only edits files (and, in the GitHub review channel,
+*do* run concurrently. In every case the agent only edits files (and, in the GitHub review channel,
 runs scoped `gh` calls) — the **wrapper** owns git: it commits any `library/` + `index.md` + `log.md`
-changes and pushes if an `origin` remote exists.
+changes and pushes if an `origin` remote exists. Which agent runs is set by `KNOWLEDGE_AGENT`
+(`claude` by default; also `codex`, `opencode`, or a `custom` command), with model/effort knobs
+per job — see `.env.example`.
 
 The vault **need not be a git repo**: when the wrapper finds no work tree it skips the commit
 and leaves history to whatever syncs the folder (Dropbox, Syncthing, …). Combined with the
@@ -170,11 +177,11 @@ MCP `compile_run` tool triggers it on demand (cooldown-throttled).
 
 **Synthesize** (heavy, infrequent) and **Resolve** (light, frequent) — the judgment-call loop:
 
-- **Synthesize** — a whole-corpus `/synthesize` pass (default **weekly, ~4:30am local**,
+- **Synthesize** — a whole-corpus `synthesize` pass (default **weekly, ~4:30am local**,
   `KNOWLEDGE_SYNTHESIZE_SCHEDULE` = `CRON_TZ=America/Detroit 30 4 * * 0`). Reconciles
   drift/contradictions and finds new cross-note connections, **opening** judgment calls for
   anything only you can decide.
-- **Resolve** — a `/resolve` pass (default **daily, ~3:30am local**,
+- **Resolve** — a `resolve` pass (default **daily, ~3:30am local**,
   `KNOWLEDGE_RESOLVE_SCHEDULE` = `CRON_TZ=America/Detroit 30 3 * * *`). Reads your answers to open
   calls, applies the decisions to `library/`, and **closes** them. Short-circuits cheaply when nothing
   is answered.
@@ -189,7 +196,7 @@ Where a judgment call lives — and whether you need GitHub at all — is set by
 `KNOWLEDGE_REVIEW_CHANNEL`. Unset, it **auto-detects**: `github` when `gh` is authed *and* an
 `origin` remote exists, otherwise `files`.
 
-- **`github`** — calls are GitHub issues. `/synthesize` and `/resolve` run `gh issue ...` from
+- **`github`** — calls are GitHub issues. `synthesize` and `resolve` run `gh issue ...` from
   *inside* the Claude run, so the host needs the GitHub CLI installed, on PATH, and authenticated
   once with `gh auth login` (stored in `~/.config/gh`). The generated jobs put the relevant local
   profile dirs on PATH (`~/.nix-profile/bin` + `~/.local/bin` on Linux, the Homebrew prefixes on
@@ -197,13 +204,13 @@ Where a judgment call lives — and whether you need GitHub at all — is set by
   granted only the exact `gh issue` subcommands each command's frontmatter declares (via
   `--allowedTools`), never a blanket skip-permissions. The required labels
   (`vault:judgment-call`, `vault:needs-verification`, and `vault:answered`) must exist on the
-  repo — create them once with `gh label create`. `/synthesize` opens issues under the first
-  two; you mark a settled one `vault:answered` and `/resolve` then applies it (or asks a
+  repo — create them once with `gh label create`. `synthesize` opens issues under the first
+  two; you mark a settled one `vault:answered` and `resolve` then applies it (or asks a
   follow-up and clears the label).
 - **`files`** — calls are markdown files in `inbox/.review/`, each with a `status` of
-  `open → answered → applied`. `/synthesize-files` opens them; you answer from chat through the
+  `open → answered → applied`. `synthesize-files` opens them; you answer from chat through the
   MCP connector (`list_questions` / `get_question` / `answer_question`), which flips `status` to
-  `answered`; `/resolve-files` applies answered calls and marks them `applied`. **No `gh`, no
+  `answered`; `resolve-files` applies answered calls and marks them `applied`. **No `gh`, no
   GitHub, no git** — the run only edits files, so this is the channel for a vault synced as a
   plain folder.
 
@@ -212,7 +219,7 @@ Either way you can answer **from chat**: the MCP connector's `list_questions` / 
 GitHub issues directly when the server is configured with a token (`KNOWLEDGE_GITHUB_TOKEN` +
 `KNOWLEDGE_GITHUB_REPO`; see [`service/README.md`](service/README.md#review-channel)). On the GitHub backend,
 answering from chat comments and labels the issue `vault:answered` just as you would on
-github.com, so `/resolve` closes it — handy when you don't feel like opening GitHub. Point the
+github.com, so `resolve` closes it — handy when you don't feel like opening GitHub. Point the
 connector at the same channel the host uses.
 
 To set this up from scratch (idempotent — safe to re-run), point `KNOWLEDGE_REPO` at your
@@ -272,9 +279,9 @@ itself** (`inbox/`, `library/`, `outputs/`), the optional `gh.env`, and linger u
 ### Bot account (optional)
 
 By default the issue jobs run `gh` as **you** (the `~/.config/gh` login), so any comment
-`/synthesize` or `/resolve` posts is authored by your personal account — which reads as you
+`synthesize` or `resolve` posts is authored by your personal account — which reads as you
 talking to yourself on your own issues. Purely cosmetic: it doesn't affect behavior, since
-`/resolve` gates on the `vault:answered` label, not on who wrote a comment. If the self-talk
+`resolve` gates on the `vault:answered` label, not on who wrote a comment. If the self-talk
 bugs you, give the jobs a separate **machine account** (GitHub permits one per person for
 automation, and it's free — including on private repos):
 

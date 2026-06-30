@@ -30,8 +30,27 @@ func commonEnv(cfg *config.Config) []envKV {
 		{"KNOWLEDGE_RESOLVE_SCHEDULE", cfg.ResolveSchedule},
 		{"KNOWLEDGE_COMPILE_COOLDOWN", strconv.Itoa(cfg.CompileCooldown)},
 	}
-	if cfg.ClaudeBin != "" {
-		env = append(env, envKV{"CLAUDE_BIN", cfg.ClaudeBin})
+	// The agent harness selection + its model/effort/bin knobs — only the ones the user set, so a
+	// default-claude deployment's unit stays as lean as before.
+	for _, kv := range []envKV{
+		{"KNOWLEDGE_AGENT", cfg.Agent},
+		{"KNOWLEDGE_AGENT_BIN", cfg.AgentBin},
+		{"KNOWLEDGE_AGENT_CMD", cfg.AgentCmd},
+		{"KNOWLEDGE_AGENT_MODEL", cfg.AgentModel},
+		{"KNOWLEDGE_AGENT_EFFORT", cfg.AgentEffort},
+		{"KNOWLEDGE_COMPILE_MODEL", cfg.CompileModel},
+		{"KNOWLEDGE_SYNTHESIZE_MODEL", cfg.SynthesizeModel},
+		{"KNOWLEDGE_RESOLVE_MODEL", cfg.ResolveModel},
+		{"KNOWLEDGE_COMPILE_EFFORT", cfg.CompileEffort},
+		{"KNOWLEDGE_SYNTHESIZE_EFFORT", cfg.SynthesizeEffort},
+		{"KNOWLEDGE_RESOLVE_EFFORT", cfg.ResolveEffort},
+	} {
+		// KNOWLEDGE_AGENT defaults to "claude"; omit it from the unit when it's the default so an
+		// unconfigured deployment's env file is unchanged.
+		if kv.v == "" || (kv.k == "KNOWLEDGE_AGENT" && kv.v == config.DefaultAgent) {
+			continue
+		}
+		env = append(env, kv)
 	}
 	if cfg.ReviewChannel != "" {
 		env = append(env, envKV{"KNOWLEDGE_REVIEW_CHANNEL", cfg.ReviewChannel})

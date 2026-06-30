@@ -1,13 +1,13 @@
 ---
-description: Periodic whole-vault pass — reconcile drift and contradictions, then find new cross-note connections. Run infrequently; not part of the nightly compile.
-argument-hint: "[optional topic/area to focus on]"
-model: opus
-effort: xhigh
-allowed-tools: "Bash(gh issue list:*), Bash(gh issue view:*), Bash(gh issue create:*), Bash(gh search issues:*)"
+name: synthesize
+description: Periodic whole-vault pass — reconcile drift and contradictions, then find new cross-note connections, opening judgment calls as GitHub issues. Run infrequently; not part of the scheduled compile. Optional argument focuses the pass on a topic/area.
 ---
 
+First read the librarian spec in `CLAUDE.md` — the areas, note model, and voice rules below all
+defer to it. (Your harness may not auto-load it, so read it explicitly.)
+
 A deliberate, infrequent maintenance-and-synthesis pass over the **whole vault**.
-This is the opposite of the nightly compile: the compile processes fresh captures one
+This is the opposite of the scheduled compile: the compile processes fresh captures one
 at a time with a local view; this pass reads the entire corpus at once to keep it true
 and to discover structure that only emerges across many notes. The writing is
 **library-centric** — reconcile and synthesize land in the library — but the pass also
@@ -106,20 +106,20 @@ End every issue body with a one-line reminder of how I act on it, so the loop ex
 GitHub:
 
 > Reply with your decision, then add the `vault:answered` label to apply it. If anything's
-> unclear, `/resolve` asks a follow-up here and clears the label.
+> unclear, the resolve pass asks a follow-up here and clears the label.
 
-This command only **opens** issues — it never closes them; applying my answers and closing is
-`/resolve`'s job, and `/resolve` acts only on issues I've labeled `vault:answered`. If your
+This pass only **opens** issues — it never closes them; applying my answers and closing is the
+resolve pass's job, and resolve acts only on issues I've labeled `vault:answered`. If your
 Phase 1 reconciliation makes an already-open issue moot, leave it open (you can't close it here) —
-I'll close it, or mark it `vault:answered` for `/resolve` to close. Just don't duplicate it.
+I'll close it, or mark it `vault:answered` for resolve to close. Just don't duplicate it.
 
 Then:
 
 - Append a one-line, ISO-dated entry to `log.md` (newest at the bottom) summarizing the run:
   what you reconciled, what you synthesized, how many notes touched, and how many issues you
   opened.
-- **Do not** touch `inbox/` or `inbox/archive/`, and **do not** run git — leave the commit
-  to me so I can review the library and notebook changes first. (Issues are separate from the
+- **Do not** touch `inbox/` or `inbox/archive/`, and **do not** run git — leave the commit to
+  me so I can review the library and notebook changes first. (Issues are separate from the
   commit; file them directly.)
 
 End by telling me, briefly: what you fixed, what new connections/hubs you added, and the

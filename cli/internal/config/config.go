@@ -20,7 +20,8 @@ import (
 // Defaults mirror the bash scripts' defaults so behavior is unchanged across the port.
 const (
 	DefaultInstance        = "default"
-	DefaultCompileCooldown = 3600 // seconds; KNOWLEDGE_COMPILE_COOLDOWN
+	DefaultAgent           = "claude" // KNOWLEDGE_AGENT
+	DefaultCompileCooldown = 3600     // seconds; KNOWLEDGE_COMPILE_COOLDOWN
 
 	// Schedules are cron expressions (robfig/cron). These mirror the old OnCalendar defaults:
 	//   compile    hourly
@@ -42,8 +43,24 @@ type Config struct {
 	Repo string
 	// Instance is KNOWLEDGE_INSTANCE (default "default"). Keys the lock, schedules, and units.
 	Instance string
-	// ClaudeBin is CLAUDE_BIN — the claude binary the jobs invoke (default ~/.local/bin/claude).
-	ClaudeBin string
+	// Agent is KNOWLEDGE_AGENT — which headless harness runs the jobs: claude (default) | codex |
+	// opencode | custom.
+	Agent string
+	// AgentBin is KNOWLEDGE_AGENT_BIN — the harness binary path. Empty lets each driver pick its
+	// own default (claude → ~/.local/bin/claude, codex → "codex", opencode → "opencode"). The
+	// deprecated CLAUDE_BIN is honored as a fallback.
+	AgentBin string
+	// AgentCmd is KNOWLEDGE_AGENT_CMD — the command template, required only when Agent == "custom".
+	AgentCmd string
+	// AgentModel is KNOWLEDGE_AGENT_MODEL — the fallback model for all jobs (per-job knobs win).
+	// Empty lets the harness use its own configured default; the claude agent falls back to opus.
+	AgentModel string
+	// AgentEffort is KNOWLEDGE_AGENT_EFFORT — the fallback reasoning effort (per-job knobs win).
+	// Only harnesses with an effort knob (claude has none; codex does) honor it.
+	AgentEffort string
+	// Per-job model/effort overrides (KNOWLEDGE_{COMPILE,SYNTHESIZE,RESOLVE}_{MODEL,EFFORT}).
+	CompileModel, SynthesizeModel, ResolveModel    string
+	CompileEffort, SynthesizeEffort, ResolveEffort string
 	// CompileCooldown is KNOWLEDGE_COMPILE_COOLDOWN seconds between allowed manual compiles.
 	CompileCooldown int
 	// ReviewChannel is KNOWLEDGE_REVIEW_CHANNEL ("github" | "files" | "" for auto-detect).
@@ -147,7 +164,17 @@ func Load(instance, repo string) (*Config, error) {
 	cfg := &Config{
 		Repo:               repo,
 		Instance:           instance,
-		ClaudeBin:          envOr("CLAUDE_BIN", defaultClaudeBin()),
+		Agent:              envOr("KNOWLEDGE_AGENT", DefaultAgent),
+		AgentBin:           agentBin(),
+		AgentCmd:           os.Getenv("KNOWLEDGE_AGENT_CMD"),
+		AgentModel:         os.Getenv("KNOWLEDGE_AGENT_MODEL"),
+		AgentEffort:        os.Getenv("KNOWLEDGE_AGENT_EFFORT"),
+		CompileModel:       os.Getenv("KNOWLEDGE_COMPILE_MODEL"),
+		SynthesizeModel:    os.Getenv("KNOWLEDGE_SYNTHESIZE_MODEL"),
+		ResolveModel:       os.Getenv("KNOWLEDGE_RESOLVE_MODEL"),
+		CompileEffort:      os.Getenv("KNOWLEDGE_COMPILE_EFFORT"),
+		SynthesizeEffort:   os.Getenv("KNOWLEDGE_SYNTHESIZE_EFFORT"),
+		ResolveEffort:      os.Getenv("KNOWLEDGE_RESOLVE_EFFORT"),
 		CompileCooldown:    envInt("KNOWLEDGE_COMPILE_COOLDOWN", DefaultCompileCooldown),
 		ReviewChannel:      os.Getenv("KNOWLEDGE_REVIEW_CHANNEL"),
 		GithubRepo:         os.Getenv("KNOWLEDGE_GITHUB_REPO"),
@@ -161,6 +188,64 @@ func Load(instance, repo string) (*Config, error) {
 	return cfg, nil
 }
 
+// JobModel resolves the model for a job: the per-job override wins, then KNOWLEDGE_AGENT_MODEL,
+// then the agent's default. Only the claude agent has a real default (opus) — preserving the model
+// the old slash-command frontmatter declared; other harnesses default empty (use their own model).
+func (c *Config) JobModel(job string) string {
+	var perJob string
+	switch job {
+	case "compile":
+		perJob = c.CompileModel
+	case "synthesize":
+		perJob = c.SynthesizeModel
+	case "resolve":
+		perJob = c.ResolveModel
+	}
+	m := firstNonEmpty(perJob, c.AgentModel)
+	if m == "" && (c.Agent == "" || c.Agent == "claude") {
+		return "opus"
+	}
+	return m
+}
+
+// JobEffort resolves the reasoning effort for a job: per-job override, then KNOWLEDGE_AGENT_EFFORT.
+// No agent-specific default — effort values are harness-specific, and the claude harness has no
+// effort flag (it drops this). Empty means unset.
+func (c *Config) JobEffort(job string) string {
+	var perJob string
+	switch job {
+	case "compile":
+		perJob = c.CompileEffort
+	case "synthesize":
+		perJob = c.SynthesizeEffort
+	case "resolve":
+		perJob = c.ResolveEffort
+	}
+	return firstNonEmpty(perJob, c.AgentEffort)
+}
+
+// agentBin resolves KNOWLEDGE_AGENT_BIN, honoring the deprecated CLAUDE_BIN as a fallback. Empty
+// when neither is set, so each driver supplies its own default binary.
+func agentBin() string {
+	if v := os.Getenv("KNOWLEDGE_AGENT_BIN"); v != "" {
+		return v
+	}
+	if v := os.Getenv("CLAUDE_BIN"); v != "" {
+		fmt.Fprintln(os.Stderr, "knowledge-tools: CLAUDE_BIN is deprecated; set KNOWLEDGE_AGENT_BIN instead.")
+		return v
+	}
+	return ""
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // RequireRepo returns an error if KNOWLEDGE_REPO is unset — the jobs and daemon need it.
 func (c *Config) RequireRepo() error {
 	if c.Repo == "" {
@@ -171,11 +256,6 @@ func (c *Config) RequireRepo() error {
 
 // CompileDir is <repo>/inbox/.compile — the coordination dir shared with the MCP service.
 func (c *Config) CompileDir() string { return filepath.Join(c.Repo, "inbox", ".compile") }
-
-func defaultClaudeBin() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "bin", "claude")
-}
 
 // defaultVaultLock mirrors vault-lib.sh: ~/.local/state/knowledge-tools/vault-<instance>.lock.
 func defaultVaultLock(instance string) string {

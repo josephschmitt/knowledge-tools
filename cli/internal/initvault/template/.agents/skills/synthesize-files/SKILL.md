@@ -1,12 +1,13 @@
 ---
-description: Periodic whole-vault pass — reconcile drift and contradictions, then find new cross-note connections. File-queue variant — opens judgment calls as files in inbox/.review/ instead of GitHub issues. Run infrequently; not part of the nightly compile.
-argument-hint: "[optional topic/area to focus on]"
-model: opus
-effort: xhigh
+name: synthesize-files
+description: Periodic whole-vault pass — reconcile drift and contradictions, then find new cross-note connections. File-queue variant — opens judgment calls as files in inbox/.review/ instead of GitHub issues. Run infrequently; not part of the scheduled compile. Optional argument focuses the pass on a topic/area.
 ---
 
+First read the librarian spec in `CLAUDE.md` — the areas, note model, and voice rules below all
+defer to it. (Your harness may not auto-load it, so read it explicitly.)
+
 A deliberate, infrequent maintenance-and-synthesis pass over the **whole vault**.
-This is the opposite of the nightly compile: the compile processes fresh captures one
+This is the opposite of the scheduled compile: the compile processes fresh captures one
 at a time with a local view; this pass reads the entire corpus at once to keep it true
 and to discover structure that only emerges across many notes. The writing is
 **library-centric** — reconcile and synthesize land in the library — but the pass also
@@ -15,7 +16,7 @@ alone (it's audit-exempt and never re-judged for ripeness).
 
 This is the **file-queue** variant: judgment calls are written as files in `inbox/.review/`
 rather than GitHub issues, so the loop works without git or GitHub. I answer them from chat
-(through the vault's MCP connector), and `/resolve-files` applies my answers. You need no `gh`
+(through the vault's MCP connector), and the resolve-files pass applies my answers. You need no `gh`
 and no network — only file edits.
 
 If an argument is given (`$ARGUMENTS`), focus the pass on that topic/cluster and notes
@@ -114,11 +115,11 @@ decision I need to make.>
   pointing `deep-research` at it would confirm it.
 
 Leave `## Answer` empty and `## Discussion` empty — I fill the answer (the MCP `answer_question`
-tool flips `status` to `answered`), and `/resolve-files` applies it.
+tool flips `status` to `answered`), and the resolve-files pass applies it.
 
-This command only **opens** questions — it never applies or closes them; that's
-`/resolve-files`'s job, and it acts only on questions with `status: answered`. If your Phase 1
-reconciliation makes an already-open question moot, leave the file as-is — `/resolve-files` will
+This pass only **opens** questions — it never applies or closes them; that's the
+resolve-files pass's job, and it acts only on questions with `status: answered`. If your Phase 1
+reconciliation makes an already-open question moot, leave the file as-is — resolve-files will
 catch and close it. Just don't duplicate it.
 
 Then:

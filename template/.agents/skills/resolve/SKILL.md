@@ -1,12 +1,13 @@
 ---
-description: Apply my answered judgment-call issues to the library and close them — the inbound half of the issue loop; pairs with /synthesize. Acts only on issues I've labeled `vault:answered`.
-model: opus
-effort: high
-allowed-tools: "Bash(gh issue list:*), Bash(gh issue view:*), Bash(gh issue comment:*), Bash(gh issue edit:*), Bash(gh issue close:*)"
+name: resolve
+description: Apply my answered judgment-call issues to the library and close them — the inbound half of the issue loop; pairs with the synthesize pass. Acts only on issues I've labeled `vault:answered`.
 ---
 
-The consumer side of the judgment-call loop. `/synthesize` files GitHub issues when it hits
-something only I can decide; this command reads my answers back out and lands them in the
+First read the librarian spec in `CLAUDE.md` for the note model and voice rules this pass writes
+in. (Your harness may not auto-load it, so read it explicitly.)
+
+The consumer side of the judgment-call loop. The synthesize pass files GitHub issues when it hits
+something only I can decide; this pass reads my answers back out and lands them in the
 library. It is targeted, not a whole-corpus pass — only touch the issues and the notes they name.
 
 It is **library-scoped by design**: judgment calls arise from library contradictions, so answers
@@ -23,7 +24,7 @@ This is what keeps you from acting on a half-formed reply.
 Because `gh` may be authed as me, every comment **you** post must begin with this marker line:
 
 ```
-🤖 _via `/resolve`_
+🤖 _via the resolve pass_
 ```
 
 so that I — and any later run of you — can tell your notes apart from my answers. When reading a

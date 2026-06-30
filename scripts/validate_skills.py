@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Validate the SKILL.md files shipped by the plugins.
+"""Validate the SKILL.md files shipped by the plugins and seeded into a vault.
 
-Checks, for every `plugins/*/skills/*/SKILL.md` on disk:
+Checks, for every `plugins/*/skills/*/SKILL.md` and `template/.agents/skills/*/SKILL.md` on disk:
 
 - YAML frontmatter parses.
 - `name`: present, 1-64 chars, lowercase [a-z0-9-], matches the directory name.
@@ -24,6 +24,10 @@ except ImportError:
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLUGINS_DIR = REPO_ROOT / "plugins"
+# The vault's own skills (compile-inbox, synthesize, …), seeded into a new vault by `kt init`. Only
+# the repo-root template is linted — the embedded copy under cli/ is a byte-for-byte mirror (CI's
+# drift guard keeps them identical), so globbing it too would just trip the duplicate-name check.
+TEMPLATE_SKILLS_DIR = REPO_ROOT / "template" / ".agents" / "skills"
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 NAME_MAX = 64
@@ -106,6 +110,8 @@ def main() -> int:
     skill_files = sorted(PLUGINS_DIR.glob("*/skills/*/SKILL.md")) if PLUGINS_DIR.is_dir() else []
     if not skill_files:
         report.error("plugins/", "no SKILL.md files found under plugins/*/skills/*/")
+    if TEMPLATE_SKILLS_DIR.is_dir():
+        skill_files += sorted(TEMPLATE_SKILLS_DIR.glob("*/SKILL.md"))
 
     seen_names: set[str] = set()
     for skill_md in skill_files:
