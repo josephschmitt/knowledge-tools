@@ -1,11 +1,13 @@
 ---
-description: Apply my answered judgment-call questions to the library and close them out — the inbound half of the file-queue loop; pairs with /synthesize-files. Acts only on questions with `status: answered` in inbox/.review/.
-model: opus
-effort: high
+name: resolve-files
+description: "Apply my answered judgment-call questions to the library and close them out — the inbound half of the file-queue loop; pairs with the synthesize-files pass. Acts only on questions with `status: answered` in inbox/.review/."
 ---
 
-The consumer side of the judgment-call loop. `/synthesize-files` files questions in
-`inbox/.review/` when it hits something only I can decide; this command reads my answers back
+First read the librarian spec in `CLAUDE.md` for the note model and voice rules this pass writes
+in. (Your harness may not auto-load it, so read it explicitly.)
+
+The consumer side of the judgment-call loop. The synthesize-files pass files questions in
+`inbox/.review/` when it hits something only I can decide; this pass reads my answers back
 out and lands them in the library. It is targeted, not a whole-corpus pass — only touch the
 answered questions and the notes they name.
 
@@ -25,7 +27,7 @@ reply.
 Every note **you** add to a question's `## Discussion` must begin with this marker line:
 
 ```
-🤖 _via `/resolve-files`_
+🤖 _via the resolve-files pass_
 ```
 
 so that I — and any later run of you — can tell your notes apart from my answers. When reading

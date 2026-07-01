@@ -86,7 +86,38 @@ func Seed(vaultDir string) (Result, error) {
 		fmt.Printf("  create %s\n", rel)
 		res.Created++
 	}
+
+	if err := linkClaudeSkills(vaultDir, &res); err != nil {
+		return res, err
+	}
 	return res, nil
+}
+
+// linkClaudeSkills symlinks .claude/skills → ../.agents/skills so Claude Code discovers the vault's
+// skills at its own conventional path while the canonical copies live at the cross-client standard
+// .agents/skills/. The symlink isn't part of the embedded template (Go's embed can't hold one), so
+// it's created here, copy-if-absent. A no-op when there are no skills to point at.
+func linkClaudeSkills(vaultDir string, res *Result) error {
+	target := filepath.Join(vaultDir, ".agents", "skills")
+	if _, err := os.Stat(target); err != nil {
+		return nil // nothing to link
+	}
+	link := filepath.Join(vaultDir, ".claude", "skills")
+	if _, err := os.Lstat(link); err == nil {
+		fmt.Printf("  skip   %s (exists)\n", filepath.Join(".claude", "skills"))
+		res.Skipped++
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		return err
+	}
+	// Relative target so the vault stays portable if moved.
+	if err := os.Symlink(filepath.Join("..", ".agents", "skills"), link); err != nil {
+		return err
+	}
+	fmt.Printf("  create %s -> ../.agents/skills\n", filepath.Join(".claude", "skills"))
+	res.Created++
+	return nil
 }
 
 func dirHasContent(dir string) bool {

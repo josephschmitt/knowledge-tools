@@ -53,13 +53,13 @@ The `*_question` tools are the inbound half of the **judgment-call channel** —
 weekly maintenance pass can't decide on its own, answered from chat. They work against either
 backend (see [Review channel](#review-channel) below):
 
-- **files** (default) — `/synthesize-files` files calls as markdown in `inbox/.review/`, you
-  answer them here, `/resolve-files` applies them. Like `append_to_inbox` and the compile
+- **files** (default) — `synthesize-files` files calls as markdown in `inbox/.review/`, you
+  answer them here, `resolve-files` applies them. Like `append_to_inbox` and the compile
   sentinel, `answer_question` writes only under `inbox/`, staying inside the least-privilege
   write mount — no external creds or egress.
 - **github** — the calls are the vault's GitHub issues; `answer_question` comments the answer and
   adds the `vault:answered` label, exactly what answering on github.com does, so the host's
-  `/resolve` applies and closes it.
+  `resolve` applies and closes it.
 
 See the root README's
 [judgment-call channel](../README.md#judgment-call-channel-github-or-files) for the host side.

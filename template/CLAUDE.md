@@ -1,8 +1,8 @@
 # Knowledge Vault
 
-This repo is a personal knowledge base. Claude Code is the librarian: I dump raw
-material, you turn it into durable, cross-linked knowledge I can reference later.
-I rarely edit `library/` by hand.
+This repo is a personal knowledge base. You — whatever coding agent is running — are the
+librarian: I dump raw material, you turn it into durable, cross-linked knowledge I can
+reference later. I rarely edit `library/` by hand.
 
 ## Structure
 
@@ -110,8 +110,8 @@ When asked to compile (or process the inbox), for each item in `inbox/`:
    the library-nav sections), preserved across runs and omitted only while `notebook/` is empty.
 1. Append a one-line, ISO-dated entry to `log.md` noting what you compiled.
 1. Move the processed capture to `inbox/archive/`, the permanent raw trail — don't
-   delete it. (In the nightly run the wrapper handles archiving and the commit; see
-   the `/compile-inbox` command.)
+   delete it. (In the scheduled run the wrapper handles archiving and the commit; see
+   the `compile-inbox` skill.)
 
 Consolidate vs. split per item: fold a small fact into an existing note; give a
 substantial topic its own page.
@@ -143,8 +143,8 @@ library. It is a peer to `library/`, defined by *behavior*, not subject:
   still chewing on" list. You own it; route everything else in `notebook/` through the inbox, never
   hand-edited.
 
-The *how* lives in `/compile-inbox` (routing, hardening, regenerating `notebook/index.md`) and
-`/synthesize` (keeping the origin links intact).
+The *how* lives in the `compile-inbox` skill (routing, hardening, regenerating `notebook/index.md`)
+and the `synthesize` skill (keeping the origin links intact).
 
 ## Querying
 
@@ -168,7 +168,7 @@ When asked to run a health check, audit `library/` — **the library only**:
 `notebook/` is **exempt**: its entries are meant to contradict each other and stay unfinished, so
 these checks would only throw false positives there. (The one notebook-related integrity check —
 that origin links between a notebook entry and the library notes it spawned stay intact — runs in
-`/synthesize`, not here.) Broken `[[links]]` that *point into* the library are still in scope
+the `synthesize` skill, not here.) Broken `[[links]]` that *point into* the library are still in scope
 wherever they originate.
 
 Fix the mechanical issues (links, obvious dupes) and flag the judgment calls for me.

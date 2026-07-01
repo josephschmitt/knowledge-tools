@@ -18,12 +18,27 @@ func TestSeedCreatesTemplate(t *testing.T) {
 	// Spot-check key seed files exist.
 	for _, f := range []string{
 		"CLAUDE.md", "index.md", "log.md",
-		filepath.Join(".claude", "commands", "compile-inbox.md"),
+		filepath.Join(".agents", "skills", "compile-inbox", "SKILL.md"),
+		filepath.Join(".agents", "skills", "synthesize", "SKILL.md"),
 		filepath.Join("inbox", ".gitkeep"),
 	} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("expected %s to be seeded: %v", f, err)
 		}
+	}
+
+	// .claude/skills is a symlink to ../.agents/skills so Claude Code finds the skills.
+	link := filepath.Join(dir, ".claude", "skills")
+	fi, err := os.Lstat(link)
+	if err != nil {
+		t.Fatalf(".claude/skills not created: %v", err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Error(".claude/skills should be a symlink")
+	}
+	// It must resolve to a real directory holding the skills.
+	if _, err := os.Stat(filepath.Join(link, "compile-inbox", "SKILL.md")); err != nil {
+		t.Errorf(".claude/skills symlink does not resolve to the skills: %v", err)
 	}
 }
 

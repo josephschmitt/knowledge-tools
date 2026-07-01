@@ -13,7 +13,7 @@ func testCfg() *config.Config {
 	return &config.Config{
 		Repo:               "/home/me/vault",
 		Instance:           "work",
-		ClaudeBin:          "/home/me/.local/bin/claude",
+		AgentBin:           "/home/me/.local/bin/claude",
 		CompileCooldown:    1800,
 		ReviewChannel:      "files",
 		GithubRepo:         "me/vault",
