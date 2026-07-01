@@ -267,6 +267,35 @@ Each vault is a wholly independent deployment — its own service (one per vault
 [`service/README.md`](service/README.md)), its own MCP connector, and its own daemon — rather than
 one daemon multiplexing many vaults.
 
+### Upgrading
+
+Swapping the binary alone does **not** move a running daemon onto the new code — the OS keeps the
+already-running process on the old binary until it's restarted. So an upgrade is two steps:
+
+```sh
+# 1. Install the new binary (Homebrew shown; or re-download the release archive)
+brew upgrade --cask josephschmitt/tap/knowledge-tools
+
+# 2. Roll the daemon onto it (per vault instance)
+knowledge-tools daemon restart
+```
+
+`knowledge-tools daemon restart` re-applies everything `install` would (it rewrites the unit +
+per-instance env so **new knobs and unit features take effect**) and then restarts the running
+daemon — so it doubles as "re-run `install` and restart". Run it once per vault:
+
+```sh
+knowledge-tools daemon restart                          # the "default" vault
+KNOWLEDGE_INSTANCE=work knowledge-tools daemon restart   # the "work" vault
+```
+
+`knowledge-tools status` (and `knowledge-tools daemon status`) now records the running daemon's
+version and flags when a newer binary is installed but the daemon hasn't been restarted onto it yet
+— your cue to run the restart. The `daemon` command also has `start` and `stop` to pause/resume the
+unit without uninstalling it. (`knowledge-tools daemon` with no subcommand still just runs the
+daemon in the foreground — what the autostart unit invokes — so existing installs keep working
+without a re-install.)
+
 ### Uninstalling
 
 `knowledge-tools uninstall` is the reverse of `install` — same OS split (systemd / launchd), same

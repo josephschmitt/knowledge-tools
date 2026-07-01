@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/josephschmitt/knowledge-tools/cli/internal/config"
+	"github.com/josephschmitt/knowledge-tools/cli/internal/jobs"
 	"github.com/josephschmitt/knowledge-tools/cli/internal/vault"
 )
 
@@ -35,8 +36,27 @@ func printStatus(cfg *config.Config) error {
 	printFile("compile status", filepath.Join(compileDir, "status.json"))
 	printFile("schedules", filepath.Join(compileDir, "schedules.json"))
 
-	fmt.Printf("\ndaemon: %s\n", daemonState(cfg.Instance))
+	fmt.Println()
+	printDaemonStatus(cfg)
 	return nil
+}
+
+// printDaemonStatus prints the daemon unit's running state and, when the running daemon reports a
+// different build version than this (installed) binary, a nudge to restart. Shared by `status` and
+// `daemon status` so the two never drift.
+func printDaemonStatus(cfg *config.Config) {
+	fmt.Printf("daemon: %s\n", daemonState(cfg.Instance))
+
+	// Only meaningful once a daemon has recorded its version. Skip the compare for unversioned local
+	// builds ("dev") on either side — a dev binary vs a dev daemon isn't a real staleness signal.
+	info := jobs.ReadDaemonInfo(cfg)
+	if info == nil || info.Version == "" {
+		return
+	}
+	fmt.Printf("  running version: %s   installed: %s\n", info.Version, version)
+	if version != "dev" && info.Version != "dev" && info.Version != version {
+		fmt.Println("  → a different binary is installed; run `knowledge-tools daemon restart` to upgrade the daemon.")
+	}
 }
 
 // daemonState reports whether the daemon autostart unit is active, per OS.

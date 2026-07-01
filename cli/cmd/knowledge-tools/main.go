@@ -121,16 +121,69 @@ func (c *UninstallCmd) Run(g *Globals) error {
 	return service.Uninstall(cfg)
 }
 
-type DaemonCmd struct{}
+// DaemonCmd is a command group. `knowledge-tools daemon` with no subcommand still runs the loop
+// (default:"withargs" on Run) so the installed autostart units — whose ExecStart is `<bin> daemon`
+// — keep working without a re-install. The lifecycle subcommands (restart/start/stop/status) manage
+// the OS unit; restart is the smooth upgrade path after swapping the binary.
+type DaemonCmd struct {
+	Run     DaemonRunCmd     `cmd:"" default:"withargs" help:"Run the long-running vault daemon (default; what the autostart unit invokes)."`
+	Restart DaemonRestartCmd `cmd:"" help:"Re-apply the autostart unit and restart the running daemon (use after upgrading the binary)."`
+	Start   DaemonStartCmd   `cmd:"" help:"Start the daemon unit."`
+	Stop    DaemonStopCmd    `cmd:"" help:"Stop the daemon unit (without removing it)."`
+	Status  DaemonStatusCmd  `cmd:"" help:"Show the daemon unit state and running-vs-installed version."`
+}
 
-func (c *DaemonCmd) Run(g *Globals) error {
+type DaemonRunCmd struct{}
+
+func (c *DaemonRunCmd) Run(g *Globals) error {
 	cfg, err := g.load()
 	if err != nil {
 		return err
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	return daemon.Run(ctx, cfg)
+	return daemon.Run(ctx, cfg, version)
+}
+
+type DaemonRestartCmd struct{}
+
+func (c *DaemonRestartCmd) Run(g *Globals) error {
+	cfg, err := g.load()
+	if err != nil {
+		return err
+	}
+	return service.Restart(service.Options{Cfg: cfg})
+}
+
+type DaemonStartCmd struct{}
+
+func (c *DaemonStartCmd) Run(g *Globals) error {
+	cfg, err := g.load()
+	if err != nil {
+		return err
+	}
+	return service.Start(cfg)
+}
+
+type DaemonStopCmd struct{}
+
+func (c *DaemonStopCmd) Run(g *Globals) error {
+	cfg, err := g.load()
+	if err != nil {
+		return err
+	}
+	return service.Stop(cfg)
+}
+
+type DaemonStatusCmd struct{}
+
+func (c *DaemonStatusCmd) Run(g *Globals) error {
+	cfg, err := g.load()
+	if err != nil {
+		return err
+	}
+	printDaemonStatus(cfg)
+	return nil
 }
 
 type CompileCmd struct {
