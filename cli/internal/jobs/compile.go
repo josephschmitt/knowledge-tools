@@ -122,10 +122,13 @@ func Compile(ctx context.Context, cfg *config.Config, manual bool) error {
 			writeStatus(false, "compile failed: agent config")
 			return err
 		}
-		prompt, err := skillPrompt(repo, "compile-inbox", "")
+		prompt, legacy, err := skillPrompt(repo, "compile-inbox", "")
 		if err != nil {
 			writeStatus(false, "compile failed: missing skill")
 			return err
+		}
+		if legacy {
+			log.Logf("using legacy .claude/commands/compile-inbox.md — run `knowledge-tools init` to migrate to .agents/skills/.")
 		}
 		inv := agent.Invocation{
 			Repo:   repo,

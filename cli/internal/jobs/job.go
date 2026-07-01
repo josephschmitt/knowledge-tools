@@ -81,9 +81,12 @@ func RunIssueJob(ctx context.Context, cfg *config.Config, job Job) error {
 			log.Logf("answered calls: %d", n)
 		}
 
-		prompt, err := skillPrompt(repo, skill, "")
+		prompt, legacy, err := skillPrompt(repo, skill, "")
 		if err != nil {
 			return err
+		}
+		if legacy {
+			log.Logf("using legacy .claude/commands/%s.md — run `knowledge-tools init` to migrate to .agents/skills/.", skill)
 		}
 		inv := agent.Invocation{
 			Repo:        repo,
@@ -166,18 +169,32 @@ func channelConfig(job Job, channel string) (skill string, ghTools, commitPaths 
 	return string(job), ghTools, commitPaths
 }
 
-// skillPrompt reads <repo>/.agents/skills/<name>/SKILL.md, strips its YAML frontmatter, substitutes
+// skillPrompt resolves the procedure for a job, strips its YAML frontmatter, substitutes
 // $ARGUMENTS, and returns the body the agent runs as its prompt. Feeding the body directly (rather
 // than relying on the harness to resolve a slash command or auto-activate a skill) keeps the
 // scheduled run deterministic across harnesses.
-func skillPrompt(repo, name, args string) (string, error) {
-	path := filepath.Join(repo, ".agents", "skills", name, "SKILL.md")
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read skill %q: %w", name, err)
+//
+// It prefers the new skills layout (.agents/skills/<name>/SKILL.md) and falls back to the legacy
+// .claude/commands/<name>.md — so a vault seeded before the skills migration keeps working WITHOUT
+// re-seeding: its tuned command body is fed as the prompt exactly like a skill body. Returns the
+// body and whether the legacy path was used (so the caller can surface a migration nudge).
+func skillPrompt(repo, name, args string) (body string, legacy bool, err error) {
+	candidates := []struct {
+		path   string
+		legacy bool
+	}{
+		{filepath.Join(repo, ".agents", "skills", name, "SKILL.md"), false},
+		{filepath.Join(repo, ".claude", "commands", name+".md"), true},
 	}
-	body := strings.ReplaceAll(stripFrontmatter(string(b)), "$ARGUMENTS", args)
-	return strings.TrimSpace(body), nil
+	for _, c := range candidates {
+		b, readErr := os.ReadFile(c.path)
+		if readErr != nil {
+			continue
+		}
+		text := strings.ReplaceAll(stripFrontmatter(string(b)), "$ARGUMENTS", args)
+		return strings.TrimSpace(text), c.legacy, nil
+	}
+	return "", false, fmt.Errorf("no procedure for %q: looked for .agents/skills/%s/SKILL.md and .claude/commands/%s.md in the vault — run `knowledge-tools init` to seed the skills", name, name, name)
 }
 
 // stripFrontmatter removes a leading YAML frontmatter block (--- … ---) from s, returning the body.

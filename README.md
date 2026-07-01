@@ -145,6 +145,14 @@ and make the first commit. After seeding, the librarian belongs to the vault and
 diverge from the template as your corpus grows; that drift is expected, not something to
 reconcile. To reset a single file back to the seed, delete it and re-run.
 
+**Migrating a vault seeded before the skills layout:** nothing to do. The jobs read each
+procedure from `.agents/skills/<name>/SKILL.md` and **fall back** to the legacy
+`.claude/commands/<name>.md` body when the skill isn't present, so an older vault keeps working
+untouched (the job log prints a one-line nudge). To adopt the new layout — and get cross-harness
+interactive invocation — run `knowledge-tools init` (copy-if-absent, so it won't clobber your tuned
+files) and port each tuned command body into its `.agents/skills/<name>/SKILL.md`, then delete the
+old `.claude/commands/`.
+
 ## Vault automation (host setup)
 
 A single long-running **daemon** runs on the host per vault and supervises the three vault jobs on

@@ -119,22 +119,57 @@ func TestSkillPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Frontmatter stripped, $ARGUMENTS substituted (empty for scheduled runs).
-	got, err := skillPrompt(repo, "synthesize", "")
+	// Frontmatter stripped, $ARGUMENTS substituted (empty for scheduled runs); not legacy.
+	got, legacy, err := skillPrompt(repo, "synthesize", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "Focus on  then sweep."; got != want {
-		t.Errorf("prompt = %q, want %q", got, want)
+	if want := "Focus on  then sweep."; got != want || legacy {
+		t.Errorf("prompt = %q legacy=%v, want %q legacy=false", got, legacy, want)
 	}
 	// With an argument.
-	got, _ = skillPrompt(repo, "synthesize", "redis")
+	got, _, _ = skillPrompt(repo, "synthesize", "redis")
 	if want := "Focus on redis then sweep."; got != want {
 		t.Errorf("prompt with arg = %q, want %q", got, want)
 	}
-	// Missing skill errors.
-	if _, err := skillPrompt(repo, "nope", ""); err == nil {
-		t.Error("missing skill should error")
+	// Missing procedure errors.
+	if _, _, err := skillPrompt(repo, "nope", ""); err == nil {
+		t.Error("missing procedure should error")
+	}
+}
+
+// TestSkillPromptLegacyFallback covers a vault seeded before the skills migration: only
+// .claude/commands/<name>.md exists, and the CLI feeds its body (flagging it as legacy).
+func TestSkillPromptLegacyFallback(t *testing.T) {
+	repo := t.TempDir()
+	cmds := filepath.Join(repo, ".claude", "commands")
+	if err := os.MkdirAll(cmds, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacyBody := "---\ndescription: d\nmodel: opus\n---\n\nProcess the inbox.\n"
+	if err := os.WriteFile(filepath.Join(cmds, "compile-inbox.md"), []byte(legacyBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, legacy, err := skillPrompt(repo, "compile-inbox", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Process the inbox." || !legacy {
+		t.Errorf("legacy fallback = %q legacy=%v, want %q legacy=true", got, legacy, "Process the inbox.")
+	}
+
+	// When the new skill ALSO exists, it wins (and is not flagged legacy).
+	dir := filepath.Join(repo, ".agents", "skills", "compile-inbox")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: compile-inbox\ndescription: d\n---\n\nNew body.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, legacy, _ = skillPrompt(repo, "compile-inbox", "")
+	if got != "New body." || legacy {
+		t.Errorf("skills layout should win: got %q legacy=%v, want %q legacy=false", got, legacy, "New body.")
 	}
 }
 

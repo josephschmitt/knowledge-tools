@@ -77,7 +77,9 @@ working in the repo.
     out to `git`; issue jobs commit `library/ notebook/ index.md log.md` [+ `inbox/.review/` in files], compile
     stages everything; no-ops cleanly when not a git repo), and RFC3339 dates (no GNU/BSD
     branching). (The headless agent invocation moved to `internal/agent`; the jobs feed it a skill
-    body read from `<repo>/.agents/skills/<name>/SKILL.md` as the prompt.) After a commit lands, `commit_and_push` fires a
+    body read from `<repo>/.agents/skills/<name>/SKILL.md` as the prompt — falling back to the legacy
+    `<repo>/.claude/commands/<name>.md` body so a vault seeded before the skills migration keeps
+    working untouched, with a one-line migration nudge in the job log.) After a commit lands, `commit_and_push` fires a
     best-effort `POST` to the `knowledge-site` container's `/rebuild` when `KNOWLEDGE_SITE_REBUILD_URL`
     is set (bearer `KNOWLEDGE_SITE_REBUILD_TOKEN`; non-fatal — a down site never fails a job).
   - `internal/jobs` ports `vault-compile.sh` + `vault-job.sh`: compile snapshot/archive/
