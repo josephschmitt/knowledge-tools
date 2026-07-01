@@ -209,8 +209,10 @@ func (c *Config) JobModel(job string) string {
 }
 
 // JobEffort resolves the reasoning effort for a job: per-job override, then KNOWLEDGE_AGENT_EFFORT.
-// No agent-specific default — effort values are harness-specific, and the claude harness has no
-// effort flag (it drops this). Empty means unset.
+// No agent-specific default — effort values are harness-specific and passed through verbatim (no
+// translation): claude honors --effort (low|medium|high|xhigh|max) and codex model_reasoning_effort
+// (low|medium|high); opencode has no knob and drops it; custom uses {{effort}} if its template
+// references it. Empty means unset.
 func (c *Config) JobEffort(job string) string {
 	var perJob string
 	switch job {
