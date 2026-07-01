@@ -131,14 +131,15 @@ func siteRebuild(cfg *config.Config) *vault.SiteRebuild {
 
 // resolveAgentChannel picks the effective review channel for a driver. The github channel needs the
 // agent to scope unattended shell to a few gh subcommands; an agent that can't (codex's
-// all-or-nothing sandbox; a custom template without {{grants}}) must not be handed unrestricted
-// shell, so an auto-detected github downgrades to the grant-free files channel. If github was forced
-// explicitly (KNOWLEDGE_REVIEW_CHANNEL=github), that's an error rather than a silent downgrade.
-// Returns the channel, whether it was downgraded, and any error.
+// all-or-nothing sandbox; opencode's unverified permission precedence; a custom template without
+// {{grants}}) must not be handed unrestricted shell, so an auto-detected github downgrades to the
+// grant-free files channel. If github was forced explicitly (KNOWLEDGE_REVIEW_CHANNEL=github),
+// that's an error rather than a silent downgrade. Returns the channel, whether it was downgraded,
+// and any error.
 func resolveAgentChannel(detected, forced string, driver agent.Driver) (string, bool, error) {
 	if detected == "github" && !driver.SupportsShellGrants() {
 		if forced == "github" {
-			return "", false, fmt.Errorf("KNOWLEDGE_REVIEW_CHANNEL=github needs an agent that can scope shell grants, but %q cannot — use the files channel or the claude/opencode agent", driver.Name())
+			return "", false, fmt.Errorf("KNOWLEDGE_REVIEW_CHANNEL=github needs an agent that can scope shell grants, but %q cannot — use the files channel, or the claude agent (or a custom template with {{grants}})", driver.Name())
 		}
 		return "files", true, nil
 	}

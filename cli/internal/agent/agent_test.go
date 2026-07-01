@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -86,10 +87,12 @@ func TestCodexDriver(t *testing.T) {
 
 func TestOpencodeDriver(t *testing.T) {
 	d := &opencodeDriver{bin: "opencode"}
-	if !d.SupportsShellGrants() {
-		t.Error("opencode should support scoped shell grants via its config")
+	// OpenCode's bash-permission precedence is unverified, so it doesn't claim scoped grants and is
+	// routed to the files channel like codex.
+	if d.SupportsShellGrants() {
+		t.Error("opencode should report no verified shell-grant support (routes to files channel)")
 	}
-	cmd, cleanup, err := d.Build(context.Background(), Invocation{Prompt: "p", Model: "anthropic/claude", ShellGrants: []string{"gh issue list"}})
+	cmd, cleanup, err := d.Build(context.Background(), Invocation{Prompt: "p", Model: "anthropic/claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +101,7 @@ func TestOpencodeDriver(t *testing.T) {
 	if !reflect.DeepEqual(cmd.Args[1:], want) {
 		t.Errorf("opencode argv = %v, want %v", cmd.Args[1:], want)
 	}
-	// The ephemeral config is pointed at via OPENCODE_CONFIG.
+	// The ephemeral config is pointed at via OPENCODE_CONFIG and grants edits, denies shell.
 	var cfgPath string
 	for _, e := range cmd.Env {
 		if strings.HasPrefix(e, "OPENCODE_CONFIG=") {
@@ -107,6 +110,14 @@ func TestOpencodeDriver(t *testing.T) {
 	}
 	if cfgPath == "" {
 		t.Fatal("OPENCODE_CONFIG not set in cmd.Env")
+	}
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read ephemeral config: %v", err)
+	}
+	got := string(data)
+	if !strings.Contains(got, `"edit": "allow"`) || !strings.Contains(got, `"bash": "deny"`) {
+		t.Errorf("opencode config = %s, want edit allow + bash deny", got)
 	}
 }
 

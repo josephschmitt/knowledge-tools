@@ -68,10 +68,13 @@ working in the repo.
     `Driver` (selected by `KNOWLEDGE_AGENT`) turns a harness-neutral `Invocation` (prompt, model,
     effort, neutral shell-grant prefixes) into one harness's argv: `claude -p … --permission-mode
     acceptEdits [--model] [--allowedTools Bash(<grant>:*)]` (reproduces the old argv), `codex exec
-    … --full-auto`, `opencode run …` (materializes an ephemeral permission config), or a `custom`
-    argv-tokenized template. `SupportsShellGrants()` reports whether a driver can scope unattended
-    shell to the gh allowlist — codex/grant-less custom can't, so `RunIssueJob` downgrades an
-    auto-detected `github` channel to the grant-free `files` channel rather than over-grant.
+    … --full-auto`, `opencode run …` (materializes an ephemeral edit-allow/bash-deny config), or a
+    `custom` argv-tokenized template. `SupportsShellGrants()` reports whether a driver can scope
+    unattended shell to the gh allowlist — only `claude` (and a `custom` template with `{{grants}}`)
+    can; codex (all-or-nothing sandbox), opencode (unverified permission precedence), and grant-less
+    custom can't, so `RunIssueJob` downgrades an auto-detected `github` channel to the grant-free
+    `files` channel rather than over-grant. Each driver wires the run `ctx` via `exec.CommandContext`,
+    so a daemon shutdown kills the child agent instead of orphaning it.
   - `internal/vault` ports `vault-lib.sh`: the per-instance lock (now `flock(2)` on **both** Linux
     and macOS — no mkdir fallback), `sync_from_origin` + `commit_and_push` git discipline (shells
     out to `git`; issue jobs commit `library/ notebook/ index.md log.md` [+ `inbox/.review/` in files], compile

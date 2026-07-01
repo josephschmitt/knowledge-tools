@@ -43,7 +43,7 @@ func newCustomDriver(bin, tmpl string) (*customDriver, error) {
 func (d *customDriver) Name() string              { return "custom" }
 func (d *customDriver) SupportsShellGrants() bool { return d.grants }
 
-func (d *customDriver) Build(_ context.Context, inv Invocation) (*exec.Cmd, func(), error) {
+func (d *customDriver) Build(ctx context.Context, inv Invocation) (*exec.Cmd, func(), error) {
 	var argv []string
 	var stdin *strings.Reader
 	for _, tok := range strings.Fields(d.tmpl) {
@@ -81,7 +81,7 @@ func (d *customDriver) Build(_ context.Context, inv Invocation) (*exec.Cmd, func
 	if len(argv) == 0 || argv[0] == "" {
 		return nil, nil, fmt.Errorf("KNOWLEDGE_AGENT_CMD produced an empty command (set KNOWLEDGE_AGENT_BIN or hardcode the binary in the template)")
 	}
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	if stdin != nil {
 		cmd.Stdin = stdin
 	}

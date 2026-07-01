@@ -22,7 +22,7 @@ type claudeDriver struct{ bin string }
 func (d *claudeDriver) Name() string              { return "claude" }
 func (d *claudeDriver) SupportsShellGrants() bool { return true }
 
-func (d *claudeDriver) Build(_ context.Context, inv Invocation) (*exec.Cmd, func(), error) {
+func (d *claudeDriver) Build(ctx context.Context, inv Invocation) (*exec.Cmd, func(), error) {
 	args := []string{"-p", inv.Prompt, "--permission-mode", "acceptEdits"}
 	if inv.Model != "" {
 		args = append(args, "--model", inv.Model)
@@ -33,7 +33,7 @@ func (d *claudeDriver) Build(_ context.Context, inv Invocation) (*exec.Cmd, func
 			args = append(args, "Bash("+g+":*)")
 		}
 	}
-	return exec.Command(d.binOrDefault(), args...), nil, nil
+	return exec.CommandContext(ctx, d.binOrDefault(), args...), nil, nil
 }
 
 // binOrDefault preserves the legacy default of ~/.local/bin/claude when no binary is configured.

@@ -22,7 +22,7 @@ type codexDriver struct{ bin string }
 func (d *codexDriver) Name() string              { return "codex" }
 func (d *codexDriver) SupportsShellGrants() bool { return false }
 
-func (d *codexDriver) Build(_ context.Context, inv Invocation) (*exec.Cmd, func(), error) {
+func (d *codexDriver) Build(ctx context.Context, inv Invocation) (*exec.Cmd, func(), error) {
 	args := []string{"exec", inv.Prompt, "--full-auto"}
 	if inv.Model != "" {
 		args = append(args, "-m", inv.Model)
@@ -30,7 +30,7 @@ func (d *codexDriver) Build(_ context.Context, inv Invocation) (*exec.Cmd, func(
 	if inv.Effort != "" {
 		args = append(args, "-c", "model_reasoning_effort="+inv.Effort)
 	}
-	return exec.Command(d.binOrDefault(), args...), nil, nil
+	return exec.CommandContext(ctx, d.binOrDefault(), args...), nil, nil
 }
 
 func (d *codexDriver) binOrDefault() string {
