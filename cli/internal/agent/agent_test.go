@@ -53,6 +53,21 @@ func TestClaudeDriverArgvParity(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("model argv = %v, want %v", got, want)
 	}
+
+	// Effort is passed through as --effort when set (restoring the per-command effort the slash
+	// frontmatter used to carry), after --model when both are set.
+	got = build(t, d, Invocation{Prompt: "p", Model: "opus", Effort: "xhigh"})
+	want = []string{"-p", "p", "--permission-mode", "acceptEdits", "--model", "opus", "--effort", "xhigh"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("effort argv = %v, want %v", got, want)
+	}
+
+	// Effort unset → no --effort token (parity with the legacy argv preserved).
+	got = build(t, d, Invocation{Prompt: "p"})
+	want = []string{"-p", "p", "--permission-mode", "acceptEdits"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("no-effort argv = %v, want %v", got, want)
+	}
 }
 
 func TestClaudeBinDefault(t *testing.T) {

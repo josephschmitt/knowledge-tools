@@ -13,10 +13,11 @@ import (
 //
 // reproducing the original vault.RunClaude argv. acceptEdits auto-applies Write/Edit without
 // prompting; Claude never runs git (the wrapper owns it). The neutral shell grants are re-wrapped
-// into Claude's Bash(<prefix>:*) tool syntax. --model is the one addition over the legacy argv: the
-// slash-command frontmatter used to carry the model, but skills don't, so the job layer passes it
-// explicitly (defaulting to opus for the claude agent — see config.Config.JobModel). Effort has no
-// Claude CLI flag, so Invocation.Effort is dropped.
+// into Claude's Bash(<prefix>:*) tool syntax. --model and --effort are the additions over the
+// legacy argv: the slash-command frontmatter used to carry the model (and per-command effort), but
+// skills don't, so the job layer passes them explicitly (model defaulting to opus for the claude
+// agent — see config.Config.JobModel). Effort maps to Claude's --effort <level>
+// (low|medium|high|xhigh|max), passed through verbatim when set.
 type claudeDriver struct{ bin string }
 
 func (d *claudeDriver) Name() string              { return "claude" }
@@ -26,6 +27,9 @@ func (d *claudeDriver) Build(ctx context.Context, inv Invocation) (*exec.Cmd, fu
 	args := []string{"-p", inv.Prompt, "--permission-mode", "acceptEdits"}
 	if inv.Model != "" {
 		args = append(args, "--model", inv.Model)
+	}
+	if inv.Effort != "" {
+		args = append(args, "--effort", inv.Effort)
 	}
 	if len(inv.ShellGrants) > 0 {
 		args = append(args, "--allowedTools")

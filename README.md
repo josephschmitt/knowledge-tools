@@ -165,8 +165,9 @@ naming. The three jobs all edit `library/` and commit, so they share **one lockf
 *do* run concurrently. In every case the agent only edits files (and, in the GitHub review channel,
 runs scoped `gh` calls) — the **wrapper** owns git: it commits any `library/` + `index.md` + `log.md`
 changes and pushes if an `origin` remote exists. Which agent runs is set by `KNOWLEDGE_AGENT`
-(`claude` by default; also `codex`, `opencode`, or a `custom` command), with model/effort knobs
-per job — see `.env.example`.
+(`claude` by default; also `codex`, `opencode`, or a `custom` command), with per-job model and
+reasoning-effort knobs — all set in the `.env` config file (copy `.env.example`) or the
+environment. See `.env.example`.
 
 The vault **need not be a git repo**: when the wrapper finds no work tree it skips the commit
 and leaves history to whatever syncs the folder (Dropbox, Syncthing, …). Combined with the
