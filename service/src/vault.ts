@@ -51,6 +51,11 @@ function splitArea(notePath: string): { area: Area; rel: string } {
 // write. It's a subdir, so the host's capture snapshot (top-level files only) ignores it.
 const COMPILE_DIR = path.join(INBOX_DIR, '.compile');
 const COMPILE_REQUEST = path.join(COMPILE_DIR, 'request');
+// The two judgment-call maintenance jobs get their own on-demand request sentinels alongside
+// compile's (the daemon watches all three). Compile keeps its original 'request' filename so the
+// service contract is unchanged; synthesize/resolve mirror it as 'request-<job>'.
+const SYNTHESIZE_REQUEST = path.join(COMPILE_DIR, 'request-synthesize');
+const RESOLVE_REQUEST = path.join(COMPILE_DIR, 'request-resolve');
 const COMPILE_STATUS = path.join(COMPILE_DIR, 'status.json');
 // Per-job schedule snapshot the host writes from systemd (last/next run of compile, synthesize,
 // resolve). See scripts/vault-lib.sh:refresh_schedules.
@@ -401,6 +406,32 @@ export async function triggerCompile(): Promise<CompileTrigger> {
   }
 
   await requestCompile();
+  return { status: 'triggered' };
+}
+
+/** The two judgment-call maintenance jobs the service can trigger on-demand (compile is separate). */
+export type MaintenanceJob = 'synthesize' | 'resolve';
+
+const REQUEST_FILE: Record<MaintenanceJob, string> = {
+  synthesize: SYNTHESIZE_REQUEST,
+  resolve: RESOLVE_REQUEST,
+};
+
+/** Outcome of an on-demand maintenance-job trigger. Async: the host runs it and updates the vault. */
+export type JobTrigger = { status: 'triggered' };
+
+/**
+ * Trigger an on-demand synthesize or resolve by dropping the sentinel the daemon watches
+ * (inbox/.compile/request-<job>), mirroring requestCompile. Unlike compile there's no inbox/cooldown
+ * guard to report: the daemon serializes every vault job on the shared per-instance lock (a request
+ * that lands while another job runs just waits), and resolve short-circuits host-side when nothing is
+ * answered — so this always returns `triggered`. Poll vault_status (its `jobs` map) to see the run
+ * land. Shared by the MCP synthesize_run/resolve_run tools and the REST POST /synthesize,/resolve
+ * routes so the request path lives in one place.
+ */
+export async function triggerJob(job: MaintenanceJob): Promise<JobTrigger> {
+  await fs.mkdir(COMPILE_DIR, { recursive: true });
+  await fs.writeFile(REQUEST_FILE[job], `${new Date().toISOString()}\n`);
   return { status: 'triggered' };
 }
 

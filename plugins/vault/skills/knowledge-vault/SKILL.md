@@ -58,8 +58,11 @@ choreography that matters:
 
 - **Capture** → `append_to_inbox`, then confirm.
 - **Query** → `search_notes` to find, `get_note` to read; `list_index` / `list_notes` to orient.
-- **Judgment calls** → `list_questions` → `get_question` → `answer_question`.
-- **Compile** → `compile_run` to trigger, `vault_status` to poll for it to finish.
+- **Judgment calls** → `list_questions` → `get_question` → `answer_question`. Answers apply on the
+  next scheduled maintenance pass; `resolve_run` applies them now if Joe wants it sooner.
+- **Compile** → `compile_run` to trigger, `vault_status` to poll for it to finish. The heavy
+  whole-corpus maintenance pass runs on a schedule too; `synthesize_run` triggers it on demand
+  (rarely needed by hand).
 
 Only open `references/mcp-operations.md` when you need an exact input/output shape you're
 unsure of — not as a reflex before a routine capture or search.

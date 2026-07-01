@@ -11,6 +11,7 @@ import {
   searchNotes,
   appendToInbox,
   triggerCompile,
+  triggerJob,
   getVaultStatus,
 } from './vault.js';
 import { listQuestions, getQuestion, answerQuestion } from './review.js';
@@ -120,6 +121,18 @@ apiRouter.post('/inbox', async (req, res) => {
 // mirrors the MCP tool's semantics rather than returning an error code.
 apiRouter.post('/compile', async (_req, res) => {
   res.json(await triggerCompile());
+});
+
+// The two judgment-call maintenance jobs, mirroring /compile as async on-demand triggers. Always
+// 200 with { status: 'triggered' }: the daemon serializes every vault job on the shared lock and
+// resolve is a host-side no-op when nothing is answered, so there's no throttle/empty guard to
+// report. Poll GET /status (its jobs map) for completion.
+apiRouter.post('/synthesize', async (_req, res) => {
+  res.json(await triggerJob('synthesize'));
+});
+
+apiRouter.post('/resolve', async (_req, res) => {
+  res.json(await triggerJob('resolve'));
 });
 
 apiRouter.get('/status', async (_req, res) => {

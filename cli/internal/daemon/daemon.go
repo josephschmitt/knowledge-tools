@@ -1,7 +1,7 @@
 // Package daemon is the long-running process that replaces the systemd timers / launchd plists.
 // One daemon runs per vault instance (registered by `knowledge-tools install`). It owns:
 //   - an internal cron scheduler firing compile / synthesize / resolve on their cadences,
-//   - an fsnotify watcher on inbox/.compile/request for on-demand (manual) compiles, and
+//   - an fsnotify watcher on inbox/.compile/ for on-demand compile/synthesize/resolve requests, and
 //   - startup catch-up: a job whose scheduled tick elapsed while the daemon was down runs once
 //     on launch (replacing systemd's Persistent=true).
 //
@@ -29,6 +29,18 @@ type daemon struct {
 	ctx context.Context
 	cfg *config.Config
 	mu  sync.Mutex // serializes the daemon's own jobs (cross-process is the file lock)
+}
+
+// requestJobs maps each on-demand request sentinel (under inbox/.compile/) to the job it triggers.
+// The MCP/REST service drops these; the watcher and the startup drain consume them. Compile keeps
+// its original "request" filename (unchanged service contract); synthesize/resolve mirror it.
+var requestJobs = []struct {
+	file string
+	job  jobs.Job
+}{
+	{"request", jobs.JobCompile},
+	{"request-synthesize", jobs.JobSynthesize},
+	{"request-resolve", jobs.JobResolve},
 }
 
 // Run starts the daemon and blocks until ctx is cancelled (the caller wires SIGINT/SIGTERM).
@@ -62,19 +74,21 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	c.Start()
 	defer c.Stop()
 
-	// Watch for on-demand compile requests. Started BEFORE catch-up: a pre-existing request file
+	// Watch for on-demand job requests. Started BEFORE catch-up: a pre-existing request file
 	// fires no fsnotify event, so if catch-up (which can run for minutes) attached the watcher only
 	// afterward, a request landing during it would be lost. Any request that does arrive while
 	// catch-up holds the in-process mutex is skipped — but the watcher keeps the file (it consumes it
-	// only after a compile actually runs), and the post-catch-up drain below picks it up.
+	// only after the job actually runs), and the post-catch-up drain below picks it up.
 	watchErr := make(chan error, 1)
 	go func() { watchErr <- d.watchRequests() }()
 
 	// Startup catch-up for ticks missed while the daemon was down.
 	d.catchUp()
 
-	// Drain an on-demand request that arrived (and was skipped under the busy mutex) during catch-up.
-	d.handleRequest()
+	// Drain on-demand requests that arrived (and were skipped under the busy mutex) during catch-up.
+	for _, r := range requestJobs {
+		d.handleRequest(r.file, r.job)
+	}
 
 	select {
 	case <-ctx.Done():
@@ -149,10 +163,11 @@ func (d *daemon) overdue(schedule string, lastRun time.Time, now time.Time) bool
 	return !sched.Next(lastRun).After(now)
 }
 
-// watchRequests watches inbox/.compile/ for the MCP's on-demand compile request file. On a
-// create/write of "request" it consumes (deletes) the file and runs a manual compile. Watching the
-// dir (not the file) is uniform across Linux/macOS and survives the file not existing yet — no
-// systemd .path unit, no macOS WatchPaths/mtime hack.
+// watchRequests watches inbox/.compile/ for the MCP/REST service's on-demand request files (one
+// per job: "request" → compile, "request-synthesize", "request-resolve"). On a create/write of one
+// it consumes (deletes) the file and runs that job. Watching the dir (not each file) is uniform
+// across Linux/macOS and survives the files not existing yet — no systemd .path unit, no macOS
+// WatchPaths/mtime hack.
 func (d *daemon) watchRequests() error {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -164,8 +179,7 @@ func (d *daemon) watchRequests() error {
 	if err := w.Add(dir); err != nil {
 		return err
 	}
-	request := filepath.Join(dir, "request")
-	log.Printf("watching %s for on-demand compile requests", request)
+	log.Printf("watching %s for on-demand compile/synthesize/resolve requests", dir)
 
 	for {
 		select {
@@ -175,8 +189,13 @@ func (d *daemon) watchRequests() error {
 			if !ok {
 				return nil
 			}
-			if ev.Name == request && ev.Op&(fsnotify.Create|fsnotify.Write) != 0 {
-				d.handleRequest()
+			if ev.Op&(fsnotify.Create|fsnotify.Write) == 0 {
+				continue
+			}
+			for _, r := range requestJobs {
+				if ev.Name == filepath.Join(dir, r.file) {
+					d.handleRequest(r.file, r.job)
+				}
 			}
 		case err, ok := <-w.Errors:
 			if !ok {
@@ -187,16 +206,17 @@ func (d *daemon) watchRequests() error {
 	}
 }
 
-// handleRequest runs an on-demand compile if inbox/.compile/request exists, consuming the file only
-// after the compile actually runs. Removing on a skip (mutex busy) would drop the request silently;
-// keeping it lets the watcher re-fire on a later write and lets the post-catch-up drain pick it up.
-func (d *daemon) handleRequest() {
-	request := filepath.Join(d.cfg.CompileDir(), "request")
+// handleRequest runs an on-demand job if its request sentinel exists under inbox/.compile/,
+// consuming the file only after the job actually runs. Removing on a skip (mutex busy) would drop
+// the request silently; keeping it lets the watcher re-fire on a later write and lets the
+// post-catch-up drain pick it up.
+func (d *daemon) handleRequest(file string, job jobs.Job) {
+	request := filepath.Join(d.cfg.CompileDir(), file)
 	if _, err := os.Stat(request); err != nil {
 		return
 	}
-	log.Printf("on-demand compile requested")
-	if d.runJob(jobs.JobCompile, true) {
+	log.Printf("on-demand %s requested", job)
+	if d.runJob(job, true) {
 		_ = os.Remove(request)
 	}
 }

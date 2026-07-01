@@ -8,6 +8,7 @@ import {
   searchNotes,
   appendToInbox,
   triggerCompile,
+  triggerJob,
   getVaultStatus,
 } from './vault.js';
 import { listQuestions, getQuestion, answerQuestion } from './review.js';
@@ -62,7 +63,8 @@ export function buildMcpServer(): McpServer {
         'tasks — raw with append_to_inbox; a scheduled compiler curates the inbox into the library. ' +
         'compile_run / vault_status trigger and track that compile. When that maintenance ' +
         'hits a judgment call it can\'t decide alone, list_questions / get_question surface ' +
-        'it and answer_question records my decision for the next pass to apply.',
+        'it and answer_question records my decision for the next pass to apply — resolve_run ' +
+        'applies answered calls on demand, synthesize_run runs the whole-corpus maintenance pass.',
     },
   );
 
@@ -205,6 +207,47 @@ export function buildMcpServer(): McpServer {
               'your captures are safe in the inbox until then.',
           );
       }
+    },
+  );
+
+  server.registerTool(
+    'synthesize_run',
+    {
+      title: 'Trigger a synthesize pass',
+      description:
+        'Request an on-demand synthesize — the heavy, infrequent whole-corpus maintenance pass ' +
+        'that reconciles drift across the library and opens new judgment calls (surfaced by ' +
+        'list_questions). Asynchronous: returns immediately — poll vault_status (its jobs.synthesize ' +
+        'timing) to see it finish. Rarely needed by hand; it runs on a schedule. Does not compile ' +
+        'the inbox (that is compile_run).',
+      inputSchema: {},
+    },
+    async () => {
+      await triggerJob('synthesize');
+      return text(
+        'Synthesize triggered. It runs on the home server; the library and any new judgment calls ' +
+          'update once it finishes. Poll vault_status (jobs.synthesize) for completion.',
+      );
+    },
+  );
+
+  server.registerTool(
+    'resolve_run',
+    {
+      title: 'Trigger a resolve pass',
+      description:
+        'Request an on-demand resolve — the light maintenance pass that applies my answered ' +
+        'judgment calls (answer_question) to the library and closes them out. Asynchronous: returns ' +
+        'immediately — poll vault_status (its jobs.resolve timing). A no-op when nothing is answered. ' +
+        'Use it to apply an answer now instead of waiting for the next scheduled resolve.',
+      inputSchema: {},
+    },
+    async () => {
+      await triggerJob('resolve');
+      return text(
+        'Resolve triggered. It runs on the home server; any answered judgment calls are applied to ' +
+          'the library and closed once it finishes. Poll vault_status (jobs.resolve) for completion.',
+      );
     },
   );
 
