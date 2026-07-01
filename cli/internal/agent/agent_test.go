@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -58,8 +59,10 @@ func TestClaudeBinDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(cmd.Path, "/.local/bin/claude") && !strings.HasSuffix(cmd.Args[0], "/.local/bin/claude") {
-		t.Errorf("default claude bin = %q, want ~/.local/bin/claude", cmd.Args[0])
+	// Compare with the OS-native separator (backslashes on Windows).
+	want := filepath.Join(".local", "bin", "claude")
+	if !strings.HasSuffix(cmd.Args[0], want) {
+		t.Errorf("default claude bin = %q, want suffix %q", cmd.Args[0], want)
 	}
 }
 
