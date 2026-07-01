@@ -39,6 +39,8 @@ can switch on built-in OAuth token validation pointed at any OIDC issuer. See
 | `list_notes()` | List every note, area-qualified, across `library/` and `notebook/` |
 | `append_to_inbox(text, title?)` | Capture a raw note into `inbox/` for the scheduled compile |
 | `compile_run()` | Trigger an on-demand compile (async, rate-limited to one/hour) |
+| `synthesize_run()` | Trigger an on-demand synthesize — the whole-corpus maintenance pass that opens judgment calls (async) |
+| `resolve_run()` | Trigger an on-demand resolve — apply answered judgment calls to the library (async; no-op when nothing answered) |
 | `vault_status()` | Pollable JSON: last successful compile time, pending inbox count, manual-compile cooldown, running flag, and per-job last/next scheduled run |
 | `list_questions(status?)` | List judgment calls the vault is waiting on (file review channel) |
 | `get_question(id)` | Return one judgment call's full markdown |
@@ -74,7 +76,7 @@ forces it. The host's synthesize/resolve jobs read a same-named `KNOWLEDGE_REVIE
 the only feature that gives the server outbound network access and a credential, so it stays off
 until you configure it.
 
-### Manual compile (`compile_run`)
+### Manual compile / maintenance (`compile_run`, `synthesize_run`, `resolve_run`)
 
 The server can't compile in-process — the vault is read-only here except `inbox/`, and
 synthesis needs the `claude` CLI + git on the host. So `compile_run` *triggers* the host
@@ -91,6 +93,16 @@ signal: the host records `last_compiled_at` at the *end* of every successful com
 scheduled and on-demand), so a `last_compiled_at` newer than your trigger time means the run
 finished. It also reports `pending_inbox_count` and `manual_compile_available_at` (when the
 cooldown next clears) — poll it after a `compile_run` to know when the library is caught up.
+
+`synthesize_run` and `resolve_run` trigger the two judgment-call maintenance jobs the same way —
+each drops its own sentinel (`inbox/.compile/request-synthesize` / `request-resolve`) that the same
+daemon watches and runs. **synthesize** is the heavy, infrequent whole-corpus pass that reconciles
+drift and *opens* judgment calls (`list_questions`); **resolve** is the light pass that *applies* my
+answered calls (`answer_question`) to the library and closes them — handy to apply an answer now
+instead of waiting for the scheduled run. Unlike compile these carry no cooldown/empty guard, so both
+always return `{ "status": "triggered" }`: the per-vault lock serializes every job (a request that
+lands mid-run just waits), and resolve is a host-side no-op when nothing is answered. Poll
+`vault_status` (its `jobs.synthesize` / `jobs.resolve` timings) for completion.
 
 `vault_status` also returns a `jobs` map with the last/next *scheduled* run of each host job
 (`compile`, `synthesize`, `resolve`). The host can't be reached from the container, so — like
@@ -157,6 +169,8 @@ token on every request).
 | `GET /api/v1/index` | `list_index` | `200 {content}` |
 | `POST /api/v1/inbox` | `append_to_inbox` | `201 {path}` |
 | `POST /api/v1/compile` | `compile_run` | `200 {status, available_at?}` |
+| `POST /api/v1/synthesize` | `synthesize_run` | `200 {status}` |
+| `POST /api/v1/resolve` | `resolve_run` | `200 {status}` |
 | `GET /api/v1/status` | `vault_status` | `200` (the `vault_status` JSON) |
 | `GET /api/v1/questions?status=` | `list_questions` | `200 {questions:[...]}` |
 | `GET /api/v1/questions/<id>` | `get_question` | `200 {id, content}` / `404` |
@@ -177,6 +191,10 @@ Notes:
 - `POST /compile` always returns `200` with a discriminated `status`
   (`triggered` | `empty` | `busy` | `throttled`); `throttled` includes `available_at`. A refused
   manual compile is informational (your captures are safe regardless), so it isn't an error code.
+- `POST /synthesize` and `POST /resolve` trigger the two judgment-call maintenance jobs (async,
+  like `/compile`) and always return `200 {status:"triggered"}` — no cooldown/empty guard (the
+  per-vault lock serializes the jobs; resolve is a host-side no-op when nothing is answered). Poll
+  `GET /status` (`jobs.synthesize` / `jobs.resolve`) for completion.
 - Errors are JSON `{ "error": "..." }`: `400` for bad/missing input, `404` for a missing
   note/question, `403` for a missing scope (see below), `502` when the review-queue backend
   (GitHub) can't be reached.
@@ -202,7 +220,7 @@ standard M2M grant). Send the token as `Authorization: Bearer …` (or whatever
 
 For least-privilege, set **`KNOWLEDGE_API_REQUIRE_SCOPES=true`** and the REST routes require an
 OAuth scope per request — **`vault.read`** for the GETs, **`vault.write`** for the writes
-(`/inbox`, `/compile`, `/questions/:id/answer`); a missing scope is `403`. So a capture-only cron
+(`/inbox`, `/compile`, `/synthesize`, `/resolve`, `/questions/:id/answer`); a missing scope is `403`. So a capture-only cron
 gets a `vault.write` token, a read-only dashboard gets `vault.read`. It's **off by default** so
 tokens that don't carry these scopes (e.g. an interactive login) keep working; turn it on once
 your IdP issues the scopes to the calling client. (Enforced only when built-in auth is on.)

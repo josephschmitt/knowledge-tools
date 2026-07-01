@@ -52,6 +52,17 @@ not on the query surface.
   next manual compile is available), *busy*, or *empty*. Asynchronous: returns immediately
   without a result summary.
 
+### synthesize_run
+- **Inputs:** none.
+- **Output:** text confirming the whole-corpus synthesize pass was triggered. Asynchronous:
+  returns immediately without a result summary (poll `vault_status` → `jobs.synthesize`).
+
+### resolve_run
+- **Inputs:** none.
+- **Output:** text confirming the resolve pass (applies answered judgment calls) was triggered.
+  Asynchronous: returns immediately; a no-op host-side when nothing is answered (poll
+  `vault_status` → `jobs.resolve`).
+
 ### vault_status
 - **Inputs:** none.
 - **Output:** a JSON object with six fields:
