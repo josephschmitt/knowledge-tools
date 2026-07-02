@@ -169,6 +169,17 @@ changes and pushes if an `origin` remote exists. Which agent runs is set by `KNO
 reasoning-effort knobs — all set in the `.env` config file (copy `.env.example`) or the
 environment. See `.env.example`.
 
+The model/effort knobs can also live **in the vault itself**, in a committed
+`<vault>/.knowledge/config.env` (same `KEY=value` syntax as `.env`), so the choice is
+git-versioned and travels with the vault instead of the host. Only the 8 model/effort keys
+(`KNOWLEDGE_AGENT_MODEL`/`_EFFORT` and the three `KNOWLEDGE_{COMPILE,SYNTHESIZE,RESOLVE}_{MODEL,EFFORT}`
+pairs) are read from that file — any other `KNOWLEDGE_*` line is ignored, so vault content can't
+touch repo/git/site/auth wiring. It's a default *below* the env: anything set in `.env` or the
+environment overrides it, so a deployment can always win without editing the vault. The daemon reads
+it once at startup, so run `knowledge-tools daemon restart` after editing it. (It's intentionally
+not created by `init` — model IDs and effort scales are harness-specific, so seeded vaults stay
+harness-neutral.)
+
 The vault **need not be a git repo**: when the wrapper finds no work tree it skips the commit
 and leaves history to whatever syncs the folder (Dropbox, Syncthing, …). Combined with the
 file-based review channel below, that lets the whole system run on a plain synced folder with

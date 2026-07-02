@@ -67,7 +67,15 @@ working in the repo.
     (claude | codex | opencode | custom), `KNOWLEDGE_AGENT_BIN` (deprecated `CLAUDE_BIN` is a
     fallback), `KNOWLEDGE_AGENT_CMD` (custom template), and per-job `*_MODEL`/`*_EFFORT` overrides
     with an `KNOWLEDGE_AGENT_MODEL`/`_EFFORT` fallback (`JobModel`/`JobEffort`; only the claude
-    agent defaults a model — opus — which the old slash-command frontmatter used to declare).
+    agent defaults a model — opus — which the old slash-command frontmatter used to declare). The
+    8 model/effort knobs can ALSO be declared **in the vault**, in a committed
+    `<repo>/.knowledge/config.env` (`loadVaultConfig`, KEY=value like `.env`) so the choice travels
+    with the vault and is git-versioned — but **only those 8 keys** are honored there (an allowlist;
+    any other `KNOWLEDGE_*` line is dropped so vault content can't redirect repo/git/site/auth
+    wiring), and the vault layer sits a tier **below** the env in `JobModel`/`JobEffort` (the whole
+    env layer wins over the whole vault layer, so a deployment always overrides without editing the
+    vault). Deliberately **not** seeded into `template/` (model IDs/effort scales are
+    harness-specific — keeping them out of the shipped skills is what preserves harness-neutrality).
   - `internal/agent` (new): the headless-agent abstraction that replaced `vault.RunClaude`. A
     `Driver` (selected by `KNOWLEDGE_AGENT`) turns a harness-neutral `Invocation` (prompt, model,
     effort, neutral shell-grant prefixes) into one harness's argv: `claude -p … --permission-mode

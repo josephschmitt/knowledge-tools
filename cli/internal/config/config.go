@@ -61,6 +61,13 @@ type Config struct {
 	// Per-job model/effort overrides (KNOWLEDGE_{COMPILE,SYNTHESIZE,RESOLVE}_{MODEL,EFFORT}).
 	CompileModel, SynthesizeModel, ResolveModel    string
 	CompileEffort, SynthesizeEffort, ResolveEffort string
+	// vault holds the allowlisted model/effort knobs from <repo>/.knowledge/config.env (see
+	// loadVaultConfig) — a git-versioned default tier that travels with the vault. It sits a tier
+	// BELOW the env knobs in JobModel/JobEffort: a value here applies only when the whole env layer
+	// is empty for that dimension, so any deployment overrides it without editing vault content.
+	// Kept as its own map (not seeded into os.Env) precisely so the whole env layer wins over the
+	// whole vault layer. nil/empty when the file is absent.
+	vault map[string]string
 	// CompileCooldown is KNOWLEDGE_COMPILE_COOLDOWN seconds between allowed manual compiles.
 	CompileCooldown int
 	// ReviewChannel is KNOWLEDGE_REVIEW_CHANNEL ("github" | "files" | "" for auto-detect).
@@ -94,15 +101,34 @@ func LoadDotenv(path string) error {
 	if path == "" {
 		path = ".env"
 	}
+	kv, err := parseEnvFile(path)
+	if err != nil {
+		return err
+	}
+	for k, v := range kv {
+		if _, ok := os.LookupEnv(k); !ok {
+			if err := os.Setenv(k, v); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// parseEnvFile parses a KEY=value file into a map. Blank lines and # comments are ignored; one
+// layer of matching surrounding quotes is stripped from values; values are literal (no shell
+// expansion). A missing file returns (nil, nil) — the caller decides whether that's an error.
+func parseEnvFile(path string) (map[string]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 
+	kv := map[string]string{}
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
@@ -125,13 +151,9 @@ func LoadDotenv(path string) error {
 				val = val[1 : len(val)-1]
 			}
 		}
-		if _, ok := os.LookupEnv(key); !ok {
-			if err := os.Setenv(key, val); err != nil {
-				return err
-			}
-		}
+		kv[key] = val
 	}
-	return sc.Err()
+	return kv, sc.Err()
 }
 
 // ValidateInstance enforces the [A-Za-z0-9_-] slug install.sh/uninstall.sh require.
@@ -185,49 +207,97 @@ func Load(instance, repo string) (*Config, error) {
 		SiteRebuildURL:     os.Getenv("KNOWLEDGE_SITE_REBUILD_URL"),
 		SiteRebuildToken:   os.Getenv("KNOWLEDGE_SITE_REBUILD_TOKEN"),
 	}
+
+	// Vault-layer model/effort from <repo>/.knowledge/config.env — a git-versioned default tier
+	// below the env knobs (see JobModel/JobEffort and the vault field). Non-fatal on error so a
+	// malformed vault file can't wedge the daemon; nil when repo is unset (e.g. uninstall).
+	cfg.vault = loadVaultConfig(repo)
 	return cfg, nil
 }
 
-// JobModel resolves the model for a job: a caller-supplied override wins (a per-invocation value
-// from the CLI flag / MCP tool / REST body), then the per-job env knob, then KNOWLEDGE_AGENT_MODEL,
-// then the agent's default. Only the claude agent has a real default (opus) — preserving the model
-// the old slash-command frontmatter declared; other harnesses default empty (use their own model).
-// override is empty when the caller didn't specify one.
-func (c *Config) JobModel(job, override string) string {
-	var perJob string
-	switch job {
-	case "compile":
-		perJob = c.CompileModel
-	case "synthesize":
-		perJob = c.SynthesizeModel
-	case "resolve":
-		perJob = c.ResolveModel
-	}
-	m := firstNonEmpty(override, perJob, c.AgentModel)
-	if m == "" && (c.Agent == "" || c.Agent == "claude") {
-		return "opus"
-	}
-	return m
+// vaultConfigKeys is the allowlist the vault config file may set — only the model/effort knobs.
+// Everything else (KNOWLEDGE_REPO, tokens, git/site/schedule wiring) is ignored, so committed vault
+// content can never redirect the tooling's operational config.
+var vaultConfigKeys = map[string]bool{
+	"KNOWLEDGE_AGENT_MODEL":       true,
+	"KNOWLEDGE_AGENT_EFFORT":      true,
+	"KNOWLEDGE_COMPILE_MODEL":     true,
+	"KNOWLEDGE_SYNTHESIZE_MODEL":  true,
+	"KNOWLEDGE_RESOLVE_MODEL":     true,
+	"KNOWLEDGE_COMPILE_EFFORT":    true,
+	"KNOWLEDGE_SYNTHESIZE_EFFORT": true,
+	"KNOWLEDGE_RESOLVE_EFFORT":    true,
 }
 
-// JobEffort resolves the reasoning effort for a job: a caller-supplied override wins (a
-// per-invocation value from the CLI flag / MCP tool / REST body), then the per-job env knob, then
-// KNOWLEDGE_AGENT_EFFORT. No agent-specific default — effort values are harness-specific and passed
-// through verbatim (no translation): claude honors --effort (low|medium|high|xhigh|max) and codex
-// model_reasoning_effort (low|medium|high); opencode has no knob and drops it; custom uses
-// {{effort}} if its template references it. Empty means unset. override is empty when the caller
-// didn't specify one.
-func (c *Config) JobEffort(job, override string) string {
-	var perJob string
+// loadVaultConfig reads <repo>/.knowledge/config.env and returns only the allowlisted model/effort
+// keys. Returns nil when repo is empty or the file can't be parsed (the latter logged to stderr and
+// treated as absent); an absent file yields an empty map. Either way a missing or malformed file is
+// a clean no-op — c.vault reads then return "" for every key.
+func loadVaultConfig(repo string) map[string]string {
+	if repo == "" {
+		return nil
+	}
+	kv, err := parseEnvFile(filepath.Join(repo, ".knowledge", "config.env"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "knowledge-tools: warning: ignoring .knowledge/config.env: %v\n", err)
+		return nil
+	}
+	// Ranging a nil kv (missing file) is a no-op, so no special-casing is needed here.
+	out := map[string]string{}
+	for k, v := range kv {
+		if vaultConfigKeys[k] {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// JobModel resolves the model for a job in tiers: a caller-supplied override wins (a per-invocation
+// value from the CLI flag / MCP tool / REST body), then the env layer (per-job, then
+// KNOWLEDGE_AGENT_MODEL), then the vault layer (per-job, then agent-wide from .knowledge/config.env),
+// then the agent's default. The whole env layer wins over the whole vault layer, so a deployment's
+// KNOWLEDGE_AGENT_MODEL still overrides a vault-declared per-job value. Only the claude agent has a
+// real default (opus) — preserving the model the old slash-command frontmatter declared; other
+// harnesses default empty (use their own model). override is empty when the caller didn't specify one.
+func (c *Config) JobModel(job, override string) string {
+	var perJobEnv, vaultKey string
 	switch job {
 	case "compile":
-		perJob = c.CompileEffort
+		perJobEnv, vaultKey = c.CompileModel, "KNOWLEDGE_COMPILE_MODEL"
 	case "synthesize":
-		perJob = c.SynthesizeEffort
+		perJobEnv, vaultKey = c.SynthesizeModel, "KNOWLEDGE_SYNTHESIZE_MODEL"
 	case "resolve":
-		perJob = c.ResolveEffort
+		perJobEnv, vaultKey = c.ResolveModel, "KNOWLEDGE_RESOLVE_MODEL"
 	}
-	return firstNonEmpty(override, perJob, c.AgentEffort)
+	// Flat order encodes the tiers: caller override, then env per-job/agent, then vault per-job/agent.
+	if m := firstNonEmpty(override, perJobEnv, c.AgentModel, c.vault[vaultKey], c.vault["KNOWLEDGE_AGENT_MODEL"]); m != "" {
+		return m
+	}
+	if c.Agent == "" || c.Agent == "claude" {
+		return "opus"
+	}
+	return ""
+}
+
+// JobEffort resolves the reasoning effort for a job in tiers: a caller-supplied override wins (a
+// per-invocation value from the CLI flag / MCP tool / REST body), then the env layer (per-job, then
+// KNOWLEDGE_AGENT_EFFORT), then the vault layer (per-job, then agent-wide from .knowledge/config.env).
+// No agent-specific default — effort values are harness-specific and passed through verbatim (no
+// translation): claude honors --effort (low|medium|high|xhigh|max) and codex model_reasoning_effort
+// (low|medium|high); opencode has no knob and drops it; custom uses {{effort}} if its template
+// references it. Empty means unset. override is empty when the caller didn't specify one.
+func (c *Config) JobEffort(job, override string) string {
+	var perJobEnv, vaultKey string
+	switch job {
+	case "compile":
+		perJobEnv, vaultKey = c.CompileEffort, "KNOWLEDGE_COMPILE_EFFORT"
+	case "synthesize":
+		perJobEnv, vaultKey = c.SynthesizeEffort, "KNOWLEDGE_SYNTHESIZE_EFFORT"
+	case "resolve":
+		perJobEnv, vaultKey = c.ResolveEffort, "KNOWLEDGE_RESOLVE_EFFORT"
+	}
+	// Flat order encodes the tiers: caller override, then env per-job/agent, then vault per-job/agent.
+	return firstNonEmpty(override, perJobEnv, c.AgentEffort, c.vault[vaultKey], c.vault["KNOWLEDGE_AGENT_EFFORT"])
 }
 
 // agentBin resolves KNOWLEDGE_AGENT_BIN, honoring the deprecated CLAUDE_BIN as a fallback. Empty
