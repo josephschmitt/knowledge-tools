@@ -49,12 +49,16 @@ working in the repo.
   calls). Built/released by goreleaser under a distinct **`cli/vX.Y.Z`** tag prefix (skill releases
   use a `skills/vX.Y.Z` prefix); devbox (`go@1.23`) is the toolchain.
   - Commands: `install` / `uninstall` (register/remove the daemon autostart unit, per-instance,
-    idempotent), `daemon` (the long-running scheduler + compile watcher), `compile` /
-    `synthesize` / `resolve` (one-shot jobs, also what the daemon runs on schedule), `init`
-    (scaffold a vault from the embedded template — copy-if-absent), `status` (print the compile +
-    schedule snapshots and the daemon unit state). (Static-site *building* is out of scope here —
-    that's the standalone `knowledge-site` image; the CLI only *triggers* its rebuild after a
-    commit, see `commit_and_push` below and `site/`.)
+    idempotent), `daemon` (a command group — bare `daemon` still runs the long-running scheduler +
+    compile watcher via a `default:"withargs"` `run` subcommand, so existing units' `ExecStart=<bin>
+    daemon` keeps working; plus `daemon restart` / `start` / `stop` / `status` for the OS unit's
+    lifecycle — `restart` re-applies install then force-restarts the running daemon, the smooth
+    upgrade path after swapping the binary), `compile` / `synthesize` / `resolve` (one-shot jobs,
+    also what the daemon runs on schedule), `init` (scaffold a vault from the embedded template —
+    copy-if-absent), `status` (print the compile + schedule snapshots and the daemon unit state, and
+    flag when the running daemon's recorded version differs from the installed binary). (Static-site
+    *building* is out of scope here — that's the standalone `knowledge-site` image; the CLI only
+    *triggers* its rebuild after a commit, see `commit_and_push` below and `site/`.)
   - `internal/config` ports `load-env.sh` (a repo-root `.env`; real env wins) + the `KNOWLEDGE_*`
     knobs. **Schedules moved from systemd OnCalendar to cron expressions** (robfig/cron grammar):
     `KNOWLEDGE_COMPILE_SCHEDULE` (default `@hourly`), `KNOWLEDGE_SYNTHESIZE_SCHEDULE`
@@ -105,7 +109,9 @@ working in the repo.
     **not** ported into the CLI — its build recipe moved into the `knowledge-site` image; see `site/`.)
   - The MCP service contract is unchanged: `inbox/.compile/{request,status.json,
     last-compiled-epoch,last-manual-epoch,schedules.json}` keep their paths + schemas, so
-    `service/` needs no changes.
+    `service/` needs no changes. The daemon also writes `inbox/.compile/daemon.json` (its build
+    version + pid + start time) at startup — deliberately a *separate*, CLI-only file the service
+    ignores, so `status` can detect a stale daemon without touching the contract files above.
 - `scripts/` — only `validate_skills.py` remains (the skill linter CI runs; see constraints
   below). The vault job/install scripts (`vault-{compile,job,lib}.sh`, `{in,un}install.sh`,
   `init-vault.sh`, `load-env.sh`) moved into `cli/`; `vault-site.sh`'s build recipe moved into the

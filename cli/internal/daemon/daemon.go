@@ -44,7 +44,9 @@ var requestJobs = []struct {
 }
 
 // Run starts the daemon and blocks until ctx is cancelled (the caller wires SIGINT/SIGTERM).
-func Run(ctx context.Context, cfg *config.Config) error {
+// version is the running binary's build version, recorded to daemon.json so `status` can flag a
+// stale daemon after a binary upgrade.
+func Run(ctx context.Context, cfg *config.Config, version string) error {
 	if err := cfg.RequireRepo(); err != nil {
 		return err
 	}
@@ -55,11 +57,12 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
-	log.Printf("knowledge-tools daemon starting (instance=%s, repo=%s)", cfg.Instance, cfg.Repo)
+	log.Printf("knowledge-tools daemon starting (instance=%s, repo=%s, version=%s)", cfg.Instance, cfg.Repo, version)
 	log.Printf("schedules: compile=%q synthesize=%q resolve=%q", cfg.CompileSchedule, cfg.SynthesizeSchedule, cfg.ResolveSchedule)
 
-	// Publish next-run times right away.
+	// Publish next-run times + this daemon's version right away.
 	jobs.RefreshSchedules(cfg)
+	jobs.WriteDaemonInfo(cfg, version)
 
 	c := cron.New(cron.WithParser(jobs.CronParser), cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
 	if _, err := c.AddFunc(cfg.CompileSchedule, func() { d.runJob(jobs.JobCompile, false) }); err != nil {

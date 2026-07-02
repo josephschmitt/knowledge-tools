@@ -107,6 +107,72 @@ func Uninstall(cfg *config.Config) error {
 	}
 }
 
+// Restart re-applies the autostart unit (picking up any new features/knobs baked into the unit
+// template or per-instance env by a newer binary) and restarts the running daemon onto the current
+// binary. This is the smooth upgrade path: after installing a new binary, `daemon restart` rolls
+// the live daemon forward — Install alone won't, because `enable --now` (Linux) does not restart an
+// already-running unit.
+func Restart(opts Options) error {
+	// Install rewrites the unit + per-instance env from current config and runs daemon-reload — it
+	// *is* the "install anything new" step. It also resolves BinPath and requires KNOWLEDGE_REPO.
+	if err := Install(opts); err != nil {
+		return err
+	}
+	switch runtime.GOOS {
+	case "linux":
+		// enable --now (inside Install) starts a stopped unit but won't restart a running one; force
+		// it so the daemon re-execs onto the new binary.
+		fmt.Printf("Restarting %s\n", daemonUnit(opts.Cfg.Instance))
+		return run("systemctl", "--user", "restart", daemonUnit(opts.Cfg.Instance))
+	case "darwin":
+		// installLaunchd already did bootout + bootstrap, i.e. a full re-exec onto the new binary.
+		return nil
+	default:
+		return fmt.Errorf("unsupported OS %q — need Linux (systemd) or macOS (launchd)", runtime.GOOS)
+	}
+}
+
+// Start starts the (already-installed) daemon unit. A no-op-ish error if it was never installed.
+func Start(cfg *config.Config) error {
+	switch runtime.GOOS {
+	case "linux":
+		fmt.Printf("Starting %s\n", daemonUnit(cfg.Instance))
+		return run("systemctl", "--user", "start", daemonUnit(cfg.Instance))
+	case "darwin":
+		uid := strconv.Itoa(os.Getuid())
+		label := daemonLabel(cfg.Instance)
+		fmt.Printf("Starting %s\n", label)
+		// bootstrap re-registers the agent (undoing Stop's bootout) and starts it. If it's already
+		// bootstrapped, bootstrap errors — fall back to kickstart to ensure it's actually running, so
+		// Start stays roughly idempotent like `systemctl start`.
+		if err := run("launchctl", "bootstrap", "gui/"+uid, daemonPlistPath(cfg.Instance)); err != nil {
+			return run("launchctl", "kickstart", "gui/"+uid+"/"+label)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported OS %q — need Linux (systemd) or macOS (launchd)", runtime.GOOS)
+	}
+}
+
+// Stop stops the running daemon unit without removing it (unlike Uninstall). On macOS a plain
+// `launchctl kill` wouldn't stick — the plist's KeepAlive makes launchd immediately respawn the
+// process — so Stop boots the agent out of launchd (stopped + untracked) while leaving the plist in
+// place, so Start can re-bootstrap it.
+func Stop(cfg *config.Config) error {
+	switch runtime.GOOS {
+	case "linux":
+		fmt.Printf("Stopping %s\n", daemonUnit(cfg.Instance))
+		return run("systemctl", "--user", "stop", daemonUnit(cfg.Instance))
+	case "darwin":
+		uid := strconv.Itoa(os.Getuid())
+		label := daemonLabel(cfg.Instance)
+		fmt.Printf("Stopping %s\n", label)
+		return run("launchctl", "bootout", "gui/"+uid+"/"+label)
+	default:
+		return fmt.Errorf("unsupported OS %q — need Linux (systemd) or macOS (launchd)", runtime.GOOS)
+	}
+}
+
 // resolveBin returns the absolute path to the knowledge-tools binary to bake into the unit.
 func resolveBin(bin string) (string, error) {
 	if bin != "" {

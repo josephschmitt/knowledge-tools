@@ -22,6 +22,12 @@ func launchdLogDir() string {
 
 func daemonLabel(instance string) string { return "com.knowledge-tools.daemon." + instance }
 
+// daemonPlistPath is the LaunchAgent plist file for an instance. Shared by install/uninstall and
+// the start/stop lifecycle so they can't disagree on the path.
+func daemonPlistPath(instance string) string {
+	return filepath.Join(launchAgentsDir(), daemonLabel(instance)+".plist")
+}
+
 // launchdPATH is the PATH baked into the agent (launchd starts with a bare PATH). Absolute home —
 // plists don't expand $HOME.
 func launchdPATH() string {
@@ -98,7 +104,7 @@ func installLaunchd(opts Options) error {
 	cleanupLegacyLaunchd(laDir, logDir, cfg.Instance)
 
 	label := daemonLabel(cfg.Instance)
-	dest := filepath.Join(laDir, label+".plist")
+	dest := daemonPlistPath(cfg.Instance)
 	if err := os.WriteFile(dest, []byte(plistContents(opts)), 0o644); err != nil {
 		return err
 	}
@@ -126,7 +132,7 @@ func uninstallLaunchd(cfg *config.Config) error {
 	fmt.Printf("Uninstalling vault '%s' (launchd)\n", cfg.Instance)
 
 	label := daemonLabel(cfg.Instance)
-	dest := filepath.Join(laDir, label+".plist")
+	dest := daemonPlistPath(cfg.Instance)
 	logFile := filepath.Join(logDir, cfg.Instance+".log")
 
 	runQuiet("launchctl", "bootout", "gui/"+uid+"/"+label)
