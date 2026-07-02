@@ -135,16 +135,13 @@ func Compile(ctx context.Context, cfg *config.Config, manual bool, ov Overrides)
 			log.Logf("using legacy .claude/commands/compile-inbox.md — run `knowledge-tools init` to migrate to .agents/skills/.")
 		}
 
-		// Grant compile the gh subcommands its skill needs to open a judgment call as a GitHub issue
-		// (mirroring synthesize's grants) — but only on the github review channel with an agent that
-		// can scope unattended shell to that allowlist. On the files channel, or an agent that can't
-		// scope grants (codex/opencode/grant-less custom), compile runs grant-free (file edits only),
-		// exactly as before: issue-opening is secondary to the inbox→library compile, so a missing
-		// grant capability never fails the run — it just skips the issue.
+		// On the github channel with a grant-capable agent, grant compile the gh subcommands it needs
+		// to open a judgment call as an issue (mirrors synthesize's grants). Elsewhere it runs
+		// grant-free — issue-opening is secondary to the compile, so a missing grant never fails the run.
 		var ghTools []string
 		if detectChannel(cfg) == "github" && driver.SupportsShellGrants() {
 			ghTools = compileGrants
-			log.Logf("compile granted gh issue/label tools (github channel, agent=%s)", driver.Name())
+			log.Logf("compile granted gh issue/label tools (agent=%s)", driver.Name())
 		}
 		inv := agent.Invocation{
 			Repo:        repo,
