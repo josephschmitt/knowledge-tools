@@ -186,8 +186,21 @@ func (c *DaemonStatusCmd) Run(g *Globals) error {
 	return nil
 }
 
+// runOverrides is the shared per-run model/effort flag pair, embedded (kong flattens anonymous
+// embeds) into each job command so the flag definitions live in one place. overrides() maps them to
+// the jobs layer.
+type runOverrides struct {
+	Model  string `help:"Override the model for this run (else KNOWLEDGE_*_MODEL / harness default)." placeholder:"MODEL"`
+	Effort string `help:"Override reasoning effort for this run (harness-specific; else env / default)." placeholder:"EFFORT"`
+}
+
+func (o runOverrides) overrides() jobs.Overrides {
+	return jobs.Overrides{Model: o.Model, Effort: o.Effort}
+}
+
 type CompileCmd struct {
 	Manual bool `help:"Treat as an on-demand compile (cooldown-throttled)."`
+	runOverrides
 }
 
 func (c *CompileCmd) Run(g *Globals) error {
@@ -197,10 +210,12 @@ func (c *CompileCmd) Run(g *Globals) error {
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	return ignoreLocked(jobs.Compile(ctx, cfg, c.Manual))
+	return ignoreLocked(jobs.Compile(ctx, cfg, c.Manual, c.overrides()))
 }
 
-type SynthesizeCmd struct{}
+type SynthesizeCmd struct {
+	runOverrides
+}
 
 func (c *SynthesizeCmd) Run(g *Globals) error {
 	cfg, err := g.load()
@@ -209,10 +224,12 @@ func (c *SynthesizeCmd) Run(g *Globals) error {
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	return ignoreLocked(jobs.RunIssueJob(ctx, cfg, jobs.JobSynthesize))
+	return ignoreLocked(jobs.RunIssueJob(ctx, cfg, jobs.JobSynthesize, c.overrides()))
 }
 
-type ResolveCmd struct{}
+type ResolveCmd struct {
+	runOverrides
+}
 
 func (c *ResolveCmd) Run(g *Globals) error {
 	cfg, err := g.load()
@@ -221,7 +238,7 @@ func (c *ResolveCmd) Run(g *Globals) error {
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	return ignoreLocked(jobs.RunIssueJob(ctx, cfg, jobs.JobResolve))
+	return ignoreLocked(jobs.RunIssueJob(ctx, cfg, jobs.JobResolve, c.overrides()))
 }
 
 type InitCmd struct {

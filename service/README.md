@@ -38,9 +38,9 @@ can switch on built-in OAuth token validation pointed at any OIDC issuer. See
 | `list_index()` | Return the library and notebook navigation maps |
 | `list_notes()` | List every note, area-qualified, across `library/` and `notebook/` |
 | `append_to_inbox(text, title?)` | Capture a raw note into `inbox/` for the scheduled compile |
-| `compile_run()` | Trigger an on-demand compile (async, rate-limited to one/hour) |
-| `synthesize_run()` | Trigger an on-demand synthesize — the whole-corpus maintenance pass that opens judgment calls (async) |
-| `resolve_run()` | Trigger an on-demand resolve — apply answered judgment calls to the library (async; no-op when nothing answered) |
+| `compile_run(model?, effort?)` | Trigger an on-demand compile (async, rate-limited to one/hour) |
+| `synthesize_run(model?, effort?)` | Trigger an on-demand synthesize — the whole-corpus maintenance pass that opens judgment calls (async) |
+| `resolve_run(model?, effort?)` | Trigger an on-demand resolve — apply answered judgment calls to the library (async; no-op when nothing answered) |
 | `vault_status()` | Pollable JSON: last successful compile time, pending inbox count, manual-compile cooldown, running flag, and per-job last/next scheduled run |
 | `list_questions(status?)` | List judgment calls the vault is waiting on (file review channel) |
 | `get_question(id)` | Return one judgment call's full markdown |
@@ -103,6 +103,13 @@ instead of waiting for the scheduled run. Unlike compile these carry no cooldown
 always return `{ "status": "triggered" }`: the per-vault lock serializes every job (a request that
 lands mid-run just waits), and resolve is a host-side no-op when nothing is answered. Poll
 `vault_status` (its `jobs.synthesize` / `jobs.resolve` timings) for completion.
+
+All three triggers accept optional `model` and `effort` overrides for that single run (the MCP tool
+inputs; the `model`/`effort` fields of the REST POST body). They're written into the request
+sentinel (a small JSON payload) and take precedence over the host's `KNOWLEDGE_*_MODEL` /
+`KNOWLEDGE_*_EFFORT` env knobs, which in turn fall back to the harness default. Omit them to keep
+the host-configured behavior. Values are pass-through / unvalidated (harness-specific: e.g. Claude's
+`--effort low|medium|high|xhigh|max`; opencode has no effort knob and drops it).
 
 `vault_status` also returns a `jobs` map with the last/next *scheduled* run of each host job
 (`compile`, `synthesize`, `resolve`). The host can't be reached from the container, so — like
@@ -188,6 +195,9 @@ Notes:
   attempts get `400`.
 - `POST /inbox` body is `{ "text": "...", "title": "..."? }`; `POST .../answer` body is
   `{ "answer": "..." }`.
+- `POST /compile`, `/synthesize`, `/resolve` all accept an optional `{ "model": "...", "effort":
+  "..." }` body overriding that run's model/effort (each must be a string if present → else `400`);
+  omit for the host-configured default. See the override precedence above.
 - `POST /compile` always returns `200` with a discriminated `status`
   (`triggered` | `empty` | `busy` | `throttled`); `throttled` includes `available_at`. A refused
   manual compile is informational (your captures are safe regardless), so it isn't an error code.

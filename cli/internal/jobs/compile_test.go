@@ -115,7 +115,7 @@ func TestCompileEndToEnd(t *testing.T) {
 		ResolveSchedule:    "@daily",
 	}
 
-	if err := Compile(context.Background(), cfg, false); err != nil {
+	if err := Compile(context.Background(), cfg, false, Overrides{}); err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
 
@@ -182,7 +182,7 @@ func TestCompileEmptyInbox(t *testing.T) {
 		VaultLock:       filepath.Join(t.TempDir(), "vault.lock"),
 		CompileSchedule: "@hourly", SynthesizeSchedule: "@daily", ResolveSchedule: "@daily",
 	}
-	if err := Compile(context.Background(), cfg, false); err != nil {
+	if err := Compile(context.Background(), cfg, false, Overrides{}); err != nil {
 		t.Fatalf("Compile on empty inbox should succeed, got %v", err)
 	}
 	var st struct {
@@ -214,7 +214,7 @@ func TestCompileLockHeld(t *testing.T) {
 		Repo: repo, Instance: "test", AgentBin: stubClaude(t, "exit 1"), CompileCooldown: 3600,
 		VaultLock: lockPath, CompileSchedule: "@hourly", SynthesizeSchedule: "@daily", ResolveSchedule: "@daily",
 	}
-	err = Compile(context.Background(), cfg, false)
+	err = Compile(context.Background(), cfg, false, Overrides{})
 	if err == nil || err.Error() != "another vault job holds the lock" {
 		t.Fatalf("Compile with held lock err = %v, want ErrLocked", err)
 	}

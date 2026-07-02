@@ -1,6 +1,7 @@
 // Filesystem helpers over the vault. Every path is resolved and confined to VAULT_ROOT,
 // so externally-supplied note paths can't escape the vault (path traversal).
 import { promises as fs } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { VAULT_ROOT, VAULT_NAME, MAX_RESULT_CHARS } from './config.js';
 
@@ -75,6 +76,19 @@ function confine(base: string, rel: string): string {
     throw new Error(`Path escapes the allowed directory: ${rel}`);
   }
   return resolved;
+}
+
+/**
+ * Write `data` to `path` atomically (tmp file in the same dir + rename) so a concurrent reader — the
+ * host's resolve/compile jobs, or the daemon's fsnotify watcher — never observes a half-written
+ * file. Used for the review-queue answer files and the on-demand request sentinels.
+ */
+async function atomicWrite(path: string, data: string): Promise<void> {
+  // Unique per call (not process.pid, which is shared by every concurrent async write) so two
+  // in-flight writers to the same path can't clobber each other's tmp file and race the rename.
+  const tmp = `${path}.${randomUUID()}.tmp`;
+  await fs.writeFile(tmp, data, 'utf8');
+  await fs.rename(tmp, path);
 }
 
 export function cap(text: string): string {
@@ -368,12 +382,35 @@ export async function getVaultStatus(): Promise<VaultStatus> {
 }
 
 /**
- * Request a manual compile by dropping the sentinel the host's systemd .path unit watches.
- * Writes inbox/.compile/request with the trigger time. The host consumes it when it runs.
+ * Optional per-invocation overrides carried into a compile/synthesize/resolve trigger. Empty/omitted
+ * fields fall back to the host's config/env chain (KNOWLEDGE_*_MODEL/_EFFORT, then harness default).
+ * Values are pass-through / unvalidated (harness-specific), matching the env knobs.
  */
-export async function requestCompile(): Promise<void> {
+export type JobOverrides = { model?: string; effort?: string };
+
+/**
+ * Write a request sentinel atomically (tmp + rename) so the daemon's fsnotify watcher never reads a
+ * half-written body. The body is a small JSON payload: `requested_at` for observability plus any
+ * per-request model/effort override (omitted when unset). An older daemon ignores the body entirely;
+ * a newer daemon parses it and falls back to config/env when a field is absent.
+ */
+async function writeRequestFile(path: string, ov?: JobOverrides): Promise<void> {
   await fs.mkdir(COMPILE_DIR, { recursive: true });
-  await fs.writeFile(COMPILE_REQUEST, `${new Date().toISOString()}\n`);
+  const payload: { requested_at: string; model?: string; effort?: string } = {
+    requested_at: new Date().toISOString(),
+  };
+  if (ov?.model) payload.model = ov.model;
+  if (ov?.effort) payload.effort = ov.effort;
+  await atomicWrite(path, `${JSON.stringify(payload)}\n`);
+}
+
+/**
+ * Request a manual compile by dropping the sentinel the host's daemon watches. Writes
+ * inbox/.compile/request with the trigger time and any per-request model/effort override. The host
+ * consumes it when it runs.
+ */
+export async function requestCompile(ov?: JobOverrides): Promise<void> {
+  await writeRequestFile(COMPILE_REQUEST, ov);
 }
 
 /** Outcome of an on-demand compile request. `throttled` carries when the next one is allowed. */
@@ -390,7 +427,7 @@ export type CompileTrigger =
  * one place. The host script remains the authoritative guard; this mirrors it so the caller can
  * refuse early with a clear outcome.
  */
-export async function triggerCompile(): Promise<CompileTrigger> {
+export async function triggerCompile(ov?: JobOverrides): Promise<CompileTrigger> {
   if ((await countInboxCaptures()) === 0) return { status: 'empty' };
 
   const status = await readCompileStatus();
@@ -405,7 +442,7 @@ export async function triggerCompile(): Promise<CompileTrigger> {
     }
   }
 
-  await requestCompile();
+  await requestCompile(ov);
   return { status: 'triggered' };
 }
 
@@ -429,9 +466,8 @@ export type JobTrigger = { status: 'triggered' };
  * land. Shared by the MCP synthesize_run/resolve_run tools and the REST POST /synthesize,/resolve
  * routes so the request path lives in one place.
  */
-export async function triggerJob(job: MaintenanceJob): Promise<JobTrigger> {
-  await fs.mkdir(COMPILE_DIR, { recursive: true });
-  await fs.writeFile(REQUEST_FILE[job], `${new Date().toISOString()}\n`);
+export async function triggerJob(job: MaintenanceJob, ov?: JobOverrides): Promise<JobTrigger> {
+  await writeRequestFile(REQUEST_FILE[job], ov);
   return { status: 'triggered' };
 }
 
@@ -558,8 +594,6 @@ export async function answerQuestion(id: string, answer: string): Promise<Questi
   fm.status = 'answered';
   fm.updated = new Date().toISOString();
   const next = serializeDoc(fm, replaceSection(body, 'Answer', answer.trim()));
-  const tmp = `${full}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, next, 'utf8');
-  await fs.rename(tmp, full);
+  await atomicWrite(full, next);
   return 'answered';
 }

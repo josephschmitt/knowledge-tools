@@ -47,18 +47,19 @@ not on the query surface.
   `notebook/<rel>`).
 
 ### compile_run
-- **Inputs:** none.
+- **Inputs:** `model` (optional string), `effort` (optional string) — override this run's model /
+  reasoning effort; empty falls back to the host's config/env chain then the harness default.
 - **Output:** text describing one of four outcomes — *triggered*, *throttled* (names when the
   next manual compile is available), *busy*, or *empty*. Asynchronous: returns immediately
   without a result summary.
 
 ### synthesize_run
-- **Inputs:** none.
+- **Inputs:** `model` (optional string), `effort` (optional string) — as in `compile_run`.
 - **Output:** text confirming the whole-corpus synthesize pass was triggered. Asynchronous:
   returns immediately without a result summary (poll `vault_status` → `jobs.synthesize`).
 
 ### resolve_run
-- **Inputs:** none.
+- **Inputs:** `model` (optional string), `effort` (optional string) — as in `compile_run`.
 - **Output:** text confirming the resolve pass (applies answered judgment calls) was triggered.
   Asynchronous: returns immediately; a no-op host-side when nothing is answered (poll
   `vault_status` → `jobs.resolve`).
