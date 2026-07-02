@@ -43,12 +43,18 @@ function questionError(id: string, err: unknown) {
 /**
  * Shared optional model/effort inputs for the three job triggers (compile/synthesize/resolve).
  * Spread into each tool's inputSchema so the fields + descriptions live in one place. Values are
- * pass-through / unvalidated (harness-specific); empty falls back to the host's config/env chain.
+ * pass-through / unvalidated (harness-specific); omit a field to fall back to the host's config/env
+ * chain. min(1) rejects an empty string rather than silently treating it as "no override".
  */
 const jobOverrideSchema = {
-  model: z.string().optional().describe('Override the model for this run (else server default).'),
+  model: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Override the model for this run (else server default).'),
   effort: z
     .string()
+    .min(1)
     .optional()
     .describe('Override reasoning effort for this run (harness-specific; else default).'),
 };

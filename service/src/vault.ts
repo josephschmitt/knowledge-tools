@@ -1,6 +1,7 @@
 // Filesystem helpers over the vault. Every path is resolved and confined to VAULT_ROOT,
 // so externally-supplied note paths can't escape the vault (path traversal).
 import { promises as fs } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { VAULT_ROOT, VAULT_NAME, MAX_RESULT_CHARS } from './config.js';
 
@@ -83,7 +84,9 @@ function confine(base: string, rel: string): string {
  * file. Used for the review-queue answer files and the on-demand request sentinels.
  */
 async function atomicWrite(path: string, data: string): Promise<void> {
-  const tmp = `${path}.${process.pid}.tmp`;
+  // Unique per call (not process.pid, which is shared by every concurrent async write) so two
+  // in-flight writers to the same path can't clobber each other's tmp file and race the rename.
+  const tmp = `${path}.${randomUUID()}.tmp`;
   await fs.writeFile(tmp, data, 'utf8');
   await fs.rename(tmp, path);
 }

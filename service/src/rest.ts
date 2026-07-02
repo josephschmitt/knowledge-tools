@@ -118,17 +118,18 @@ apiRouter.post('/inbox', async (req, res) => {
 });
 
 // Parse the optional per-run model/effort override from a trigger's request body: each is optional
-// and must be a string when present. On a bad type it writes a 400 and returns undefined (the caller
-// bails); otherwise it returns the validated overrides. Values are pass-through / unvalidated
-// (harness-specific), matching the env knobs.
+// and must be a non-empty string when present (an empty string is rejected rather than silently
+// dropped, matching the MCP schema's min(1)). On a bad value it writes a 400 and returns undefined
+// (the caller bails); otherwise it returns the validated overrides. Values are pass-through /
+// unvalidated (harness-specific), matching the env knobs.
 function overridesOr400(req: Request, res: Response): JobOverrides | undefined {
   const { model, effort } = (req.body ?? {}) as { model?: unknown; effort?: unknown };
-  if (model !== undefined && typeof model !== 'string') {
-    res.status(400).json({ error: '"model" must be a string' });
+  if (model !== undefined && (typeof model !== 'string' || model === '')) {
+    res.status(400).json({ error: '"model" must be a non-empty string' });
     return undefined;
   }
-  if (effort !== undefined && typeof effort !== 'string') {
-    res.status(400).json({ error: '"effort" must be a string' });
+  if (effort !== undefined && (typeof effort !== 'string' || effort === '')) {
+    res.status(400).json({ error: '"effort" must be a non-empty string' });
     return undefined;
   }
   return { model, effort };
