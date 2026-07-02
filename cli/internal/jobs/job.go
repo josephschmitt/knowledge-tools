@@ -149,6 +149,19 @@ func resolveAgentChannel(detected, forced string, driver agent.Driver) (string, 
 	return detected, false, nil
 }
 
+// compileGrants are the neutral gh subcommand prefixes the compile skill may run unattended on the
+// github review channel — mirroring /compile-inbox's allowed-tools frontmatter — so it can open a
+// judgment call as a GitHub issue: search/list to dedupe against existing issues, create to open
+// one, and label list/create to tag it. Each driver re-encodes these into its own allowlist syntax
+// (the claude driver into Bash(gh issue list:*) …), exactly as it does synthesize's grants.
+var compileGrants = []string{
+	"gh issue list",
+	"gh issue create",
+	"gh search issues",
+	"gh label list",
+	"gh label create",
+}
+
 // channelConfig returns the skill name, neutral shell-grant prefixes, and commit pathspecs for a
 // job+channel. Ports the case blocks in vault-job.sh. The grants are bare command prefixes (e.g.
 // "gh issue list"); each agent driver re-encodes them into its own allowlist syntax (the claude

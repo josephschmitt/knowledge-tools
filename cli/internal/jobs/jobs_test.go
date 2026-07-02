@@ -74,6 +74,28 @@ func TestChannelConfig(t *testing.T) {
 	}
 }
 
+func TestCompileGrants(t *testing.T) {
+	// Mirrors /compile-inbox's allowed-tools frontmatter so compile can open a judgment call as a
+	// GitHub issue: dedupe (list/search), create, and label (list/create). Bare prefixes — the agent
+	// driver wraps them into Bash(...:*).
+	want := []string{
+		"gh issue list",
+		"gh issue create",
+		"gh search issues",
+		"gh label list",
+		"gh label create",
+	}
+	for _, g := range want {
+		if !contains(compileGrants, g) {
+			t.Errorf("compileGrants missing %q: %v", g, compileGrants)
+		}
+	}
+	// Producer-only: compile opens issues, it never closes them (resolve's job).
+	if contains(compileGrants, "gh issue close") {
+		t.Errorf("compile should not grant close: %v", compileGrants)
+	}
+}
+
 // fakeDriver is a minimal agent.Driver for exercising channel policy.
 type fakeDriver struct {
 	name   string

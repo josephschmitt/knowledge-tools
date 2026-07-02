@@ -119,7 +119,8 @@ func Compile(ctx context.Context, cfg *config.Config, manual bool, ov Overrides)
 		writeStatus(true, fmt.Sprintf("compiling %d item(s)", len(items)))
 
 		// Fresh, headless compile via the configured agent. The driver runs unattended and
-		// auto-applies file edits; compile needs no shell grants (file edits only).
+		// auto-applies file edits; on the github channel it also gets scoped gh grants to open a
+		// judgment call as an issue (see below), else runs grant-free.
 		driver, err := agent.NewDriver(agent.Spec{Agent: cfg.Agent, Bin: cfg.AgentBin, Cmd: cfg.AgentCmd})
 		if err != nil {
 			writeStatus(false, "compile failed: agent config")
@@ -133,11 +134,21 @@ func Compile(ctx context.Context, cfg *config.Config, manual bool, ov Overrides)
 		if legacy {
 			log.Logf("using legacy .claude/commands/compile-inbox.md — run `knowledge-tools init` to migrate to .agents/skills/.")
 		}
+
+		// On the github channel with a grant-capable agent, grant compile the gh subcommands it needs
+		// to open a judgment call as an issue (mirrors synthesize's grants). Elsewhere it runs
+		// grant-free — issue-opening is secondary to the compile, so a missing grant never fails the run.
+		var ghTools []string
+		if detectChannel(cfg) == "github" && driver.SupportsShellGrants() {
+			ghTools = compileGrants
+			log.Logf("compile granted gh issue/label tools (agent=%s)", driver.Name())
+		}
 		inv := agent.Invocation{
-			Repo:   repo,
-			Prompt: prompt,
-			Model:  cfg.JobModel("compile", ov.Model),
-			Effort: cfg.JobEffort("compile", ov.Effort),
+			Repo:        repo,
+			Prompt:      prompt,
+			Model:       cfg.JobModel("compile", ov.Model),
+			Effort:      cfg.JobEffort("compile", ov.Effort),
+			ShellGrants: ghTools,
 		}
 		if err := agent.Run(ctx, driver, inv, log.File()); err != nil {
 			log.Logf("agent exited non-zero — leaving inbox untouched for inspection.")
