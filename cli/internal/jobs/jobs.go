@@ -26,6 +26,15 @@ const (
 	JobResolve    Job = "resolve"
 )
 
+// Overrides carries per-invocation model/effort supplied by a caller (a CLI flag, the MCP tool, or
+// the REST body) for a single run. An empty field falls back to the config/env chain in
+// config.JobModel/JobEffort — scheduled daemon ticks pass the zero value, preserving env/default
+// behavior. Values are pass-through / unvalidated (harness-specific), like the env knobs.
+type Overrides struct {
+	Model  string
+	Effort string
+}
+
 // stamp is the per-run log/archive timestamp, e.g. 2026-06-18_134500 (matches the bash `date
 // +%Y-%m-%d_%H%M%S`).
 func stamp() string { return time.Now().Format("2006-01-02_150405") }

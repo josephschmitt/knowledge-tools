@@ -368,12 +368,37 @@ export async function getVaultStatus(): Promise<VaultStatus> {
 }
 
 /**
- * Request a manual compile by dropping the sentinel the host's systemd .path unit watches.
- * Writes inbox/.compile/request with the trigger time. The host consumes it when it runs.
+ * Optional per-invocation overrides carried into a compile/synthesize/resolve trigger. Empty/omitted
+ * fields fall back to the host's config/env chain (KNOWLEDGE_*_MODEL/_EFFORT, then harness default).
+ * Values are pass-through / unvalidated (harness-specific), matching the env knobs.
  */
-export async function requestCompile(): Promise<void> {
+export type JobOverrides = { model?: string; effort?: string };
+
+/**
+ * Write a request sentinel atomically (tmp + rename) so the daemon's fsnotify watcher never reads a
+ * half-written body. The body is a small JSON payload: `requested_at` for observability plus any
+ * per-request model/effort override (omitted when unset). An older daemon ignores the body entirely;
+ * a newer daemon parses it and falls back to config/env when a field is absent.
+ */
+async function writeRequestFile(path: string, ov?: JobOverrides): Promise<void> {
   await fs.mkdir(COMPILE_DIR, { recursive: true });
-  await fs.writeFile(COMPILE_REQUEST, `${new Date().toISOString()}\n`);
+  const payload: { requested_at: string; model?: string; effort?: string } = {
+    requested_at: new Date().toISOString(),
+  };
+  if (ov?.model) payload.model = ov.model;
+  if (ov?.effort) payload.effort = ov.effort;
+  const tmp = `${path}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, `${JSON.stringify(payload)}\n`);
+  await fs.rename(tmp, path);
+}
+
+/**
+ * Request a manual compile by dropping the sentinel the host's daemon watches. Writes
+ * inbox/.compile/request with the trigger time and any per-request model/effort override. The host
+ * consumes it when it runs.
+ */
+export async function requestCompile(ov?: JobOverrides): Promise<void> {
+  await writeRequestFile(COMPILE_REQUEST, ov);
 }
 
 /** Outcome of an on-demand compile request. `throttled` carries when the next one is allowed. */
@@ -390,7 +415,7 @@ export type CompileTrigger =
  * one place. The host script remains the authoritative guard; this mirrors it so the caller can
  * refuse early with a clear outcome.
  */
-export async function triggerCompile(): Promise<CompileTrigger> {
+export async function triggerCompile(ov?: JobOverrides): Promise<CompileTrigger> {
   if ((await countInboxCaptures()) === 0) return { status: 'empty' };
 
   const status = await readCompileStatus();
@@ -405,7 +430,7 @@ export async function triggerCompile(): Promise<CompileTrigger> {
     }
   }
 
-  await requestCompile();
+  await requestCompile(ov);
   return { status: 'triggered' };
 }
 
@@ -429,9 +454,8 @@ export type JobTrigger = { status: 'triggered' };
  * land. Shared by the MCP synthesize_run/resolve_run tools and the REST POST /synthesize,/resolve
  * routes so the request path lives in one place.
  */
-export async function triggerJob(job: MaintenanceJob): Promise<JobTrigger> {
-  await fs.mkdir(COMPILE_DIR, { recursive: true });
-  await fs.writeFile(REQUEST_FILE[job], `${new Date().toISOString()}\n`);
+export async function triggerJob(job: MaintenanceJob, ov?: JobOverrides): Promise<JobTrigger> {
+  await writeRequestFile(REQUEST_FILE[job], ov);
   return { status: 'triggered' };
 }
 

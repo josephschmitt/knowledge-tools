@@ -12,6 +12,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
@@ -65,13 +66,13 @@ func Run(ctx context.Context, cfg *config.Config, version string) error {
 	jobs.WriteDaemonInfo(cfg, version)
 
 	c := cron.New(cron.WithParser(jobs.CronParser), cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
-	if _, err := c.AddFunc(cfg.CompileSchedule, func() { d.runJob(jobs.JobCompile, false) }); err != nil {
+	if _, err := c.AddFunc(cfg.CompileSchedule, func() { d.runJob(jobs.JobCompile, false, jobs.Overrides{}) }); err != nil {
 		return err
 	}
-	if _, err := c.AddFunc(cfg.SynthesizeSchedule, func() { d.runJob(jobs.JobSynthesize, false) }); err != nil {
+	if _, err := c.AddFunc(cfg.SynthesizeSchedule, func() { d.runJob(jobs.JobSynthesize, false, jobs.Overrides{}) }); err != nil {
 		return err
 	}
-	if _, err := c.AddFunc(cfg.ResolveSchedule, func() { d.runJob(jobs.JobResolve, false) }); err != nil {
+	if _, err := c.AddFunc(cfg.ResolveSchedule, func() { d.runJob(jobs.JobResolve, false, jobs.Overrides{}) }); err != nil {
 		return err
 	}
 	c.Start()
@@ -106,7 +107,8 @@ func Run(ctx context.Context, cfg *config.Config, version string) error {
 // lock would make it a no-op anyway, so we skip early. ErrLocked (another process holds the lock)
 // is not an error. Returns whether the job actually ran (false = skipped because busy), so the
 // on-demand path can keep the request file for a later retry instead of consuming it on a skip.
-func (d *daemon) runJob(job jobs.Job, manual bool) (ran bool) {
+// ov carries the per-request model/effort override (empty for scheduled/catch-up ticks).
+func (d *daemon) runJob(job jobs.Job, manual bool, ov jobs.Overrides) (ran bool) {
 	if !d.mu.TryLock() {
 		log.Printf("%s: another job is running — skipping this tick", job)
 		return false
@@ -116,9 +118,9 @@ func (d *daemon) runJob(job jobs.Job, manual bool) (ran bool) {
 	log.Printf("%s: starting (manual=%v)", job, manual)
 	var err error
 	if job == jobs.JobCompile {
-		err = jobs.Compile(d.ctx, d.cfg, manual)
+		err = jobs.Compile(d.ctx, d.cfg, manual, ov)
 	} else {
-		err = jobs.RunIssueJob(d.ctx, d.cfg, job)
+		err = jobs.RunIssueJob(d.ctx, d.cfg, job, ov)
 	}
 	switch err {
 	case nil:
@@ -147,7 +149,7 @@ func (d *daemon) catchUp() {
 	} {
 		if d.overdue(s.schedule, jobs.LastRun(d.cfg, s.job), now) {
 			log.Printf("%s: overdue at startup — catching up", s.job)
-			d.runJob(s.job, false)
+			d.runJob(s.job, false, jobs.Overrides{})
 		}
 	}
 }
@@ -213,13 +215,40 @@ func (d *daemon) watchRequests() error {
 // consuming the file only after the job actually runs. Removing on a skip (mutex busy) would drop
 // the request silently; keeping it lets the watcher re-fire on a later write and lets the
 // post-catch-up drain pick it up.
+//
+// The request body carries an optional per-request model/effort override written by the MCP/REST
+// service (requestPayload JSON). Parsing is tolerant: a missing/legacy body (an older service wrote
+// a bare ISO timestamp) or any unmarshal error degrades to no override, so the run falls back to
+// the config/env chain — keeping a new daemon compatible with an old service.
 func (d *daemon) handleRequest(file string, job jobs.Job) {
 	request := filepath.Join(d.cfg.CompileDir(), file)
 	if _, err := os.Stat(request); err != nil {
 		return
 	}
 	log.Printf("on-demand %s requested", job)
-	if d.runJob(job, true) {
+	if d.runJob(job, true, readRequestOverrides(request)) {
 		_ = os.Remove(request)
 	}
+}
+
+// requestPayload is the JSON body the MCP/REST service writes into a request sentinel. requested_at
+// is informational; model/effort are the optional per-request overrides. All fields are optional.
+type requestPayload struct {
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
+}
+
+// readRequestOverrides parses a request file's body into job overrides, returning the zero value on
+// any read/parse error (missing body, legacy bare-timestamp body, malformed JSON) — the run then
+// falls back to the config/env chain.
+func readRequestOverrides(path string) jobs.Overrides {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return jobs.Overrides{}
+	}
+	var p requestPayload
+	if err := json.Unmarshal(b, &p); err != nil {
+		return jobs.Overrides{}
+	}
+	return jobs.Overrides{Model: p.Model, Effort: p.Effort}
 }

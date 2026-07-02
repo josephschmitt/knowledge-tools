@@ -127,3 +127,48 @@ func TestRequireRepo(t *testing.T) {
 		t.Errorf("non-empty repo should be ok, got %v", err)
 	}
 }
+
+func TestJobModel(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      Config
+		override string
+		want     string
+	}{
+		{"override wins over everything", Config{Agent: "codex", CompileModel: "perjob", AgentModel: "agentwide"}, "override", "override"},
+		{"per-job env beats agent-wide", Config{Agent: "codex", CompileModel: "perjob", AgentModel: "agentwide"}, "", "perjob"},
+		{"agent-wide env when no per-job", Config{Agent: "codex", AgentModel: "agentwide"}, "", "agentwide"},
+		{"claude defaults to opus when empty", Config{Agent: "claude"}, "", "opus"},
+		{"empty agent defaults to opus (claude)", Config{Agent: ""}, "", "opus"},
+		{"override beats claude opus default", Config{Agent: "claude"}, "override", "override"},
+		{"non-claude empty stays empty", Config{Agent: "codex"}, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.JobModel("compile", tt.override); got != tt.want {
+				t.Errorf("JobModel = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestJobEffort(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      Config
+		override string
+		want     string
+	}{
+		{"override wins over everything", Config{SynthesizeEffort: "perjob", AgentEffort: "agentwide"}, "high", "high"},
+		{"per-job env beats agent-wide", Config{SynthesizeEffort: "perjob", AgentEffort: "agentwide"}, "", "perjob"},
+		{"agent-wide env when no per-job", Config{AgentEffort: "agentwide"}, "", "agentwide"},
+		{"empty when nothing set (no default)", Config{Agent: "claude"}, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.JobEffort("synthesize", tt.override); got != tt.want {
+				t.Errorf("JobEffort = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

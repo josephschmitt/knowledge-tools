@@ -188,10 +188,12 @@ func Load(instance, repo string) (*Config, error) {
 	return cfg, nil
 }
 
-// JobModel resolves the model for a job: the per-job override wins, then KNOWLEDGE_AGENT_MODEL,
+// JobModel resolves the model for a job: a caller-supplied override wins (a per-invocation value
+// from the CLI flag / MCP tool / REST body), then the per-job env knob, then KNOWLEDGE_AGENT_MODEL,
 // then the agent's default. Only the claude agent has a real default (opus) — preserving the model
 // the old slash-command frontmatter declared; other harnesses default empty (use their own model).
-func (c *Config) JobModel(job string) string {
+// override is empty when the caller didn't specify one.
+func (c *Config) JobModel(job, override string) string {
 	var perJob string
 	switch job {
 	case "compile":
@@ -201,19 +203,21 @@ func (c *Config) JobModel(job string) string {
 	case "resolve":
 		perJob = c.ResolveModel
 	}
-	m := firstNonEmpty(perJob, c.AgentModel)
+	m := firstNonEmpty(override, perJob, c.AgentModel)
 	if m == "" && (c.Agent == "" || c.Agent == "claude") {
 		return "opus"
 	}
 	return m
 }
 
-// JobEffort resolves the reasoning effort for a job: per-job override, then KNOWLEDGE_AGENT_EFFORT.
-// No agent-specific default — effort values are harness-specific and passed through verbatim (no
-// translation): claude honors --effort (low|medium|high|xhigh|max) and codex model_reasoning_effort
-// (low|medium|high); opencode has no knob and drops it; custom uses {{effort}} if its template
-// references it. Empty means unset.
-func (c *Config) JobEffort(job string) string {
+// JobEffort resolves the reasoning effort for a job: a caller-supplied override wins (a
+// per-invocation value from the CLI flag / MCP tool / REST body), then the per-job env knob, then
+// KNOWLEDGE_AGENT_EFFORT. No agent-specific default — effort values are harness-specific and passed
+// through verbatim (no translation): claude honors --effort (low|medium|high|xhigh|max) and codex
+// model_reasoning_effort (low|medium|high); opencode has no knob and drops it; custom uses
+// {{effort}} if its template references it. Empty means unset. override is empty when the caller
+// didn't specify one.
+func (c *Config) JobEffort(job, override string) string {
 	var perJob string
 	switch job {
 	case "compile":
@@ -223,7 +227,7 @@ func (c *Config) JobEffort(job string) string {
 	case "resolve":
 		perJob = c.ResolveEffort
 	}
-	return firstNonEmpty(perJob, c.AgentEffort)
+	return firstNonEmpty(override, perJob, c.AgentEffort)
 }
 
 // agentBin resolves KNOWLEDGE_AGENT_BIN, honoring the deprecated CLAUDE_BIN as a fallback. Empty

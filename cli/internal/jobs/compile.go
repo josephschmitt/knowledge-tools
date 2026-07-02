@@ -34,9 +34,12 @@ type compileStatus struct {
 // script's OS-divergent request-file dance: the trigger source decides manual vs scheduled, not
 // the file's presence/mtime.
 //
+// ov carries an optional per-invocation model/effort override (from a CLI flag or the MCP/REST
+// trigger); empty fields fall back to the config/env chain.
+//
 // Returns ErrLocked (cleanly) if another vault job holds the lock — the caller should treat that
 // as a no-op, like the bash exit 0.
-func Compile(ctx context.Context, cfg *config.Config, manual bool) error {
+func Compile(ctx context.Context, cfg *config.Config, manual bool, ov Overrides) error {
 	if err := cfg.RequireRepo(); err != nil {
 		return err
 	}
@@ -133,8 +136,8 @@ func Compile(ctx context.Context, cfg *config.Config, manual bool) error {
 		inv := agent.Invocation{
 			Repo:   repo,
 			Prompt: prompt,
-			Model:  cfg.JobModel("compile"),
-			Effort: cfg.JobEffort("compile"),
+			Model:  cfg.JobModel("compile", ov.Model),
+			Effort: cfg.JobEffort("compile", ov.Effort),
 		}
 		if err := agent.Run(ctx, driver, inv, log.File()); err != nil {
 			log.Logf("agent exited non-zero — leaving inbox untouched for inspection.")

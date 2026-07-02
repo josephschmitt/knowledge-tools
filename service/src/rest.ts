@@ -13,6 +13,7 @@ import {
   triggerCompile,
   triggerJob,
   getVaultStatus,
+  type JobOverrides,
 } from './vault.js';
 import { listQuestions, getQuestion, answerQuestion } from './review.js';
 import { requireScope } from './auth.js';
@@ -116,23 +117,50 @@ apiRouter.post('/inbox', async (req, res) => {
   res.status(201).json({ path });
 });
 
+// Parse the optional per-run model/effort override from a trigger's request body. Each is optional
+// and must be a string when present; returns an error message (→ 400) otherwise. Values are
+// pass-through / unvalidated (harness-specific), matching the env knobs.
+function parseOverrides(body: unknown): { ov: JobOverrides } | { error: string } {
+  const { model, effort } = (body ?? {}) as { model?: unknown; effort?: unknown };
+  if (model !== undefined && typeof model !== 'string') return { error: '"model" must be a string' };
+  if (effort !== undefined && typeof effort !== 'string') return { error: '"effort" must be a string' };
+  return { ov: { model, effort } };
+}
+
 // Always 200 with a discriminated `status` (triggered | empty | busy | throttled). A refused
 // manual compile is informational, not a failure — the captures are safe regardless — so this
-// mirrors the MCP tool's semantics rather than returning an error code.
-apiRouter.post('/compile', async (_req, res) => {
-  res.json(await triggerCompile());
+// mirrors the MCP tool's semantics rather than returning an error code. Accepts an optional
+// { model?, effort? } body to override the run's model/effort (else the host's config/env chain).
+apiRouter.post('/compile', async (req, res) => {
+  const parsed = parseOverrides(req.body);
+  if ('error' in parsed) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  res.json(await triggerCompile(parsed.ov));
 });
 
 // The two judgment-call maintenance jobs, mirroring /compile as async on-demand triggers. Always
 // 200 with { status: 'triggered' }: the daemon serializes every vault job on the shared lock and
 // resolve is a host-side no-op when nothing is answered, so there's no throttle/empty guard to
-// report. Poll GET /status (its jobs map) for completion.
-apiRouter.post('/synthesize', async (_req, res) => {
-  res.json(await triggerJob('synthesize'));
+// report. Poll GET /status (its jobs map) for completion. Accepts the same optional
+// { model?, effort? } override body as /compile.
+apiRouter.post('/synthesize', async (req, res) => {
+  const parsed = parseOverrides(req.body);
+  if ('error' in parsed) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  res.json(await triggerJob('synthesize', parsed.ov));
 });
 
-apiRouter.post('/resolve', async (_req, res) => {
-  res.json(await triggerJob('resolve'));
+apiRouter.post('/resolve', async (req, res) => {
+  const parsed = parseOverrides(req.body);
+  if ('error' in parsed) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  res.json(await triggerJob('resolve', parsed.ov));
 });
 
 apiRouter.get('/status', async (_req, res) => {

@@ -186,10 +186,16 @@ export function buildMcpServer(): McpServer {
         'immediately — poll vault_status to see when it finishes. Rate-limited to one manual ' +
         'compile per hour. Only needed to process the inbox sooner than the next scheduled ' +
         'compile; capturing alone does not require it.',
-      inputSchema: {},
+      inputSchema: {
+        model: z.string().optional().describe('Override the model for this run (else server default).'),
+        effort: z
+          .string()
+          .optional()
+          .describe('Override reasoning effort for this run (harness-specific; else default).'),
+      },
     },
-    async () => {
-      const result = await triggerCompile();
+    async ({ model, effort }) => {
+      const result = await triggerCompile({ model, effort });
       switch (result.status) {
         case 'empty':
           return text('Inbox is empty — nothing to compile. (No cooldown consumed.)');
@@ -220,10 +226,16 @@ export function buildMcpServer(): McpServer {
         'list_questions). Asynchronous: returns immediately — poll vault_status (its jobs.synthesize ' +
         'timing) to see it finish. Rarely needed by hand; it runs on a schedule. Does not compile ' +
         'the inbox (that is compile_run).',
-      inputSchema: {},
+      inputSchema: {
+        model: z.string().optional().describe('Override the model for this run (else server default).'),
+        effort: z
+          .string()
+          .optional()
+          .describe('Override reasoning effort for this run (harness-specific; else default).'),
+      },
     },
-    async () => {
-      await triggerJob('synthesize');
+    async ({ model, effort }) => {
+      await triggerJob('synthesize', { model, effort });
       return text(
         'Synthesize triggered. It runs on the home server; the library and any new judgment calls ' +
           'update once it finishes. Poll vault_status (jobs.synthesize) for completion.',
@@ -240,10 +252,16 @@ export function buildMcpServer(): McpServer {
         'judgment calls (answer_question) to the library and closes them out. Asynchronous: returns ' +
         'immediately — poll vault_status (its jobs.resolve timing). A no-op when nothing is answered. ' +
         'Use it to apply an answer now instead of waiting for the next scheduled resolve.',
-      inputSchema: {},
+      inputSchema: {
+        model: z.string().optional().describe('Override the model for this run (else server default).'),
+        effort: z
+          .string()
+          .optional()
+          .describe('Override reasoning effort for this run (harness-specific; else default).'),
+      },
     },
-    async () => {
-      await triggerJob('resolve');
+    async ({ model, effort }) => {
+      await triggerJob('resolve', { model, effort });
       return text(
         'Resolve triggered. It runs on the home server; any answered judgment calls are applied to ' +
           'the library and closed once it finishes. Poll vault_status (jobs.resolve) for completion.',

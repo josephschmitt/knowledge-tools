@@ -25,7 +25,10 @@ import (
 // files runs /<job>-files with no tool grants (file edits only). The wrapper owns git: it commits
 // the scoped pathspec (never the raw top-level inbox/ captures compile hasn't processed) and
 // pushes. Returns ErrLocked (cleanly) if another vault job holds the lock.
-func RunIssueJob(ctx context.Context, cfg *config.Config, job Job) error {
+//
+// ov carries an optional per-invocation model/effort override (from a CLI flag or the MCP/REST
+// trigger); empty fields fall back to the config/env chain.
+func RunIssueJob(ctx context.Context, cfg *config.Config, job Job, ov Overrides) error {
 	if job != JobSynthesize && job != JobResolve {
 		return fmt.Errorf("unknown job %q (expected synthesize or resolve)", job)
 	}
@@ -91,8 +94,8 @@ func RunIssueJob(ctx context.Context, cfg *config.Config, job Job) error {
 		inv := agent.Invocation{
 			Repo:        repo,
 			Prompt:      prompt,
-			Model:       cfg.JobModel(string(job)),
-			Effort:      cfg.JobEffort(string(job)),
+			Model:       cfg.JobModel(string(job), ov.Model),
+			Effort:      cfg.JobEffort(string(job), ov.Effort),
 			ShellGrants: ghTools,
 		}
 		if err := agent.Run(ctx, driver, inv, log.File()); err != nil {
