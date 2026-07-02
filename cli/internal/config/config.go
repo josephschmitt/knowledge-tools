@@ -230,8 +230,9 @@ var vaultConfigKeys = map[string]bool{
 }
 
 // loadVaultConfig reads <repo>/.knowledge/config.env and returns only the allowlisted model/effort
-// keys. Returns nil when repo is empty, the file is absent, or it can't be parsed (the last logged
-// to stderr and treated as absent) — so a missing or malformed file is a clean no-op.
+// keys. Returns nil when repo is empty or the file can't be parsed (the latter logged to stderr and
+// treated as absent); an absent file yields an empty map. Either way a missing or malformed file is
+// a clean no-op — c.vault reads then return "" for every key.
 func loadVaultConfig(repo string) map[string]string {
 	if repo == "" {
 		return nil
