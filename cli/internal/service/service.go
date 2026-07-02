@@ -140,15 +140,24 @@ func Start(cfg *config.Config) error {
 		return run("systemctl", "--user", "start", daemonUnit(cfg.Instance))
 	case "darwin":
 		uid := strconv.Itoa(os.Getuid())
-		fmt.Printf("Starting %s\n", daemonLabel(cfg.Instance))
-		return run("launchctl", "kickstart", "gui/"+uid+"/"+daemonLabel(cfg.Instance))
+		label := daemonLabel(cfg.Instance)
+		fmt.Printf("Starting %s\n", label)
+		// bootstrap re-registers the agent (undoing Stop's bootout) and starts it. If it's already
+		// bootstrapped, bootstrap errors — fall back to kickstart to ensure it's actually running, so
+		// Start stays roughly idempotent like `systemctl start`.
+		if err := run("launchctl", "bootstrap", "gui/"+uid, daemonPlistPath(cfg.Instance)); err != nil {
+			return run("launchctl", "kickstart", "gui/"+uid+"/"+label)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported OS %q — need Linux (systemd) or macOS (launchd)", runtime.GOOS)
 	}
 }
 
-// Stop stops the running daemon unit without removing it (unlike Uninstall). On macOS this kills
-// the current run; KeepAlive would revive it on next login/load, so Stop is a transient pause.
+// Stop stops the running daemon unit without removing it (unlike Uninstall). On macOS a plain
+// `launchctl kill` wouldn't stick — the plist's KeepAlive makes launchd immediately respawn the
+// process — so Stop boots the agent out of launchd (stopped + untracked) while leaving the plist in
+// place, so Start can re-bootstrap it.
 func Stop(cfg *config.Config) error {
 	switch runtime.GOOS {
 	case "linux":
@@ -156,8 +165,9 @@ func Stop(cfg *config.Config) error {
 		return run("systemctl", "--user", "stop", daemonUnit(cfg.Instance))
 	case "darwin":
 		uid := strconv.Itoa(os.Getuid())
-		fmt.Printf("Stopping %s\n", daemonLabel(cfg.Instance))
-		return run("launchctl", "kill", "SIGTERM", "gui/"+uid+"/"+daemonLabel(cfg.Instance))
+		label := daemonLabel(cfg.Instance)
+		fmt.Printf("Stopping %s\n", label)
+		return run("launchctl", "bootout", "gui/"+uid+"/"+label)
 	default:
 		return fmt.Errorf("unsupported OS %q — need Linux (systemd) or macOS (launchd)", runtime.GOOS)
 	}

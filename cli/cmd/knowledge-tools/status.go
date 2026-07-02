@@ -45,8 +45,15 @@ func printStatus(cfg *config.Config) error {
 // different build version than this (installed) binary, a nudge to restart. Shared by `status` and
 // `daemon status` so the two never drift.
 func printDaemonStatus(cfg *config.Config) {
-	fmt.Printf("daemon: %s\n", daemonState(cfg.Instance))
+	active := daemonActive(cfg.Instance)
+	fmt.Printf("daemon: %s\n", daemonStateLabel(cfg.Instance, active))
 
+	// The version block reflects a *live* daemon. daemon.json persists after the daemon stops, so
+	// skip it when the unit is inactive — otherwise a stale record would print "running version …"
+	// (and a restart nudge) under a "not running" line.
+	if !active {
+		return
+	}
 	// Only meaningful once a daemon has recorded its version. Skip the compare for unversioned local
 	// builds ("dev") on either side — a dev binary vs a dev daemon isn't a real staleness signal.
 	info := jobs.ReadDaemonInfo(cfg)
@@ -59,18 +66,31 @@ func printDaemonStatus(cfg *config.Config) {
 	}
 }
 
-// daemonState reports whether the daemon autostart unit is active, per OS.
-func daemonState(instance string) string {
+// daemonActive probes whether the daemon autostart unit is currently running/loaded, per OS.
+func daemonActive(instance string) bool {
+	switch runtime.GOOS {
+	case "linux":
+		return runOK("systemctl", "--user", "is-active", "--quiet", "knowledge-tools-daemon@"+instance+".service")
+	case "darwin":
+		label := "com.knowledge-tools.daemon." + instance
+		return runOK("launchctl", "print", "gui/"+strconv.Itoa(os.Getuid())+"/"+label)
+	default:
+		return false
+	}
+}
+
+// daemonStateLabel formats the human-readable unit state from the active probe (no exec).
+func daemonStateLabel(instance string, active bool) string {
 	switch runtime.GOOS {
 	case "linux":
 		unit := "knowledge-tools-daemon@" + instance + ".service"
-		if runOK("systemctl", "--user", "is-active", "--quiet", unit) {
+		if active {
 			return "running (" + unit + ")"
 		}
 		return "not running (" + unit + ")"
 	case "darwin":
 		label := "com.knowledge-tools.daemon." + instance
-		if runOK("launchctl", "print", "gui/"+strconv.Itoa(os.Getuid())+"/"+label) {
+		if active {
 			return "loaded (" + label + ")"
 		}
 		return "not loaded (" + label + ")"
