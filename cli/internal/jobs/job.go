@@ -13,6 +13,18 @@ import (
 	"github.com/josephschmitt/knowledge-tools/cli/internal/vault"
 )
 
+// jobStatus is inbox/.compile/status-<job>.json for synthesize/resolve — the compile-style live
+// surface (running flag + started_at + summary) read by service/src/vault.ts. Leaner than
+// compileStatus: these jobs have no cooldown / manual distinction, so it drops cooldown_seconds and
+// last_manual_compile_at. Missing last_run_at is the empty string (not null) — the service's
+// nonEmpty() treats "" as absent, matching compileStatus.
+type jobStatus struct {
+	Running   bool   `json:"running"`
+	StartedAt string `json:"started_at"`
+	LastRunAt string `json:"last_run_at"`
+	Summary   string `json:"summary"`
+}
+
 // RunIssueJob ports scripts/vault-job.sh for the two judgment-call jobs:
 //
 //	synthesize — heavy, infrequent whole-corpus pass. Reconciles drift + finds connections in
@@ -61,10 +73,30 @@ func RunIssueJob(ctx context.Context, cfg *config.Config, job Job, ov Overrides)
 	}
 	defer func() { _ = log.Close() }()
 
+	// Live status surface, mirroring compile's status.json: a per-job status-<job>.json under the
+	// gitignored coordination dir that the MCP/REST service reads to tell in-flight from finished.
+	// writeStatus(true, …) is set once just before the agent runs and writeStatus(false, …) on every
+	// terminal/abort path — like compile.go. last_run_at comes from the last-run-<job>-epoch that
+	// recordRun stamps at lock acquisition, so it's populated from the first write.
+	statusFile := filepath.Join(cfg.CompileDir(), "status-"+string(job)+".json")
+	startedAt := vault.NowISO()
+	writeStatus := func(running bool, summary string) {
+		s := jobStatus{
+			Running:   running,
+			StartedAt: startedAt,
+			LastRunAt: vault.EpochISO(readEpoch(lastRunFile(cfg, job))),
+			Summary:   summary,
+		}
+		_ = writeJSONAtomic(statusFile, s)
+	}
+	runningSummary := map[Job]string{JobSynthesize: "synthesizing", JobResolve: "resolving"}[job]
+	doneSummary := map[Job]string{JobSynthesize: "synthesized", JobResolve: "resolved"}[job]
+
 	// Serialize against compile + the other issue job, under the shared lock (held → clean no-op).
 	// withVaultLock records the run and refreshes the schedule snapshot on exit.
 	return withVaultLock(cfg, job, log, func() error {
 		if err := vault.SyncFromOrigin(repo, log); err != nil {
+			writeStatus(false, "aborted: local diverged from origin")
 			return err
 		}
 
@@ -79,6 +111,7 @@ func RunIssueJob(ctx context.Context, cfg *config.Config, job Job, ov Overrides)
 			n := answeredCount(cfg, channel, log)
 			if n == 0 {
 				log.Logf("nothing answered — nothing to resolve.")
+				writeStatus(false, "nothing to resolve")
 				return nil
 			}
 			log.Logf("answered calls: %d", n)
@@ -86,6 +119,7 @@ func RunIssueJob(ctx context.Context, cfg *config.Config, job Job, ov Overrides)
 
 		prompt, legacy, err := skillPrompt(repo, skill, "")
 		if err != nil {
+			writeStatus(false, fmt.Sprintf("%s failed: missing skill", job))
 			return err
 		}
 		if legacy {
@@ -98,8 +132,10 @@ func RunIssueJob(ctx context.Context, cfg *config.Config, job Job, ov Overrides)
 			Effort:      cfg.JobEffort(string(job), ov.Effort),
 			ShellGrants: ghTools,
 		}
+		writeStatus(true, runningSummary)
 		if err := agent.Run(ctx, driver, inv, log.File()); err != nil {
 			log.Logf("agent exited non-zero — leaving the vault as-is for inspection.")
+			writeStatus(false, fmt.Sprintf("%s failed", job))
 			return err
 		}
 
@@ -115,10 +151,12 @@ func RunIssueJob(ctx context.Context, cfg *config.Config, job Job, ov Overrides)
 			log.Logf("no tracked paths present to commit.")
 		} else if err := vault.CommitAndPush(repo, fmt.Sprintf("Vault %s (%s)", job, st), stage, siteRebuild(cfg), log); err != nil {
 			log.Logf("%s done (with push failure).", job)
+			writeStatus(false, fmt.Sprintf("%s done (with push failure)", job))
 			return err
 		}
 
 		log.Logf("%s done.", job)
+		writeStatus(false, doneSummary)
 		return nil
 	})
 }
