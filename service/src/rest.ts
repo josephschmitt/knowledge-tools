@@ -3,7 +3,7 @@
 // call the shared core (vault.ts / review.ts) in-process; this router only maps routes to those
 // functions and shapes JSON responses + proper status codes. Mounted under /api/v1 in index.ts,
 // behind the same optional `requireToken` gate as /mcp.
-import { Router, type ErrorRequestHandler } from 'express';
+import { Router, type ErrorRequestHandler, type Request, type Response } from 'express';
 import {
   listNotes,
   readIndex,
@@ -117,14 +117,21 @@ apiRouter.post('/inbox', async (req, res) => {
   res.status(201).json({ path });
 });
 
-// Parse the optional per-run model/effort override from a trigger's request body. Each is optional
-// and must be a string when present; returns an error message (→ 400) otherwise. Values are
-// pass-through / unvalidated (harness-specific), matching the env knobs.
-function parseOverrides(body: unknown): { ov: JobOverrides } | { error: string } {
-  const { model, effort } = (body ?? {}) as { model?: unknown; effort?: unknown };
-  if (model !== undefined && typeof model !== 'string') return { error: '"model" must be a string' };
-  if (effort !== undefined && typeof effort !== 'string') return { error: '"effort" must be a string' };
-  return { ov: { model, effort } };
+// Parse the optional per-run model/effort override from a trigger's request body: each is optional
+// and must be a string when present. On a bad type it writes a 400 and returns undefined (the caller
+// bails); otherwise it returns the validated overrides. Values are pass-through / unvalidated
+// (harness-specific), matching the env knobs.
+function overridesOr400(req: Request, res: Response): JobOverrides | undefined {
+  const { model, effort } = (req.body ?? {}) as { model?: unknown; effort?: unknown };
+  if (model !== undefined && typeof model !== 'string') {
+    res.status(400).json({ error: '"model" must be a string' });
+    return undefined;
+  }
+  if (effort !== undefined && typeof effort !== 'string') {
+    res.status(400).json({ error: '"effort" must be a string' });
+    return undefined;
+  }
+  return { model, effort };
 }
 
 // Always 200 with a discriminated `status` (triggered | empty | busy | throttled). A refused
@@ -132,12 +139,9 @@ function parseOverrides(body: unknown): { ov: JobOverrides } | { error: string }
 // mirrors the MCP tool's semantics rather than returning an error code. Accepts an optional
 // { model?, effort? } body to override the run's model/effort (else the host's config/env chain).
 apiRouter.post('/compile', async (req, res) => {
-  const parsed = parseOverrides(req.body);
-  if ('error' in parsed) {
-    res.status(400).json({ error: parsed.error });
-    return;
-  }
-  res.json(await triggerCompile(parsed.ov));
+  const ov = overridesOr400(req, res);
+  if (!ov) return;
+  res.json(await triggerCompile(ov));
 });
 
 // The two judgment-call maintenance jobs, mirroring /compile as async on-demand triggers. Always
@@ -146,21 +150,15 @@ apiRouter.post('/compile', async (req, res) => {
 // report. Poll GET /status (its jobs map) for completion. Accepts the same optional
 // { model?, effort? } override body as /compile.
 apiRouter.post('/synthesize', async (req, res) => {
-  const parsed = parseOverrides(req.body);
-  if ('error' in parsed) {
-    res.status(400).json({ error: parsed.error });
-    return;
-  }
-  res.json(await triggerJob('synthesize', parsed.ov));
+  const ov = overridesOr400(req, res);
+  if (!ov) return;
+  res.json(await triggerJob('synthesize', ov));
 });
 
 apiRouter.post('/resolve', async (req, res) => {
-  const parsed = parseOverrides(req.body);
-  if ('error' in parsed) {
-    res.status(400).json({ error: parsed.error });
-    return;
-  }
-  res.json(await triggerJob('resolve', parsed.ov));
+  const ov = overridesOr400(req, res);
+  if (!ov) return;
+  res.json(await triggerJob('resolve', ov));
 });
 
 apiRouter.get('/status', async (_req, res) => {

@@ -77,6 +77,17 @@ function confine(base: string, rel: string): string {
   return resolved;
 }
 
+/**
+ * Write `data` to `path` atomically (tmp file in the same dir + rename) so a concurrent reader — the
+ * host's resolve/compile jobs, or the daemon's fsnotify watcher — never observes a half-written
+ * file. Used for the review-queue answer files and the on-demand request sentinels.
+ */
+async function atomicWrite(path: string, data: string): Promise<void> {
+  const tmp = `${path}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, data, 'utf8');
+  await fs.rename(tmp, path);
+}
+
 export function cap(text: string): string {
   if (text.length <= MAX_RESULT_CHARS) return text;
   return text.slice(0, MAX_RESULT_CHARS) + `\n\n…[truncated — result exceeded ${MAX_RESULT_CHARS} characters]`;
@@ -387,9 +398,7 @@ async function writeRequestFile(path: string, ov?: JobOverrides): Promise<void> 
   };
   if (ov?.model) payload.model = ov.model;
   if (ov?.effort) payload.effort = ov.effort;
-  const tmp = `${path}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, `${JSON.stringify(payload)}\n`);
-  await fs.rename(tmp, path);
+  await atomicWrite(path, `${JSON.stringify(payload)}\n`);
 }
 
 /**
@@ -582,8 +591,6 @@ export async function answerQuestion(id: string, answer: string): Promise<Questi
   fm.status = 'answered';
   fm.updated = new Date().toISOString();
   const next = serializeDoc(fm, replaceSection(body, 'Answer', answer.trim()));
-  const tmp = `${full}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, next, 'utf8');
-  await fs.rename(tmp, full);
+  await atomicWrite(full, next);
   return 'answered';
 }

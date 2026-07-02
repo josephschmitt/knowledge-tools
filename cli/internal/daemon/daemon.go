@@ -231,8 +231,10 @@ func (d *daemon) handleRequest(file string, job jobs.Job) {
 	}
 }
 
-// requestPayload is the JSON body the MCP/REST service writes into a request sentinel. requested_at
-// is informational; model/effort are the optional per-request overrides. All fields are optional.
+// requestPayload is the JSON body the MCP/REST service writes into a request sentinel. The service
+// also writes a `requested_at` timestamp, but it exists purely for a human inspecting a stuck
+// request file — nothing consumes it — so we deliberately don't model it here (unknown JSON keys are
+// ignored). We read only the optional per-request model/effort overrides; both may be absent.
 type requestPayload struct {
 	Model  string `json:"model"`
 	Effort string `json:"effort"`

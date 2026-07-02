@@ -186,10 +186,21 @@ func (c *DaemonStatusCmd) Run(g *Globals) error {
 	return nil
 }
 
-type CompileCmd struct {
-	Manual bool   `help:"Treat as an on-demand compile (cooldown-throttled)."`
+// runOverrides is the shared per-run model/effort flag pair, embedded (kong flattens anonymous
+// embeds) into each job command so the flag definitions live in one place. overrides() maps them to
+// the jobs layer.
+type runOverrides struct {
 	Model  string `help:"Override the model for this run (else KNOWLEDGE_*_MODEL / harness default)." placeholder:"MODEL"`
 	Effort string `help:"Override reasoning effort for this run (harness-specific; else env / default)." placeholder:"EFFORT"`
+}
+
+func (o runOverrides) overrides() jobs.Overrides {
+	return jobs.Overrides{Model: o.Model, Effort: o.Effort}
+}
+
+type CompileCmd struct {
+	Manual bool `help:"Treat as an on-demand compile (cooldown-throttled)."`
+	runOverrides
 }
 
 func (c *CompileCmd) Run(g *Globals) error {
@@ -199,12 +210,11 @@ func (c *CompileCmd) Run(g *Globals) error {
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	return ignoreLocked(jobs.Compile(ctx, cfg, c.Manual, jobs.Overrides{Model: c.Model, Effort: c.Effort}))
+	return ignoreLocked(jobs.Compile(ctx, cfg, c.Manual, c.overrides()))
 }
 
 type SynthesizeCmd struct {
-	Model  string `help:"Override the model for this run (else KNOWLEDGE_*_MODEL / harness default)." placeholder:"MODEL"`
-	Effort string `help:"Override reasoning effort for this run (harness-specific; else env / default)." placeholder:"EFFORT"`
+	runOverrides
 }
 
 func (c *SynthesizeCmd) Run(g *Globals) error {
@@ -214,12 +224,11 @@ func (c *SynthesizeCmd) Run(g *Globals) error {
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	return ignoreLocked(jobs.RunIssueJob(ctx, cfg, jobs.JobSynthesize, jobs.Overrides{Model: c.Model, Effort: c.Effort}))
+	return ignoreLocked(jobs.RunIssueJob(ctx, cfg, jobs.JobSynthesize, c.overrides()))
 }
 
 type ResolveCmd struct {
-	Model  string `help:"Override the model for this run (else KNOWLEDGE_*_MODEL / harness default)." placeholder:"MODEL"`
-	Effort string `help:"Override reasoning effort for this run (harness-specific; else env / default)." placeholder:"EFFORT"`
+	runOverrides
 }
 
 func (c *ResolveCmd) Run(g *Globals) error {
@@ -229,7 +238,7 @@ func (c *ResolveCmd) Run(g *Globals) error {
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	return ignoreLocked(jobs.RunIssueJob(ctx, cfg, jobs.JobResolve, jobs.Overrides{Model: c.Model, Effort: c.Effort}))
+	return ignoreLocked(jobs.RunIssueJob(ctx, cfg, jobs.JobResolve, c.overrides()))
 }
 
 type InitCmd struct {
