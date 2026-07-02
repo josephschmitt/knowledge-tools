@@ -119,6 +119,206 @@ func TestLoadInstanceFromEnvAndFlagOverride(t *testing.T) {
 	}
 }
 
+func TestParseEnvFile(t *testing.T) {
+	dir := t.TempDir()
+	env := filepath.Join(dir, ".env")
+	contents := `# a comment
+KNOWLEDGE_REPO=/vault/path
+QUOTED="quoted value"
+SQUOTED='single'
+
+  KNOWLEDGE_INSTANCE = work
+NOEQ
+=novalue
+`
+	if err := os.WriteFile(env, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kv, err := parseEnvFile(env)
+	if err != nil {
+		t.Fatalf("parseEnvFile: %v", err)
+	}
+	want := map[string]string{
+		"KNOWLEDGE_REPO":     "/vault/path",
+		"QUOTED":             "quoted value",
+		"SQUOTED":            "single",
+		"KNOWLEDGE_INSTANCE": "work",
+	}
+	for k, v := range want {
+		if kv[k] != v {
+			t.Errorf("%s = %q, want %q", k, kv[k], v)
+		}
+	}
+	if _, ok := kv["NOEQ"]; ok {
+		t.Error("line without '=' should be skipped")
+	}
+	if len(kv) != len(want) {
+		t.Errorf("parsed %d keys, want %d: %v", len(kv), len(want), kv)
+	}
+}
+
+func TestParseEnvFileMissing(t *testing.T) {
+	kv, err := parseEnvFile(filepath.Join(t.TempDir(), "nope.env"))
+	if err != nil {
+		t.Errorf("missing file should be nil error, got %v", err)
+	}
+	if kv != nil {
+		t.Errorf("missing file should return nil map, got %v", kv)
+	}
+}
+
+// writeVaultConfig creates <repo>/.knowledge/config.env with the given body and returns repo.
+func writeVaultConfig(t *testing.T, body string) string {
+	t.Helper()
+	repo := t.TempDir()
+	dir := filepath.Join(repo, ".knowledge")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.env"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}
+
+// clearModelEffortEnv unsets every model/effort env knob so a test isn't polluted by the ambient
+// environment (they're not in the harness default-unset list).
+func clearModelEffortEnv(t *testing.T) {
+	t.Helper()
+	for k := range vaultConfigKeys {
+		t.Setenv(k, "") // register for restore
+		_ = os.Unsetenv(k)
+	}
+}
+
+func TestLoadVaultConfigAllowlist(t *testing.T) {
+	clearModelEffortEnv(t)
+	// The vault file sets an allowlisted knob AND a forbidden one; only the allowlisted one lands.
+	repo := writeVaultConfig(t, `KNOWLEDGE_SYNTHESIZE_MODEL=opus
+KNOWLEDGE_AGENT_EFFORT=high
+KNOWLEDGE_GITHUB_REPO=evil/repo
+KNOWLEDGE_SITE_REBUILD_URL=http://evil
+KNOWLEDGE_REPO=/somewhere/else
+`)
+	cfg, err := Load("", repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.vault["KNOWLEDGE_SYNTHESIZE_MODEL"] != "opus" {
+		t.Errorf("vault[SYNTHESIZE_MODEL] = %q, want opus", cfg.vault["KNOWLEDGE_SYNTHESIZE_MODEL"])
+	}
+	if cfg.vault["KNOWLEDGE_AGENT_EFFORT"] != "high" {
+		t.Errorf("vault[AGENT_EFFORT] = %q, want high", cfg.vault["KNOWLEDGE_AGENT_EFFORT"])
+	}
+	// Forbidden keys must not survive the allowlist into the stored map, nor leak into config.
+	for _, k := range []string{"KNOWLEDGE_GITHUB_REPO", "KNOWLEDGE_SITE_REBUILD_URL", "KNOWLEDGE_REPO"} {
+		if _, ok := cfg.vault[k]; ok {
+			t.Errorf("vault map contains forbidden key %q", k)
+		}
+	}
+	if cfg.GithubRepo != "" {
+		t.Errorf("GithubRepo = %q, want empty (vault file must not set it)", cfg.GithubRepo)
+	}
+	if cfg.SiteRebuildURL != "" {
+		t.Errorf("SiteRebuildURL = %q, want empty", cfg.SiteRebuildURL)
+	}
+	// The vault file's KNOWLEDGE_REPO is ignored — Repo stays the one passed to Load.
+	if cfg.Repo != repo {
+		t.Errorf("Repo = %q, want %q (vault file must not override repo)", cfg.Repo, repo)
+	}
+}
+
+func TestLoadVaultConfigMissingIsNoop(t *testing.T) {
+	clearModelEffortEnv(t)
+	cfg, err := Load("", t.TempDir()) // repo with no .knowledge/config.env
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.vault) != 0 {
+		t.Errorf("missing vault file should leave vault map empty, got %v", cfg.vault)
+	}
+	// claude default still applies with nothing set.
+	if got := cfg.JobModel("synthesize", ""); got != "opus" {
+		t.Errorf("JobModel with nothing set = %q, want opus (claude default)", got)
+	}
+}
+
+func TestJobModelPrecedence(t *testing.T) {
+	// env per-job beats env agent beats vault per-job beats vault agent beats claude default.
+	cases := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{"env per-job wins over everything", Config{
+			Agent: "claude", SynthesizeModel: "envjob", AgentModel: "envagent",
+			vault: map[string]string{"KNOWLEDGE_SYNTHESIZE_MODEL": "vaultjob", "KNOWLEDGE_AGENT_MODEL": "vaultagent"},
+		}, "envjob"},
+		{"env agent beats vault per-job", Config{
+			Agent: "claude", AgentModel: "envagent",
+			vault: map[string]string{"KNOWLEDGE_SYNTHESIZE_MODEL": "vaultjob", "KNOWLEDGE_AGENT_MODEL": "vaultagent"},
+		}, "envagent"},
+		{"vault per-job when env empty", Config{
+			Agent: "claude",
+			vault: map[string]string{"KNOWLEDGE_SYNTHESIZE_MODEL": "vaultjob", "KNOWLEDGE_AGENT_MODEL": "vaultagent"},
+		}, "vaultjob"},
+		{"vault agent when only it set", Config{
+			Agent: "claude",
+			vault: map[string]string{"KNOWLEDGE_AGENT_MODEL": "vaultagent"},
+		}, "vaultagent"},
+		{"claude default when all empty", Config{Agent: "claude"}, "opus"},
+		{"non-claude empty when all empty", Config{Agent: "codex"}, ""},
+	}
+	for _, tc := range cases {
+		if got := tc.cfg.JobModel("synthesize", ""); got != tc.want {
+			t.Errorf("%s: JobModel = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestJobEffortPrecedence(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{"env per-job wins", Config{
+			SynthesizeEffort: "envjob", AgentEffort: "envagent",
+			vault: map[string]string{"KNOWLEDGE_SYNTHESIZE_EFFORT": "vaultjob", "KNOWLEDGE_AGENT_EFFORT": "vaultagent"},
+		}, "envjob"},
+		{"env agent beats vault per-job", Config{
+			AgentEffort: "envagent",
+			vault:       map[string]string{"KNOWLEDGE_SYNTHESIZE_EFFORT": "vaultjob"},
+		}, "envagent"},
+		{"vault per-job when env empty", Config{
+			vault: map[string]string{"KNOWLEDGE_SYNTHESIZE_EFFORT": "vaultjob", "KNOWLEDGE_AGENT_EFFORT": "vaultagent"},
+		}, "vaultjob"},
+		{"vault agent when only it set", Config{
+			vault: map[string]string{"KNOWLEDGE_AGENT_EFFORT": "vaultagent"},
+		}, "vaultagent"},
+		{"empty when nothing set (no default)", Config{Agent: "claude"}, ""},
+	}
+	for _, tc := range cases {
+		if got := tc.cfg.JobEffort("synthesize", ""); got != tc.want {
+			t.Errorf("%s: JobEffort = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestEnvWinsOverVaultViaLoad(t *testing.T) {
+	clearModelEffortEnv(t)
+	repo := writeVaultConfig(t, "KNOWLEDGE_SYNTHESIZE_MODEL=opus\n")
+	// A deployment sets the env knob — it must win over the vault file.
+	t.Setenv("KNOWLEDGE_SYNTHESIZE_MODEL", "sonnet")
+	cfg, err := Load("", repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.JobModel("synthesize", ""); got != "sonnet" {
+		t.Errorf("JobModel = %q, want sonnet (env wins over vault)", got)
+	}
+}
+
 func TestRequireRepo(t *testing.T) {
 	if err := (&Config{Repo: ""}).RequireRepo(); err == nil {
 		t.Error("empty repo should error")
