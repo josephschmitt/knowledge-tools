@@ -193,10 +193,9 @@ the three known jobs, `{schedule,model,effort}` are representable — any other 
 `github_repo:`, `repo:`, …) simply decodes into nothing, so vault content can't touch
 repo/git/site/auth wiring. Every knob is a default *below* the env: anything set in `.env`, the
 environment, or an `install` flag overrides it, so a deployment can always win without editing the
-vault. Schedules are baked into the daemon unit at install time and model/effort are read at daemon
-startup, so run `knowledge-tools daemon restart` (or re-run `install`) after editing the file. (It's
-intentionally not created by `init` — model IDs, effort scales, and schedules are host/harness-specific,
-so seeded vaults stay neutral.)
+vault. The daemon reads this file once at startup, so run `knowledge-tools daemon restart` after
+editing it — nothing needs to be re-installed. (It's intentionally not created by `init` — model IDs,
+effort scales, and schedules are host/harness-specific, so seeded vaults stay neutral.)
 
 The vault **need not be a git repo**: when the wrapper finds no work tree it skips the commit
 and leaves history to whatever syncs the folder (Dropbox, Syncthing, …). Combined with the
@@ -281,8 +280,10 @@ launchd` grammar dance is gone — the daemon owns scheduling, so cron expressio
 both OSes.)
 
 Check state any time with `knowledge-tools status` (prints the compile + schedule snapshots and
-whether the daemon is running). Re-run `knowledge-tools install` after changing a schedule; on an
-existing single-vault host the first run also removes the old bash-era per-job units it finds.
+whether the daemon is running). After changing a schedule in the vault's `.knowledge/config.yaml`,
+`knowledge-tools daemon restart` picks it up; after changing one via `.env`/the environment, re-run
+`knowledge-tools install` (it re-bakes the host override). On an existing single-vault host the first
+install also removes the old bash-era per-job units it finds.
 
 **Multiple vaults** (e.g. personal vs work) run on one host as separate instances — each its own
 daemon, lock, schedule, and config. Just run `install` again per vault with a distinct

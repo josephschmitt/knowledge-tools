@@ -76,12 +76,16 @@ working in the repo.
     (a stray `repo:`/`github_repo:`/`site_rebuild_url:` or an unknown job) decodes into nothing and
     can't redirect repo/git/site/auth wiring. The values flatten to `KNOWLEDGE_*` keys in the `vault`
     map, a tier **below** the env in both `JobModel`/`JobEffort` and the schedule resolution in `Load`
-    (`firstNonEmpty(env, vault, default)`) — the whole env layer (and `install` flags) wins over the
-    whole vault layer, so a deployment always overrides without editing the vault. Schedules bake into
-    the daemon unit at install; model/effort are read at daemon startup — either way re-run `install` /
-    `daemon restart` to apply an edit. Deliberately **not** seeded into `template/` (model IDs/effort
-    scales/schedules are host/harness-specific — keeping them out of the shipped skills is what
-    preserves harness-neutrality). A leftover legacy `config.env` (the old KEY=value format) is no
+    (`firstNonEmpty(env, vault, default)` — schedules via `JobSchedule`, mirroring `JobModel`/`JobEffort`)
+    — the whole env layer (and `install` flags) wins over the whole vault layer, so a deployment always
+    overrides without editing the vault. The daemon re-reads the vault yaml at startup, so `daemon
+    restart` applies a yaml edit with no re-install. The raw `Config.{Compile,Synthesize,Resolve}Schedule`
+    fields hold the operator **override only** (env/flag, empty otherwise) so `commonEnv` bakes a schedule
+    into the unit only when explicitly set — a bare `install` writes just `KNOWLEDGE_REPO` (the one value
+    that can't live in the vault), leaving the yaml as the source of truth. Deliberately **not** seeded
+    into `template/` (model IDs/effort scales/schedules are host/harness-specific — keeping them out of
+    the shipped skills is what preserves harness-neutrality). A leftover legacy `config.env` (the old
+    KEY=value format) is no
     longer read; `loadVaultConfig` warns on stderr when it spots one.
   - `internal/agent` (new): the headless-agent abstraction that replaced `vault.RunClaude`. A
     `Driver` (selected by `KNOWLEDGE_AGENT`) turns a harness-neutral `Invocation` (prompt, model,

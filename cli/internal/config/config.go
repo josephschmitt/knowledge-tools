@@ -79,7 +79,11 @@ type Config struct {
 	GithubRepo string
 	// VaultLock is KNOWLEDGE_VAULT_LOCK — the per-instance lock path.
 	VaultLock string
-	// Cron schedules (robfig/cron grammar). See the Default*Schedule constants.
+	// Cron schedules (robfig/cron grammar) as an operator-explicit OVERRIDE only — populated from
+	// KNOWLEDGE_<JOB>_SCHEDULE or the install --<job>-schedule flag, empty otherwise. Resolve the
+	// effective schedule via JobSchedule (override > vault config.yaml > Default*Schedule); these raw
+	// fields are what commonEnv persists, so an unset schedule leaves the daemon unit lean and the
+	// vault yaml as the source of truth.
 	CompileSchedule    string
 	SynthesizeSchedule string
 	ResolveSchedule    string
@@ -210,11 +214,12 @@ func Load(instance, repo string) (*Config, error) {
 		ReviewChannel:      os.Getenv("KNOWLEDGE_REVIEW_CHANNEL"),
 		GithubRepo:         os.Getenv("KNOWLEDGE_GITHUB_REPO"),
 		VaultLock:          envOr("KNOWLEDGE_VAULT_LOCK", defaultVaultLock(instance)),
-		// Schedules resolve flag > env > vault > default (the flag layer is applied by InstallCmd
-		// after Load); env still wins over the vault tier, mirroring JobModel/JobEffort.
-		CompileSchedule:    firstNonEmpty(os.Getenv("KNOWLEDGE_COMPILE_SCHEDULE"), vault["KNOWLEDGE_COMPILE_SCHEDULE"], DefaultCompileSchedule),
-		SynthesizeSchedule: firstNonEmpty(os.Getenv("KNOWLEDGE_SYNTHESIZE_SCHEDULE"), vault["KNOWLEDGE_SYNTHESIZE_SCHEDULE"], DefaultSynthesizeSchedule),
-		ResolveSchedule:    firstNonEmpty(os.Getenv("KNOWLEDGE_RESOLVE_SCHEDULE"), vault["KNOWLEDGE_RESOLVE_SCHEDULE"], DefaultResolveSchedule),
+		// Schedules capture only the operator-explicit env override here; the vault tier and default
+		// are applied lazily by JobSchedule (flag > env > vault > default). Keeping the raw override
+		// in the struct is what lets commonEnv persist only what the operator set.
+		CompileSchedule:    os.Getenv("KNOWLEDGE_COMPILE_SCHEDULE"),
+		SynthesizeSchedule: os.Getenv("KNOWLEDGE_SYNTHESIZE_SCHEDULE"),
+		ResolveSchedule:    os.Getenv("KNOWLEDGE_RESOLVE_SCHEDULE"),
 		SiteRebuildURL:     os.Getenv("KNOWLEDGE_SITE_REBUILD_URL"),
 		SiteRebuildToken:   os.Getenv("KNOWLEDGE_SITE_REBUILD_TOKEN"),
 	}
@@ -293,7 +298,7 @@ func loadVaultConfig(repo string) map[string]string {
 
 // JobModel resolves the model for a job in tiers: a caller-supplied override wins (a per-invocation
 // value from the CLI flag / MCP tool / REST body), then the env layer (per-job, then
-// KNOWLEDGE_AGENT_MODEL), then the vault layer (per-job, then agent-wide from .knowledge/config.env),
+// KNOWLEDGE_AGENT_MODEL), then the vault layer (per-job, then agent-wide from .knowledge/config.yaml),
 // then the agent's default. The whole env layer wins over the whole vault layer, so a deployment's
 // KNOWLEDGE_AGENT_MODEL still overrides a vault-declared per-job value. Only the claude agent has a
 // real default (opus) — preserving the model the old slash-command frontmatter declared; other
@@ -320,7 +325,7 @@ func (c *Config) JobModel(job, override string) string {
 
 // JobEffort resolves the reasoning effort for a job in tiers: a caller-supplied override wins (a
 // per-invocation value from the CLI flag / MCP tool / REST body), then the env layer (per-job, then
-// KNOWLEDGE_AGENT_EFFORT), then the vault layer (per-job, then agent-wide from .knowledge/config.env).
+// KNOWLEDGE_AGENT_EFFORT), then the vault layer (per-job, then agent-wide from .knowledge/config.yaml).
 // No agent-specific default — effort values are harness-specific and passed through verbatim (no
 // translation): claude honors --effort (low|medium|high|xhigh|max) and codex model_reasoning_effort
 // (low|medium|high); opencode has no knob and drops it; custom uses {{effort}} if its template
@@ -337,6 +342,26 @@ func (c *Config) JobEffort(job, override string) string {
 	}
 	// Flat order encodes the tiers: caller override, then env per-job/agent, then vault per-job/agent.
 	return firstNonEmpty(override, perJobEnv, c.AgentEffort, c.vault[vaultKey], c.vault["KNOWLEDGE_AGENT_EFFORT"])
+}
+
+// JobSchedule resolves the effective cron schedule for a job in tiers: the operator-explicit
+// override (the install --<job>-schedule flag or KNOWLEDGE_<JOB>_SCHEDULE env, captured in the
+// matching Config field) wins, then the vault layer (jobs.<job>.schedule in .knowledge/config.yaml),
+// then the built-in Default*Schedule. The whole env/flag layer wins over the whole vault layer,
+// mirroring JobModel/JobEffort — so a deployment overrides a vault-declared schedule without editing
+// the vault. Callers (the daemon's cron wiring, the schedules snapshot) read this rather than the
+// raw fields so the vault yaml is honored even when nothing is baked into the unit.
+func (c *Config) JobSchedule(job string) string {
+	var override, vaultKey, def string
+	switch job {
+	case "compile":
+		override, vaultKey, def = c.CompileSchedule, "KNOWLEDGE_COMPILE_SCHEDULE", DefaultCompileSchedule
+	case "synthesize":
+		override, vaultKey, def = c.SynthesizeSchedule, "KNOWLEDGE_SYNTHESIZE_SCHEDULE", DefaultSynthesizeSchedule
+	case "resolve":
+		override, vaultKey, def = c.ResolveSchedule, "KNOWLEDGE_RESOLVE_SCHEDULE", DefaultResolveSchedule
+	}
+	return firstNonEmpty(override, c.vault[vaultKey], def)
 }
 
 // agentBin resolves KNOWLEDGE_AGENT_BIN, honoring the deprecated CLAUDE_BIN as a fallback. Empty

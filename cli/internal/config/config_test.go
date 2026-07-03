@@ -91,8 +91,13 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.CompileCooldown != DefaultCompileCooldown {
 		t.Errorf("CompileCooldown = %d", cfg.CompileCooldown)
 	}
-	if cfg.CompileSchedule != DefaultCompileSchedule {
-		t.Errorf("CompileSchedule = %q", cfg.CompileSchedule)
+	// The raw field is an override only (empty by default); the effective schedule comes from
+	// JobSchedule, which falls back to the built-in default.
+	if cfg.CompileSchedule != "" {
+		t.Errorf("CompileSchedule override = %q, want empty by default", cfg.CompileSchedule)
+	}
+	if got := cfg.JobSchedule("compile"); got != DefaultCompileSchedule {
+		t.Errorf("JobSchedule(compile) = %q, want default %q", got, DefaultCompileSchedule)
 	}
 	wantLock := "vault-default.lock"
 	if filepath.Base(cfg.VaultLock) != wantLock {
@@ -347,27 +352,35 @@ func TestVaultSchedule(t *testing.T) {
   compile:
     schedule: "@every 30m"
 `)
-	// The vault schedule flows through when no env var is set.
+	// The vault schedule flows through JobSchedule when no env var is set — and the raw override
+	// field stays empty, so nothing gets baked into the daemon unit.
 	cfg, err := Load("", repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.CompileSchedule != "@every 30m" {
-		t.Errorf("CompileSchedule = %q, want @every 30m (from vault)", cfg.CompileSchedule)
+	if cfg.CompileSchedule != "" {
+		t.Errorf("CompileSchedule override = %q, want empty (vault value must not populate the raw field)", cfg.CompileSchedule)
+	}
+	if got := cfg.JobSchedule("compile"); got != "@every 30m" {
+		t.Errorf("JobSchedule(compile) = %q, want @every 30m (from vault)", got)
 	}
 	// A job the vault file omits falls back to the built-in default.
-	if cfg.SynthesizeSchedule != DefaultSynthesizeSchedule {
-		t.Errorf("SynthesizeSchedule = %q, want default %q", cfg.SynthesizeSchedule, DefaultSynthesizeSchedule)
+	if got := cfg.JobSchedule("synthesize"); got != DefaultSynthesizeSchedule {
+		t.Errorf("JobSchedule(synthesize) = %q, want default %q", got, DefaultSynthesizeSchedule)
 	}
 
-	// A deployment's env var still wins over the vault schedule.
+	// A deployment's env var still wins over the vault schedule (and populates the override field,
+	// so it IS persisted into the unit).
 	t.Setenv("KNOWLEDGE_COMPILE_SCHEDULE", "@daily")
 	cfg, err = Load("", repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.CompileSchedule != "@daily" {
-		t.Errorf("CompileSchedule = %q, want @daily (env wins over vault)", cfg.CompileSchedule)
+		t.Errorf("CompileSchedule override = %q, want @daily (env populates the override field)", cfg.CompileSchedule)
+	}
+	if got := cfg.JobSchedule("compile"); got != "@daily" {
+		t.Errorf("JobSchedule(compile) = %q, want @daily (env wins over vault)", got)
 	}
 }
 
@@ -387,8 +400,8 @@ func TestLegacyConfigEnvWarns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.CompileSchedule != DefaultCompileSchedule {
-		t.Errorf("CompileSchedule = %q, want default (legacy config.env must be ignored)", cfg.CompileSchedule)
+	if got := cfg.JobSchedule("compile"); got != DefaultCompileSchedule {
+		t.Errorf("JobSchedule(compile) = %q, want default (legacy config.env must be ignored)", got)
 	}
 }
 
