@@ -27,7 +27,7 @@ var version = "dev"
 // .env) configures them; the flag overrides the env.
 type Globals struct {
 	Instance string `help:"Vault instance name (multi-vault)." env:"KNOWLEDGE_INSTANCE" placeholder:"NAME"`
-	Repo     string `help:"Path to the vault repo." env:"KNOWLEDGE_REPO" type:"path" placeholder:"PATH"`
+	Repo     string `name:"vault" help:"Path to the vault." env:"KNOWLEDGE_REPO" type:"path" placeholder:"PATH"`
 }
 
 func (g *Globals) load() (*config.Config, error) {
@@ -242,7 +242,7 @@ func (c *ResolveCmd) Run(g *Globals) error {
 }
 
 type InitCmd struct {
-	Dir string `arg:"" optional:"" help:"Target vault dir (default: --repo / KNOWLEDGE_REPO)." type:"path"`
+	Dir string `arg:"" optional:"" help:"Target vault dir (default: --vault / KNOWLEDGE_REPO)." type:"path"`
 }
 
 func (c *InitCmd) Run(g *Globals) error {
@@ -254,7 +254,7 @@ func (c *InitCmd) Run(g *Globals) error {
 		target = os.Getenv("KNOWLEDGE_REPO")
 	}
 	if target == "" {
-		return fmt.Errorf("no target — pass a dir or set --repo / KNOWLEDGE_REPO")
+		return fmt.Errorf("no target — pass a dir or set --vault / KNOWLEDGE_REPO")
 	}
 	fmt.Printf("Seeding vault at: %s\n", target)
 	res, err := initvault.Seed(target)
