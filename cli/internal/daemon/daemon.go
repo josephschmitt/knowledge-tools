@@ -59,20 +59,20 @@ func Run(ctx context.Context, cfg *config.Config, version string) error {
 	}
 
 	log.Printf("knowledge-tools daemon starting (instance=%s, repo=%s, version=%s)", cfg.Instance, cfg.Repo, version)
-	log.Printf("schedules: compile=%q synthesize=%q resolve=%q", cfg.CompileSchedule, cfg.SynthesizeSchedule, cfg.ResolveSchedule)
+	log.Printf("schedules: compile=%q synthesize=%q resolve=%q", cfg.JobSchedule("compile"), cfg.JobSchedule("synthesize"), cfg.JobSchedule("resolve"))
 
 	// Publish next-run times + this daemon's version right away.
 	jobs.RefreshSchedules(cfg)
 	jobs.WriteDaemonInfo(cfg, version)
 
 	c := cron.New(cron.WithParser(jobs.CronParser), cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
-	if _, err := c.AddFunc(cfg.CompileSchedule, func() { d.runJob(jobs.JobCompile, false, jobs.Overrides{}) }); err != nil {
+	if _, err := c.AddFunc(cfg.JobSchedule("compile"), func() { d.runJob(jobs.JobCompile, false, jobs.Overrides{}) }); err != nil {
 		return err
 	}
-	if _, err := c.AddFunc(cfg.SynthesizeSchedule, func() { d.runJob(jobs.JobSynthesize, false, jobs.Overrides{}) }); err != nil {
+	if _, err := c.AddFunc(cfg.JobSchedule("synthesize"), func() { d.runJob(jobs.JobSynthesize, false, jobs.Overrides{}) }); err != nil {
 		return err
 	}
-	if _, err := c.AddFunc(cfg.ResolveSchedule, func() { d.runJob(jobs.JobResolve, false, jobs.Overrides{}) }); err != nil {
+	if _, err := c.AddFunc(cfg.JobSchedule("resolve"), func() { d.runJob(jobs.JobResolve, false, jobs.Overrides{}) }); err != nil {
 		return err
 	}
 	c.Start()
@@ -143,9 +143,9 @@ func (d *daemon) catchUp() {
 		schedule string
 	}
 	for _, s := range []spec{
-		{jobs.JobCompile, d.cfg.CompileSchedule},
-		{jobs.JobResolve, d.cfg.ResolveSchedule},
-		{jobs.JobSynthesize, d.cfg.SynthesizeSchedule},
+		{jobs.JobCompile, d.cfg.JobSchedule("compile")},
+		{jobs.JobResolve, d.cfg.JobSchedule("resolve")},
+		{jobs.JobSynthesize, d.cfg.JobSchedule("synthesize")},
 	} {
 		if d.overdue(s.schedule, jobs.LastRun(d.cfg, s.job), now) {
 			log.Printf("%s: overdue at startup — catching up", s.job)

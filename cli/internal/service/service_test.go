@@ -64,6 +64,26 @@ func TestInstanceEnvContents(t *testing.T) {
 	}
 }
 
+func TestInstanceEnvContentsLean(t *testing.T) {
+	// A bare install — only the vault path, default cooldown, no explicit schedule/agent overrides —
+	// bakes just KNOWLEDGE_REPO, leaving schedules/model/effort to <vault>/.knowledge-tools/config.yaml
+	// (read live at daemon startup).
+	out := instanceEnvContents(&config.Config{
+		Repo: "/home/me/vault", Instance: "work", CompileCooldown: config.DefaultCompileCooldown,
+	})
+	if !strings.Contains(out, "KNOWLEDGE_REPO=/home/me/vault") {
+		t.Errorf("env file missing KNOWLEDGE_REPO\n%s", out)
+	}
+	for _, absent := range []string{
+		"KNOWLEDGE_COMPILE_SCHEDULE", "KNOWLEDGE_SYNTHESIZE_SCHEDULE", "KNOWLEDGE_RESOLVE_SCHEDULE",
+		"KNOWLEDGE_COMPILE_COOLDOWN", "KNOWLEDGE_AGENT",
+	} {
+		if strings.Contains(out, absent) {
+			t.Errorf("lean env file should omit %q\n%s", absent, out)
+		}
+	}
+}
+
 func TestPlistContents(t *testing.T) {
 	out := plistContents(Options{Cfg: testCfg(), BinPath: "/usr/local/bin/knowledge-tools"})
 	for _, want := range []string{

@@ -80,9 +80,9 @@ func RefreshSchedules(cfg *config.Config) {
 		Instance:  cfg.Instance,
 		UpdatedAt: now.Format(time.RFC3339),
 		Jobs: schedulesJobs{
-			Compile:    jobSchedule{LastRunAt: lastRunISO(cfg, JobCompile), NextRunAt: nextRunISO(cfg.CompileSchedule, now)},
-			Synthesize: jobSchedule{LastRunAt: lastRunISO(cfg, JobSynthesize), NextRunAt: nextRunISO(cfg.SynthesizeSchedule, now)},
-			Resolve:    jobSchedule{LastRunAt: lastRunISO(cfg, JobResolve), NextRunAt: nextRunISO(cfg.ResolveSchedule, now)},
+			Compile:    jobSchedule{LastRunAt: lastRunISO(cfg, JobCompile), NextRunAt: nextRunISO(cfg.JobSchedule(string(JobCompile)), now)},
+			Synthesize: jobSchedule{LastRunAt: lastRunISO(cfg, JobSynthesize), NextRunAt: nextRunISO(cfg.JobSchedule(string(JobSynthesize)), now)},
+			Resolve:    jobSchedule{LastRunAt: lastRunISO(cfg, JobResolve), NextRunAt: nextRunISO(cfg.JobSchedule(string(JobResolve)), now)},
 		},
 	}
 	_ = writeJSONAtomic(filepath.Join(cfg.CompileDir(), "schedules.json"), snap)

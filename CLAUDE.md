@@ -53,12 +53,18 @@ working in the repo.
     compile watcher via a `default:"withargs"` `run` subcommand, so existing units' `ExecStart=<bin>
     daemon` keeps working; plus `daemon restart` / `start` / `stop` / `status` for the OS unit's
     lifecycle — `restart` re-applies install then force-restarts the running daemon, the smooth
-    upgrade path after swapping the binary), `compile` / `synthesize` / `resolve` (one-shot jobs,
-    also what the daemon runs on schedule), `init` (scaffold a vault from the embedded template —
-    copy-if-absent), `status` (print the compile + schedule snapshots and the daemon unit state, and
-    flag when the running daemon's recorded version differs from the installed binary). (Static-site
-    *building* is out of scope here — that's the standalone `knowledge-site` image; the CLI only
-    *triggers* its rebuild after a commit, see `commit_and_push` below and `site/`.)
+    upgrade path after swapping the binary), `job` (a command group over the one-shot jobs — `job
+    compile` / `job synthesize` / `job resolve`, also what the daemon runs on schedule — plus `job
+    status`, which prints the compile + schedule snapshots and the daemon unit state and flags a
+    running-vs-installed version mismatch), and `init` (scaffold a vault from the embedded template —
+    copy-if-absent). The vault path is a **positional `[vault]` arg** on the commands that operate on
+    a vault (`install`, `init`, the `job …` subcommands), resolving arg › `KNOWLEDGE_REPO` env › cwd
+    (the create/register commands `install` & `init` confirm before the bare-cwd fallback, and error
+    instead of prompting on a non-interactive stdin); there is no `--vault`/`--repo` flag. `uninstall`
+    and the `daemon` lifecycle subcommands key off `--instance` only and never take a vault path (the
+    daemon itself reads `KNOWLEDGE_REPO` from its unit's environment). (Static-site *building* is out
+    of scope here — that's the standalone `knowledge-site` image; the CLI only *triggers* its rebuild
+    after a commit, see `commit_and_push` below and `site/`.)
   - `internal/config` ports `load-env.sh` (a repo-root `.env`; real env wins) + the `KNOWLEDGE_*`
     knobs. **Schedules moved from systemd OnCalendar to cron expressions** (robfig/cron grammar):
     `KNOWLEDGE_COMPILE_SCHEDULE` (default `@hourly`), `KNOWLEDGE_SYNTHESIZE_SCHEDULE`
@@ -68,14 +74,25 @@ working in the repo.
     fallback), `KNOWLEDGE_AGENT_CMD` (custom template), and per-job `*_MODEL`/`*_EFFORT` overrides
     with an `KNOWLEDGE_AGENT_MODEL`/`_EFFORT` fallback (`JobModel`/`JobEffort`; only the claude
     agent defaults a model — opus — which the old slash-command frontmatter used to declare). The
-    8 model/effort knobs can ALSO be declared **in the vault**, in a committed
-    `<repo>/.knowledge/config.env` (`loadVaultConfig`, KEY=value like `.env`) so the choice travels
-    with the vault and is git-versioned — but **only those 8 keys** are honored there (an allowlist;
-    any other `KNOWLEDGE_*` line is dropped so vault content can't redirect repo/git/site/auth
-    wiring), and the vault layer sits a tier **below** the env in `JobModel`/`JobEffort` (the whole
-    env layer wins over the whole vault layer, so a deployment always overrides without editing the
-    vault). Deliberately **not** seeded into `template/` (model IDs/effort scales are
-    harness-specific — keeping them out of the shipped skills is what preserves harness-neutrality).
+    8 model/effort knobs **and the 3 job schedules** can ALSO be declared **in the vault**, in a
+    committed `<repo>/.knowledge-tools/config.yaml` (`loadVaultConfig`, YAML: a `defaults:` model/effort
+    block + a `jobs:` map keyed by compile/synthesize/resolve, each with `schedule`/`model`/`effort`)
+    so the choice travels with the vault and is git-versioned. The **decode struct is the allowlist**
+    — only those declared fields for the three known job names are representable, so any other key
+    (a stray `repo:`/`github_repo:`/`site_rebuild_url:` or an unknown job) decodes into nothing and
+    can't redirect repo/git/site/auth wiring. The values flatten to `KNOWLEDGE_*` keys in the `vault`
+    map, a tier **below** the env in both `JobModel`/`JobEffort` and the schedule resolution in `Load`
+    (`firstNonEmpty(env, vault, default)` — schedules via `JobSchedule`, mirroring `JobModel`/`JobEffort`)
+    — the whole env layer (and `install` flags) wins over the whole vault layer, so a deployment always
+    overrides without editing the vault. The daemon re-reads the vault yaml at startup, so `daemon
+    restart` applies a yaml edit with no re-install. The raw `Config.{Compile,Synthesize,Resolve}Schedule`
+    fields hold the operator **override only** (env/flag, empty otherwise) so `commonEnv` bakes a schedule
+    into the unit only when explicitly set — a bare `install` writes just `KNOWLEDGE_REPO` (the one value
+    that can't live in the vault), leaving the yaml as the source of truth. Deliberately **not** seeded
+    into `template/` (model IDs/effort scales/schedules are host/harness-specific — keeping them out of
+    the shipped skills is what preserves harness-neutrality). The dir is `.knowledge-tools/` (named for
+    the tool that owns it, alongside the vault's `.obsidian/`), not the domain; the earlier
+    `.knowledge/config.env` was a clean break — pre-1.0, not migrated.
   - `internal/agent` (new): the headless-agent abstraction that replaced `vault.RunClaude`. A
     `Driver` (selected by `KNOWLEDGE_AGENT`) turns a harness-neutral `Invocation` (prompt, model,
     effort, neutral shell-grant prefixes) into one harness's argv: `claude -p … --permission-mode

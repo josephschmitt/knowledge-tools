@@ -23,16 +23,24 @@ type envKV struct{ k, v string }
 // OS-specific extras (systemd's KNOWLEDGE_INSTANCE via Environment=%i; launchd's KNOWLEDGE_INSTANCE
 // + PATH) are added by each renderer.
 func commonEnv(cfg *config.Config) []envKV {
-	env := []envKV{
-		{"KNOWLEDGE_REPO", cfg.Repo},
+	// KNOWLEDGE_REPO is the only value the daemon can't derive elsewhere (it's the pointer to the
+	// vault, and can't live inside it), so it's always baked. Everything else is baked only when the
+	// operator explicitly set it — vault-preference knobs (schedules, model/effort) otherwise come
+	// from <vault>/.knowledge-tools/config.yaml, read live at daemon startup, so a bare install leaves the
+	// unit as just this line and the vault yaml as the source of truth.
+	env := []envKV{{"KNOWLEDGE_REPO", cfg.Repo}}
+	cooldown := ""
+	if cfg.CompileCooldown != config.DefaultCompileCooldown {
+		cooldown = strconv.Itoa(cfg.CompileCooldown)
+	}
+	for _, kv := range []envKV{
+		// Schedules: raw operator override only (empty unless a flag / KNOWLEDGE_<JOB>_SCHEDULE set
+		// it) — an unset schedule stays out of the unit so the vault yaml default is honored.
 		{"KNOWLEDGE_COMPILE_SCHEDULE", cfg.CompileSchedule},
 		{"KNOWLEDGE_SYNTHESIZE_SCHEDULE", cfg.SynthesizeSchedule},
 		{"KNOWLEDGE_RESOLVE_SCHEDULE", cfg.ResolveSchedule},
-		{"KNOWLEDGE_COMPILE_COOLDOWN", strconv.Itoa(cfg.CompileCooldown)},
-	}
-	// The agent harness selection + its model/effort/bin knobs — only the ones the user set, so a
-	// default-claude deployment's unit stays as lean as before.
-	for _, kv := range []envKV{
+		{"KNOWLEDGE_COMPILE_COOLDOWN", cooldown},
+		// The agent harness selection + its model/effort/bin knobs.
 		{"KNOWLEDGE_AGENT", cfg.Agent},
 		{"KNOWLEDGE_AGENT_BIN", cfg.AgentBin},
 		{"KNOWLEDGE_AGENT_CMD", cfg.AgentCmd},
