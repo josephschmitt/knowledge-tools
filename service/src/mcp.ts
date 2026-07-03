@@ -236,16 +236,16 @@ export function buildMcpServer(): McpServer {
       description:
         'Request an on-demand synthesize — the heavy, infrequent whole-corpus maintenance pass ' +
         'that reconciles drift across the library and opens new judgment calls (surfaced by ' +
-        'list_questions). Asynchronous: returns immediately — poll vault_status (its jobs.synthesize ' +
-        'timing) to see it finish. Rarely needed by hand; it runs on a schedule. Does not compile ' +
-        'the inbox (that is compile_run).',
+        'list_questions). Asynchronous: returns immediately — poll vault_status (jobs.synthesize.running ' +
+        'flips false when it finishes) to see it land. Rarely needed by hand; it runs on a schedule. ' +
+        'Does not compile the inbox (that is compile_run).',
       inputSchema: { ...jobOverrideSchema },
     },
     async ({ model, effort }) => {
       await triggerJob('synthesize', { model, effort });
       return text(
         'Synthesize triggered. It runs on the home server; the library and any new judgment calls ' +
-          'update once it finishes. Poll vault_status (jobs.synthesize) for completion.',
+          'update once it finishes. Poll vault_status (jobs.synthesize.running) for completion.',
       );
     },
   );
@@ -257,15 +257,16 @@ export function buildMcpServer(): McpServer {
       description:
         'Request an on-demand resolve — the light maintenance pass that applies my answered ' +
         'judgment calls (answer_question) to the library and closes them out. Asynchronous: returns ' +
-        'immediately — poll vault_status (its jobs.resolve timing). A no-op when nothing is answered. ' +
-        'Use it to apply an answer now instead of waiting for the next scheduled resolve.',
+        'immediately — poll vault_status (jobs.resolve.running flips false when it finishes). A no-op ' +
+        'when nothing is answered. Use it to apply an answer now instead of waiting for the next ' +
+        'scheduled resolve.',
       inputSchema: { ...jobOverrideSchema },
     },
     async ({ model, effort }) => {
       await triggerJob('resolve', { model, effort });
       return text(
         'Resolve triggered. It runs on the home server; any answered judgment calls are applied to ' +
-          'the library and closed once it finishes. Poll vault_status (jobs.resolve) for completion.',
+          'the library and closed once it finishes. Poll vault_status (jobs.resolve.running) for completion.',
       );
     },
   );
@@ -280,8 +281,9 @@ export function buildMcpServer(): McpServer {
         '*finished* — newer than your compile_run trigger time means that run is done), ' +
         'pending_inbox_count, manual_compile_available_at (when the next manual compile_run ' +
         'is allowed; null/past = now), running, and jobs (per scheduled host job — compile, ' +
-        'synthesize, resolve — each with last_run_at + next_run_at; null when unknown). Cheap ' +
-        'to poll for a compile to finish.',
+        'synthesize, resolve — each with last_run_at + next_run_at plus a live running + started_at ' +
+        '+ summary; running flips false when that job finishes). Cheap to poll for a compile, ' +
+        'synthesize, or resolve to finish.',
       inputSchema: {},
     },
     async () => text(JSON.stringify(await getVaultStatus(), null, 2)),

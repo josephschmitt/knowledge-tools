@@ -41,7 +41,7 @@ can switch on built-in OAuth token validation pointed at any OIDC issuer. See
 | `compile_run(model?, effort?)` | Trigger an on-demand compile (async, rate-limited to one/hour) |
 | `synthesize_run(model?, effort?)` | Trigger an on-demand synthesize — the whole-corpus maintenance pass that opens judgment calls (async) |
 | `resolve_run(model?, effort?)` | Trigger an on-demand resolve — apply answered judgment calls to the library (async; no-op when nothing answered) |
-| `vault_status()` | Pollable JSON: last successful compile time, pending inbox count, manual-compile cooldown, running flag, and per-job last/next scheduled run |
+| `vault_status()` | Pollable JSON: last successful compile time, pending inbox count, manual-compile cooldown, running flag, and per-job last/next scheduled run plus live running/started_at/summary |
 | `list_questions(status?)` | List judgment calls the vault is waiting on (file review channel) |
 | `get_question(id)` | Return one judgment call's full markdown |
 | `answer_question(id, answer)` | Record a decision on a judgment call (writes `inbox/.review/`, marks it answered) |
@@ -102,7 +102,10 @@ answered calls (`answer_question`) to the library and closes them — handy to a
 instead of waiting for the scheduled run. Unlike compile these carry no cooldown/empty guard, so both
 always return `{ "status": "triggered" }`: the per-vault lock serializes every job (a request that
 lands mid-run just waits), and resolve is a host-side no-op when nothing is answered. Poll
-`vault_status` (its `jobs.synthesize` / `jobs.resolve` timings) for completion.
+`vault_status` for completion: each writes a compile-style live status file
+(`inbox/.compile/status-synthesize.json` / `status-resolve.json`), so `jobs.synthesize.running` /
+`jobs.resolve.running` is `true` while it runs and flips `false` when it finishes, and `summary`
+records the outcome (e.g. `nothing to resolve`).
 
 All three triggers accept optional `model` and `effort` overrides for that single run (the MCP tool
 inputs; the `model`/`effort` fields of the REST POST body). They're written into the request
@@ -111,12 +114,14 @@ sentinel (a small JSON payload) and take precedence over the host's `KNOWLEDGE_*
 the host-configured behavior. Values are pass-through / unvalidated (harness-specific: e.g. Claude's
 `--effort low|medium|high|xhigh|max`; opencode has no effort knob and drops it).
 
-`vault_status` also returns a `jobs` map with the last/next *scheduled* run of each host job
-(`compile`, `synthesize`, `resolve`). The host can't be reached from the container, so — like
-`status.json` — it writes those timings (from systemd's own `LastTriggerUSec` /
-`NextElapseUSecRealtime`) to `inbox/.compile/schedules.json` on every job run
-(`scripts/vault-lib.sh:refresh_schedules`), and the server reads them. Each timestamp is `null`
-when unknown (a job that hasn't run yet, or a non-systemd host).
+`vault_status` also returns a `jobs` map keyed by host job (`compile`, `synthesize`, `resolve`).
+Each entry carries the last/next *scheduled* run plus a live `running` / `started_at` / `summary`.
+The host can't be reached from the container, so — like `status.json` — it writes the timings to
+`inbox/.compile/schedules.json` (the daemon computes `next_run_at` from the cron expression and
+`last_run_at` from each job's last-run epoch) on every job run, and each job writes its live status
+to a per-job file (`status.json` for compile, `status-<job>.json` for synthesize/resolve) that the
+server merges into the `jobs` map. Timing timestamps are `null` when unknown (a job that hasn't run
+yet); the status fields are `false`/`null` when the host predates the per-job status surface.
 
 ## Choosing which surfaces to serve
 

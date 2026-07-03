@@ -56,13 +56,16 @@ not on the query surface.
 ### synthesize_run
 - **Inputs:** `model` (optional string), `effort` (optional string) — as in `compile_run`.
 - **Output:** text confirming the whole-corpus synthesize pass was triggered. Asynchronous:
-  returns immediately without a result summary (poll `vault_status` → `jobs.synthesize`).
+  returns immediately without a result summary. Poll `vault_status` → `jobs.synthesize`:
+  `running` is `true` while it runs and flips `false` when it finishes; `summary` describes the
+  outcome.
 
 ### resolve_run
 - **Inputs:** `model` (optional string), `effort` (optional string) — as in `compile_run`.
 - **Output:** text confirming the resolve pass (applies answered judgment calls) was triggered.
-  Asynchronous: returns immediately; a no-op host-side when nothing is answered (poll
-  `vault_status` → `jobs.resolve`).
+  Asynchronous: returns immediately; a no-op host-side when nothing is answered. Poll
+  `vault_status` → `jobs.resolve` (`running` flips `false` when done; `summary` notes the
+  outcome, e.g. `nothing to resolve`).
 
 ### vault_status
 - **Inputs:** none.
@@ -74,11 +77,13 @@ not on the query surface.
   - `manual_compile_available_at` — ISO time the next manual `compile_run` is allowed; `null`
     or a past time means now.
   - `running` — `true` while a compile is in progress.
-  - `jobs` — last/next *scheduled* run of each host job, as `{ "compile": {...}, "synthesize":
-    {...}, "resolve": {...} }`, where each value is `{ "last_run_at": <iso|null>, "next_run_at":
-    <iso|null> }`. Timestamps are `null` when unknown (job not yet run, or the host isn't
-    systemd-driven). A job's `next_run_at` is its scheduled cadence — distinct from
-    `manual_compile_available_at` (the on-demand compile cooldown).
+  - `jobs` — per host job, as `{ "compile": {...}, "synthesize": {...}, "resolve": {...} }`, where
+    each value is `{ "last_run_at": <iso|null>, "next_run_at": <iso|null>, "running": <bool>,
+    "started_at": <iso|null>, "summary": <string|null> }`. The timing fields are the last/next
+    *scheduled* run (`null` when unknown — job not yet run); `running`/`started_at`/`summary` are
+    the live run status (`running` flips `false` when the job finishes; `false`/`null` when the
+    host predates the per-job status surface). A job's `next_run_at` is its scheduled cadence —
+    distinct from `manual_compile_available_at` (the on-demand compile cooldown).
 
 ### list_questions
 - **Inputs:** `status` (optional; one of `open`, `answered`, `applied`). Omit for all.

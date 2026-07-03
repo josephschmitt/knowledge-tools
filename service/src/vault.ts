@@ -58,6 +58,11 @@ const COMPILE_REQUEST = path.join(COMPILE_DIR, 'request');
 const SYNTHESIZE_REQUEST = path.join(COMPILE_DIR, 'request-synthesize');
 const RESOLVE_REQUEST = path.join(COMPILE_DIR, 'request-resolve');
 const COMPILE_STATUS = path.join(COMPILE_DIR, 'status.json');
+// The two judgment-call jobs write their own compile-style live status alongside compile's, named
+// status-<job>.json to mirror their request-<job> sentinels. compile keeps the original
+// 'status.json' name so its contract is unchanged.
+const SYNTHESIZE_STATUS = path.join(COMPILE_DIR, 'status-synthesize.json');
+const RESOLVE_STATUS = path.join(COMPILE_DIR, 'status-resolve.json');
 // Per-job schedule snapshot the host writes from systemd (last/next run of compile, synthesize,
 // resolve). See scripts/vault-lib.sh:refresh_schedules.
 const COMPILE_SCHEDULES = path.join(COMPILE_DIR, 'schedules.json');
@@ -277,13 +282,21 @@ export async function readCompileStatus(): Promise<CompileStatus | null> {
   }
 }
 
-/** One scheduled host job's timing. Either field is null when systemd has no value yet (the job
- *  hasn't run / has no next elapse) or the host isn't systemd-driven. */
+/** One scheduled host job's timing plus its live run status. The timing fields are null when the
+ *  job hasn't run / has no next elapse; the status fields come from the host's per-job status file
+ *  (status.json for compile, status-<job>.json for synthesize/resolve) and are false/null when
+ *  that file is absent (e.g. an un-upgraded host). */
 export interface JobSchedule {
-  /** ISO time the job last ran (systemd's last trigger), or null. */
+  /** ISO time the job last ran, or null. */
   last_run_at: string | null;
-  /** ISO time the job is next scheduled to run (systemd's next elapse), or null. */
+  /** ISO time the job is next scheduled to run, or null. */
   next_run_at: string | null;
+  /** Whether this job is running right now — flips false when it finishes. */
+  running: boolean;
+  /** ISO time the in-flight (or most recent) run started, or null. */
+  started_at: string | null;
+  /** One-line human summary of the current/last run (e.g. "synthesizing", "resolved"), or null. */
+  summary: string | null;
 }
 
 /** Last/next run for each scheduled host job, as written by scripts/vault-lib.sh. */
@@ -293,14 +306,42 @@ export interface JobSchedules {
   resolve: JobSchedule;
 }
 
-/** Shape of the host-written schedules.json (jobs map plus bookkeeping fields). */
+/** Shape of the host-written schedules.json (jobs map plus bookkeeping fields). The schedules file
+ *  only carries the timing fields; the live status fields come from the per-job status files. */
 interface SchedulesFile {
-  jobs?: Partial<Record<keyof JobSchedules, Partial<JobSchedule>>>;
+  jobs?: Partial<Record<keyof JobSchedules, { last_run_at?: string | null; next_run_at?: string | null }>>;
 }
 
-const EMPTY_JOB_SCHEDULE: JobSchedule = { last_run_at: null, next_run_at: null };
+/** The subset of a host status file the schedule rows surface. compile's status.json is a superset
+ *  (CompileStatus); synthesize/resolve write exactly these fields. */
+interface JobStatusFile {
+  running?: boolean;
+  started_at?: string;
+  summary?: string;
+}
 
-/** Read the host-written schedule snapshot, or all-null rows if it doesn't exist / is unparseable. */
+/** Where each job's live status file lives (compile shares its existing status.json). */
+const JOB_STATUS_FILE: Record<keyof JobSchedules, string> = {
+  compile: COMPILE_STATUS,
+  synthesize: SYNTHESIZE_STATUS,
+  resolve: RESOLVE_STATUS,
+};
+
+/** Read one job's live status file, or null if it doesn't exist / is unparseable. */
+async function readJobStatus(job: keyof JobSchedules): Promise<JobStatusFile | null> {
+  try {
+    return JSON.parse(await fs.readFile(JOB_STATUS_FILE[job], 'utf8')) as JobStatusFile;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the host-written schedule snapshot merged with each job's live run status. Timing comes from
+ * schedules.json (all-null rows if it's missing/unparseable), the running/started_at/summary fields
+ * from each per-job status file (false/null when that file is absent — back-compat for a host that
+ * predates the per-job status surface).
+ */
 export async function readJobSchedules(): Promise<JobSchedules> {
   let parsed: SchedulesFile | null = null;
   try {
@@ -308,16 +349,28 @@ export async function readJobSchedules(): Promise<JobSchedules> {
   } catch {
     parsed = null;
   }
+  const [compileStatus, synthesizeStatus, resolveStatus] = await Promise.all([
+    readJobStatus('compile'),
+    readJobStatus('synthesize'),
+    readJobStatus('resolve'),
+  ]);
+  const statusByJob: Record<keyof JobSchedules, JobStatusFile | null> = {
+    compile: compileStatus,
+    synthesize: synthesizeStatus,
+    resolve: resolveStatus,
+  };
   const row = (job: keyof JobSchedules): JobSchedule => {
     const r = parsed?.jobs?.[job];
+    const s = statusByJob[job];
     return {
       last_run_at: nonEmpty(r?.last_run_at),
       next_run_at: nonEmpty(r?.next_run_at),
+      running: s?.running ?? false,
+      started_at: nonEmpty(s?.started_at),
+      summary: nonEmpty(s?.summary),
     };
   };
-  return parsed
-    ? { compile: row('compile'), synthesize: row('synthesize'), resolve: row('resolve') }
-    : { compile: { ...EMPTY_JOB_SCHEDULE }, synthesize: { ...EMPTY_JOB_SCHEDULE }, resolve: { ...EMPTY_JOB_SCHEDULE } };
+  return { compile: row('compile'), synthesize: row('synthesize'), resolve: row('resolve') };
 }
 
 // Mirrors the host's KNOWLEDGE_COMPILE_COOLDOWN default; only used when status.json is
@@ -343,12 +396,14 @@ export interface VaultStatus {
    * means available now; a future value means wait.
    */
   manual_compile_available_at: string | null;
-  /** Whether a compile is in progress right now. */
+  /** Whether a compile is in progress right now. Equals jobs.compile.running; kept as a top-level
+   *  field for back-compat. */
   running: boolean;
-  /** Last/next *scheduled* run of each host job (compile/synthesize/resolve), from systemd via
-   *  the host. Each timestamp is null when unknown (job not yet run, or no systemd). A job's
-   *  next_run_at is its scheduled cadence — distinct from manual_compile_available_at, which is
-   *  the on-demand compile cooldown. */
+  /** Per host job (compile/synthesize/resolve): last/next *scheduled* run plus the live run status
+   *  (running/started_at/summary). Timestamps are null when unknown (job not yet run). A job's
+   *  next_run_at is its scheduled cadence — distinct from manual_compile_available_at, the
+   *  on-demand compile cooldown. Use jobs.<job>.running to tell an in-flight run from a finished
+   *  one after triggering synthesize_run / resolve_run. */
   jobs: JobSchedules;
 }
 
