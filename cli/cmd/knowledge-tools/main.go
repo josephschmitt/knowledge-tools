@@ -92,7 +92,11 @@ func (v vaultArg) resolveVault(confirmCwd bool) (string, error) {
 // confirmCwdUse prompts to use the current directory as the vault when no path was given. On a
 // non-interactive stdin it refuses to guess and errors, so scripts must be explicit.
 func confirmCwdUse(path string) (bool, error) {
-	if fi, _ := os.Stdin.Stat(); fi == nil || fi.Mode()&os.ModeCharDevice == 0 {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false, fmt.Errorf("could not stat stdin: %w", err)
+	}
+	if fi.Mode()&os.ModeCharDevice == 0 {
 		return false, fmt.Errorf("no vault path given and KNOWLEDGE_REPO is unset — pass a path explicitly")
 	}
 	fmt.Printf("No vault path given. Use the current directory?\n  %s  [y/N] ", path)
