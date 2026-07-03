@@ -20,6 +20,8 @@ func testCfg() *config.Config {
 		CompileSchedule:    "@hourly",
 		SynthesizeSchedule: "CRON_TZ=America/Detroit 30 4 * * 0",
 		ResolveSchedule:    "30 3 * * *",
+		SiteRebuildURL:     "http://knowledge-site:8080/rebuild",
+		SiteRebuildToken:   "s3cret",
 	}
 }
 
@@ -49,6 +51,8 @@ func TestInstanceEnvContents(t *testing.T) {
 		"KNOWLEDGE_COMPILE_COOLDOWN=1800",
 		"KNOWLEDGE_REVIEW_CHANNEL=files",
 		"KNOWLEDGE_GITHUB_REPO=me/vault",
+		"KNOWLEDGE_SITE_REBUILD_URL=http://knowledge-site:8080/rebuild",
+		"KNOWLEDGE_SITE_REBUILD_TOKEN=s3cret",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("env file missing %q\n%s", want, out)
@@ -71,6 +75,8 @@ func TestPlistContents(t *testing.T) {
 		"<key>KNOWLEDGE_REPO</key>",
 		"<string>/home/me/vault</string>",
 		"<key>KNOWLEDGE_SYNTHESIZE_SCHEDULE</key>",
+		"<key>KNOWLEDGE_SITE_REBUILD_URL</key>",
+		"<key>KNOWLEDGE_SITE_REBUILD_TOKEN</key>",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("plist missing %q\n%s", want, out)

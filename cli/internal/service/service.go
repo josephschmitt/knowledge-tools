@@ -58,6 +58,14 @@ func commonEnv(cfg *config.Config) []envKV {
 	if cfg.GithubRepo != "" {
 		env = append(env, envKV{"KNOWLEDGE_GITHUB_REPO", cfg.GithubRepo})
 	}
+	// Site-rebuild wiring — without these in the unit, the daemon's jobs never POST /rebuild after a
+	// commit and the published site goes stale (config.Load parses them, CommitAndPush uses them).
+	if cfg.SiteRebuildURL != "" {
+		env = append(env, envKV{"KNOWLEDGE_SITE_REBUILD_URL", cfg.SiteRebuildURL})
+	}
+	if cfg.SiteRebuildToken != "" {
+		env = append(env, envKV{"KNOWLEDGE_SITE_REBUILD_TOKEN", cfg.SiteRebuildToken})
+	}
 	return env
 }
 
