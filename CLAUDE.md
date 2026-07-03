@@ -68,14 +68,21 @@ working in the repo.
     fallback), `KNOWLEDGE_AGENT_CMD` (custom template), and per-job `*_MODEL`/`*_EFFORT` overrides
     with an `KNOWLEDGE_AGENT_MODEL`/`_EFFORT` fallback (`JobModel`/`JobEffort`; only the claude
     agent defaults a model — opus — which the old slash-command frontmatter used to declare). The
-    8 model/effort knobs can ALSO be declared **in the vault**, in a committed
-    `<repo>/.knowledge/config.env` (`loadVaultConfig`, KEY=value like `.env`) so the choice travels
-    with the vault and is git-versioned — but **only those 8 keys** are honored there (an allowlist;
-    any other `KNOWLEDGE_*` line is dropped so vault content can't redirect repo/git/site/auth
-    wiring), and the vault layer sits a tier **below** the env in `JobModel`/`JobEffort` (the whole
-    env layer wins over the whole vault layer, so a deployment always overrides without editing the
-    vault). Deliberately **not** seeded into `template/` (model IDs/effort scales are
-    harness-specific — keeping them out of the shipped skills is what preserves harness-neutrality).
+    8 model/effort knobs **and the 3 job schedules** can ALSO be declared **in the vault**, in a
+    committed `<repo>/.knowledge/config.yaml` (`loadVaultConfig`, YAML: a `defaults:` model/effort
+    block + a `jobs:` map keyed by compile/synthesize/resolve, each with `schedule`/`model`/`effort`)
+    so the choice travels with the vault and is git-versioned. The **decode struct is the allowlist**
+    — only those declared fields for the three known job names are representable, so any other key
+    (a stray `repo:`/`github_repo:`/`site_rebuild_url:` or an unknown job) decodes into nothing and
+    can't redirect repo/git/site/auth wiring. The values flatten to `KNOWLEDGE_*` keys in the `vault`
+    map, a tier **below** the env in both `JobModel`/`JobEffort` and the schedule resolution in `Load`
+    (`firstNonEmpty(env, vault, default)`) — the whole env layer (and `install` flags) wins over the
+    whole vault layer, so a deployment always overrides without editing the vault. Schedules bake into
+    the daemon unit at install; model/effort are read at daemon startup — either way re-run `install` /
+    `daemon restart` to apply an edit. Deliberately **not** seeded into `template/` (model IDs/effort
+    scales/schedules are host/harness-specific — keeping them out of the shipped skills is what
+    preserves harness-neutrality). A leftover legacy `config.env` (the old KEY=value format) is no
+    longer read; `loadVaultConfig` warns on stderr when it spots one.
   - `internal/agent` (new): the headless-agent abstraction that replaced `vault.RunClaude`. A
     `Driver` (selected by `KNOWLEDGE_AGENT`) turns a harness-neutral `Invocation` (prompt, model,
     effort, neutral shell-grant prefixes) into one harness's argv: `claude -p … --permission-mode

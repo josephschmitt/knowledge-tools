@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -167,7 +168,7 @@ func TestParseEnvFileMissing(t *testing.T) {
 	}
 }
 
-// writeVaultConfig creates <repo>/.knowledge/config.env with the given body and returns repo.
+// writeVaultConfig creates <repo>/.knowledge/config.yaml with the given YAML body and returns repo.
 func writeVaultConfig(t *testing.T, body string) string {
 	t.Helper()
 	repo := t.TempDir()
@@ -175,17 +176,26 @@ func writeVaultConfig(t *testing.T, body string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.env"), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return repo
 }
 
-// clearModelEffortEnv unsets every model/effort env knob so a test isn't polluted by the ambient
+// vaultEnvKeys are the KNOWLEDGE_* knobs the vault config.yaml can also supply (model/effort +
+// schedules). Tests clear them so the ambient environment doesn't pollute vault-tier assertions.
+var vaultEnvKeys = []string{
+	"KNOWLEDGE_AGENT_MODEL", "KNOWLEDGE_AGENT_EFFORT",
+	"KNOWLEDGE_COMPILE_MODEL", "KNOWLEDGE_SYNTHESIZE_MODEL", "KNOWLEDGE_RESOLVE_MODEL",
+	"KNOWLEDGE_COMPILE_EFFORT", "KNOWLEDGE_SYNTHESIZE_EFFORT", "KNOWLEDGE_RESOLVE_EFFORT",
+	"KNOWLEDGE_COMPILE_SCHEDULE", "KNOWLEDGE_SYNTHESIZE_SCHEDULE", "KNOWLEDGE_RESOLVE_SCHEDULE",
+}
+
+// clearModelEffortEnv unsets every vault-settable env knob so a test isn't polluted by the ambient
 // environment (they're not in the harness default-unset list).
 func clearModelEffortEnv(t *testing.T) {
 	t.Helper()
-	for k := range vaultConfigKeys {
+	for _, k := range vaultEnvKeys {
 		t.Setenv(k, "") // register for restore
 		_ = os.Unsetenv(k)
 	}
@@ -193,12 +203,18 @@ func clearModelEffortEnv(t *testing.T) {
 
 func TestLoadVaultConfigAllowlist(t *testing.T) {
 	clearModelEffortEnv(t)
-	// The vault file sets an allowlisted knob AND a forbidden one; only the allowlisted one lands.
-	repo := writeVaultConfig(t, `KNOWLEDGE_SYNTHESIZE_MODEL=opus
-KNOWLEDGE_AGENT_EFFORT=high
-KNOWLEDGE_GITHUB_REPO=evil/repo
-KNOWLEDGE_SITE_REBUILD_URL=http://evil
-KNOWLEDGE_REPO=/somewhere/else
+	// The vault file sets allowlisted knobs AND unrepresentable infra keys (as stray top-level YAML
+	// and an unknown job) — only the structurally-declared fields for known jobs may land.
+	repo := writeVaultConfig(t, `defaults:
+  effort: high
+jobs:
+  synthesize:
+    model: opus
+  evil:
+    schedule: "@yearly"
+github_repo: evil/repo
+site_rebuild_url: http://evil
+repo: /somewhere/else
 `)
 	cfg, err := Load("", repo)
 	if err != nil {
@@ -210,7 +226,13 @@ KNOWLEDGE_REPO=/somewhere/else
 	if cfg.vault["KNOWLEDGE_AGENT_EFFORT"] != "high" {
 		t.Errorf("vault[AGENT_EFFORT] = %q, want high", cfg.vault["KNOWLEDGE_AGENT_EFFORT"])
 	}
-	// Forbidden keys must not survive the allowlist into the stored map, nor leak into config.
+	// An unknown job name is ignored — its schedule must not smuggle a key into the map.
+	for k := range cfg.vault {
+		if strings.Contains(k, "EVIL") {
+			t.Errorf("vault map contains key from unknown job: %q", k)
+		}
+	}
+	// Infra keys are unrepresentable in the struct, so they can't survive into the map or config.
 	for _, k := range []string{"KNOWLEDGE_GITHUB_REPO", "KNOWLEDGE_SITE_REBUILD_URL", "KNOWLEDGE_REPO"} {
 		if _, ok := cfg.vault[k]; ok {
 			t.Errorf("vault map contains forbidden key %q", k)
@@ -222,7 +244,7 @@ KNOWLEDGE_REPO=/somewhere/else
 	if cfg.SiteRebuildURL != "" {
 		t.Errorf("SiteRebuildURL = %q, want empty", cfg.SiteRebuildURL)
 	}
-	// The vault file's KNOWLEDGE_REPO is ignored — Repo stays the one passed to Load.
+	// The vault file's repo key is ignored — Repo stays the one passed to Load.
 	if cfg.Repo != repo {
 		t.Errorf("Repo = %q, want %q (vault file must not override repo)", cfg.Repo, repo)
 	}
@@ -230,7 +252,7 @@ KNOWLEDGE_REPO=/somewhere/else
 
 func TestLoadVaultConfigMissingIsNoop(t *testing.T) {
 	clearModelEffortEnv(t)
-	cfg, err := Load("", t.TempDir()) // repo with no .knowledge/config.env
+	cfg, err := Load("", t.TempDir()) // repo with no .knowledge/config.yaml
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +329,7 @@ func TestJobEffortPrecedence(t *testing.T) {
 
 func TestEnvWinsOverVaultViaLoad(t *testing.T) {
 	clearModelEffortEnv(t)
-	repo := writeVaultConfig(t, "KNOWLEDGE_SYNTHESIZE_MODEL=opus\n")
+	repo := writeVaultConfig(t, "jobs:\n  synthesize:\n    model: opus\n")
 	// A deployment sets the env knob — it must win over the vault file.
 	t.Setenv("KNOWLEDGE_SYNTHESIZE_MODEL", "sonnet")
 	cfg, err := Load("", repo)
@@ -316,6 +338,57 @@ func TestEnvWinsOverVaultViaLoad(t *testing.T) {
 	}
 	if got := cfg.JobModel("synthesize", ""); got != "sonnet" {
 		t.Errorf("JobModel = %q, want sonnet (env wins over vault)", got)
+	}
+}
+
+func TestVaultSchedule(t *testing.T) {
+	clearModelEffortEnv(t)
+	repo := writeVaultConfig(t, `jobs:
+  compile:
+    schedule: "@every 30m"
+`)
+	// The vault schedule flows through when no env var is set.
+	cfg, err := Load("", repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CompileSchedule != "@every 30m" {
+		t.Errorf("CompileSchedule = %q, want @every 30m (from vault)", cfg.CompileSchedule)
+	}
+	// A job the vault file omits falls back to the built-in default.
+	if cfg.SynthesizeSchedule != DefaultSynthesizeSchedule {
+		t.Errorf("SynthesizeSchedule = %q, want default %q", cfg.SynthesizeSchedule, DefaultSynthesizeSchedule)
+	}
+
+	// A deployment's env var still wins over the vault schedule.
+	t.Setenv("KNOWLEDGE_COMPILE_SCHEDULE", "@daily")
+	cfg, err = Load("", repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CompileSchedule != "@daily" {
+		t.Errorf("CompileSchedule = %q, want @daily (env wins over vault)", cfg.CompileSchedule)
+	}
+}
+
+func TestLegacyConfigEnvWarns(t *testing.T) {
+	// A leftover legacy config.env (no longer read) must not affect config and must be a clean no-op
+	// for resolution — the migration warning is best-effort and not asserted here.
+	repo := t.TempDir()
+	dir := filepath.Join(repo, ".knowledge")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.env"), []byte("KNOWLEDGE_COMPILE_SCHEDULE=@yearly\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	clearModelEffortEnv(t)
+	cfg, err := Load("", repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CompileSchedule != DefaultCompileSchedule {
+		t.Errorf("CompileSchedule = %q, want default (legacy config.env must be ignored)", cfg.CompileSchedule)
 	}
 }
 

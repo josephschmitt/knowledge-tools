@@ -169,16 +169,34 @@ changes and pushes if an `origin` remote exists. Which agent runs is set by `KNO
 reasoning-effort knobs — all set in the `.env` config file (copy `.env.example`) or the
 environment. See `.env.example`.
 
-The model/effort knobs can also live **in the vault itself**, in a committed
-`<vault>/.knowledge/config.env` (same `KEY=value` syntax as `.env`), so the choice is
-git-versioned and travels with the vault instead of the host. Only the 8 model/effort keys
-(`KNOWLEDGE_AGENT_MODEL`/`_EFFORT` and the three `KNOWLEDGE_{COMPILE,SYNTHESIZE,RESOLVE}_{MODEL,EFFORT}`
-pairs) are read from that file — any other `KNOWLEDGE_*` line is ignored, so vault content can't
-touch repo/git/site/auth wiring. It's a default *below* the env: anything set in `.env` or the
-environment overrides it, so a deployment can always win without editing the vault. The daemon reads
-it once at startup, so run `knowledge-tools daemon restart` after editing it. (It's intentionally
-not created by `init` — model IDs and effort scales are harness-specific, so seeded vaults stay
-harness-neutral.)
+The schedule and model/effort knobs can also live **in the vault itself**, in a committed
+`<vault>/.knowledge/config.yaml`, so the choice is git-versioned and travels with the vault instead
+of the host:
+
+```yaml
+# <vault>/.knowledge/config.yaml
+defaults:            # agent-wide model/effort (per-job values below win)
+  model: opus
+  effort: xhigh
+jobs:
+  compile:
+    schedule: "@hourly"
+  synthesize:
+    schedule: "CRON_TZ=America/Detroit 0 3 * * *"
+  resolve:
+    schedule: "CRON_TZ=America/Detroit 0 4 * * *"
+    effort: high
+```
+
+The Go struct that decodes this file **is** the allowlist: only `defaults.{model,effort}` and, for
+the three known jobs, `{schedule,model,effort}` are representable — any other key (a stray
+`github_repo:`, `repo:`, …) simply decodes into nothing, so vault content can't touch
+repo/git/site/auth wiring. Every knob is a default *below* the env: anything set in `.env`, the
+environment, or an `install` flag overrides it, so a deployment can always win without editing the
+vault. Schedules are baked into the daemon unit at install time and model/effort are read at daemon
+startup, so run `knowledge-tools daemon restart` (or re-run `install`) after editing the file. (It's
+intentionally not created by `init` — model IDs, effort scales, and schedules are host/harness-specific,
+so seeded vaults stay neutral.)
 
 The vault **need not be a git repo**: when the wrapper finds no work tree it skips the commit
 and leaves history to whatever syncs the folder (Dropbox, Syncthing, …). Combined with the

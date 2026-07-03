@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Defaults mirror the bash scripts' defaults so behavior is unchanged across the port.
@@ -61,12 +63,13 @@ type Config struct {
 	// Per-job model/effort overrides (KNOWLEDGE_{COMPILE,SYNTHESIZE,RESOLVE}_{MODEL,EFFORT}).
 	CompileModel, SynthesizeModel, ResolveModel    string
 	CompileEffort, SynthesizeEffort, ResolveEffort string
-	// vault holds the allowlisted model/effort knobs from <repo>/.knowledge/config.env (see
-	// loadVaultConfig) — a git-versioned default tier that travels with the vault. It sits a tier
-	// BELOW the env knobs in JobModel/JobEffort: a value here applies only when the whole env layer
-	// is empty for that dimension, so any deployment overrides it without editing vault content.
-	// Kept as its own map (not seeded into os.Env) precisely so the whole env layer wins over the
-	// whole vault layer. nil/empty when the file is absent.
+	// vault holds the allowlisted model/effort/schedule knobs from <repo>/.knowledge/config.yaml
+	// (see loadVaultConfig), flattened to KNOWLEDGE_* keys — a git-versioned default tier that
+	// travels with the vault. It sits a tier BELOW the env knobs in JobModel/JobEffort and in the
+	// schedule resolution in Load: a value here applies only when the whole env layer is empty for
+	// that dimension, so any deployment overrides it without editing vault content. Kept as its own
+	// map (not seeded into os.Env) precisely so the whole env layer wins over the whole vault layer.
+	// nil/empty when the file is absent.
 	vault map[string]string
 	// CompileCooldown is KNOWLEDGE_COMPILE_COOLDOWN seconds between allowed manual compiles.
 	CompileCooldown int
@@ -183,8 +186,14 @@ func Load(instance, repo string) (*Config, error) {
 		repo = os.Getenv("KNOWLEDGE_REPO")
 	}
 
+	// Vault-layer knobs from <repo>/.knowledge/config.yaml — a git-versioned default tier below the
+	// env knobs (see JobModel/JobEffort, the schedule fields below, and the vault field). Non-fatal
+	// on error so a malformed vault file can't wedge the daemon; nil when repo is unset (uninstall).
+	vault := loadVaultConfig(repo)
+
 	cfg := &Config{
 		Repo:               repo,
+		vault:              vault,
 		Instance:           instance,
 		Agent:              envOr("KNOWLEDGE_AGENT", DefaultAgent),
 		AgentBin:           agentBin(),
@@ -201,53 +210,83 @@ func Load(instance, repo string) (*Config, error) {
 		ReviewChannel:      os.Getenv("KNOWLEDGE_REVIEW_CHANNEL"),
 		GithubRepo:         os.Getenv("KNOWLEDGE_GITHUB_REPO"),
 		VaultLock:          envOr("KNOWLEDGE_VAULT_LOCK", defaultVaultLock(instance)),
-		CompileSchedule:    envOr("KNOWLEDGE_COMPILE_SCHEDULE", DefaultCompileSchedule),
-		SynthesizeSchedule: envOr("KNOWLEDGE_SYNTHESIZE_SCHEDULE", DefaultSynthesizeSchedule),
-		ResolveSchedule:    envOr("KNOWLEDGE_RESOLVE_SCHEDULE", DefaultResolveSchedule),
+		// Schedules resolve flag > env > vault > default (the flag layer is applied by InstallCmd
+		// after Load); env still wins over the vault tier, mirroring JobModel/JobEffort.
+		CompileSchedule:    firstNonEmpty(os.Getenv("KNOWLEDGE_COMPILE_SCHEDULE"), vault["KNOWLEDGE_COMPILE_SCHEDULE"], DefaultCompileSchedule),
+		SynthesizeSchedule: firstNonEmpty(os.Getenv("KNOWLEDGE_SYNTHESIZE_SCHEDULE"), vault["KNOWLEDGE_SYNTHESIZE_SCHEDULE"], DefaultSynthesizeSchedule),
+		ResolveSchedule:    firstNonEmpty(os.Getenv("KNOWLEDGE_RESOLVE_SCHEDULE"), vault["KNOWLEDGE_RESOLVE_SCHEDULE"], DefaultResolveSchedule),
 		SiteRebuildURL:     os.Getenv("KNOWLEDGE_SITE_REBUILD_URL"),
 		SiteRebuildToken:   os.Getenv("KNOWLEDGE_SITE_REBUILD_TOKEN"),
 	}
 
-	// Vault-layer model/effort from <repo>/.knowledge/config.env — a git-versioned default tier
-	// below the env knobs (see JobModel/JobEffort and the vault field). Non-fatal on error so a
-	// malformed vault file can't wedge the daemon; nil when repo is unset (e.g. uninstall).
-	cfg.vault = loadVaultConfig(repo)
 	return cfg, nil
 }
 
-// vaultConfigKeys is the allowlist the vault config file may set — only the model/effort knobs.
-// Everything else (KNOWLEDGE_REPO, tokens, git/site/schedule wiring) is ignored, so committed vault
-// content can never redirect the tooling's operational config.
-var vaultConfigKeys = map[string]bool{
-	"KNOWLEDGE_AGENT_MODEL":       true,
-	"KNOWLEDGE_AGENT_EFFORT":      true,
-	"KNOWLEDGE_COMPILE_MODEL":     true,
-	"KNOWLEDGE_SYNTHESIZE_MODEL":  true,
-	"KNOWLEDGE_RESOLVE_MODEL":     true,
-	"KNOWLEDGE_COMPILE_EFFORT":    true,
-	"KNOWLEDGE_SYNTHESIZE_EFFORT": true,
-	"KNOWLEDGE_RESOLVE_EFFORT":    true,
+// vaultConfigFile is the shape of <repo>/.knowledge/config.yaml. The struct IS the allowlist: only
+// the fields declared here are representable, so committed vault content can never set KNOWLEDGE_REPO,
+// tokens, or git/site/auth wiring — any other YAML key decodes into nothing and is dropped. Only the
+// three known job names (compile/synthesize/resolve) are honored when flattening Jobs.
+type vaultConfigFile struct {
+	// Defaults are the agent-wide model/effort fallbacks (per-job values under Jobs win over these).
+	Defaults struct {
+		Model  string `yaml:"model"`
+		Effort string `yaml:"effort"`
+	} `yaml:"defaults"`
+	// Jobs holds per-job schedule/model/effort, keyed by job name (compile|synthesize|resolve).
+	Jobs map[string]struct {
+		Schedule string `yaml:"schedule"`
+		Model    string `yaml:"model"`
+		Effort   string `yaml:"effort"`
+	} `yaml:"jobs"`
 }
 
-// loadVaultConfig reads <repo>/.knowledge/config.env and returns only the allowlisted model/effort
-// keys. Returns nil when repo is empty or the file can't be parsed (the latter logged to stderr and
-// treated as absent); an absent file yields an empty map. Either way a missing or malformed file is
-// a clean no-op — c.vault reads then return "" for every key.
+// vaultJobs is the set of job names honored in the vault config's `jobs:` map; any other key is
+// ignored so a stray `jobs.evil.schedule` can't smuggle in a KNOWLEDGE_* value.
+var vaultJobs = []string{"compile", "synthesize", "resolve"}
+
+// loadVaultConfig reads <repo>/.knowledge/config.yaml and flattens its allowlisted fields into a
+// map keyed by the KNOWLEDGE_* names JobModel/JobEffort and the Load schedule tier read. Returns nil
+// when repo is empty or the file can't be parsed (the latter logged to stderr and treated as
+// absent); an absent file yields an empty map. Either way a missing or malformed file is a clean
+// no-op — c.vault reads then return "" for every key. As a migration aid, a leftover legacy
+// .knowledge/config.env (the old KEY=value format, no longer read) is flagged on stderr.
 func loadVaultConfig(repo string) map[string]string {
 	if repo == "" {
 		return nil
 	}
-	kv, err := parseEnvFile(filepath.Join(repo, ".knowledge", "config.env"))
+	dir := filepath.Join(repo, ".knowledge")
+	if _, err := os.Stat(filepath.Join(dir, "config.env")); err == nil {
+		fmt.Fprintf(os.Stderr, "knowledge-tools: warning: .knowledge/config.env is no longer read; "+
+			"migrate its settings to .knowledge/config.yaml\n")
+	}
+
+	b, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "knowledge-tools: warning: ignoring .knowledge/config.env: %v\n", err)
+		if !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "knowledge-tools: warning: ignoring .knowledge/config.yaml: %v\n", err)
+		}
 		return nil
 	}
-	// Ranging a nil kv (missing file) is a no-op, so no special-casing is needed here.
+	var vf vaultConfigFile
+	if err := yaml.Unmarshal(b, &vf); err != nil {
+		fmt.Fprintf(os.Stderr, "knowledge-tools: warning: ignoring .knowledge/config.yaml: %v\n", err)
+		return nil
+	}
+
 	out := map[string]string{}
-	for k, v := range kv {
-		if vaultConfigKeys[k] {
-			out[k] = v
+	setNonEmpty := func(key, val string) {
+		if val != "" {
+			out[key] = val
 		}
+	}
+	setNonEmpty("KNOWLEDGE_AGENT_MODEL", vf.Defaults.Model)
+	setNonEmpty("KNOWLEDGE_AGENT_EFFORT", vf.Defaults.Effort)
+	for _, job := range vaultJobs {
+		j := vf.Jobs[job]
+		up := strings.ToUpper(job)
+		setNonEmpty("KNOWLEDGE_"+up+"_SCHEDULE", j.Schedule)
+		setNonEmpty("KNOWLEDGE_"+up+"_MODEL", j.Model)
+		setNonEmpty("KNOWLEDGE_"+up+"_EFFORT", j.Effort)
 	}
 	return out
 }
