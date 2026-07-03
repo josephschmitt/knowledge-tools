@@ -34,6 +34,8 @@ func printStatus(cfg *config.Config) error {
 		fmt.Print(indent(string(data)))
 	}
 	printFile("compile status", filepath.Join(compileDir, "status.json"))
+	printFile("synthesize status", filepath.Join(compileDir, "status-synthesize.json"))
+	printFile("resolve status", filepath.Join(compileDir, "status-resolve.json"))
 	printFile("schedules", filepath.Join(compileDir, "schedules.json"))
 
 	fmt.Println()
