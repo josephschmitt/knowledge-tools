@@ -288,12 +288,18 @@ func loadVaultConfig(repo string) map[string]string {
 	setNonEmpty("KNOWLEDGE_AGENT_EFFORT", vf.Defaults.Effort)
 	for _, job := range vaultJobs {
 		j := vf.Jobs[job]
-		up := strings.ToUpper(job)
-		setNonEmpty("KNOWLEDGE_"+up+"_SCHEDULE", j.Schedule)
-		setNonEmpty("KNOWLEDGE_"+up+"_MODEL", j.Model)
-		setNonEmpty("KNOWLEDGE_"+up+"_EFFORT", j.Effort)
+		setNonEmpty(vaultKey(job, "SCHEDULE"), j.Schedule)
+		setNonEmpty(vaultKey(job, "MODEL"), j.Model)
+		setNonEmpty(vaultKey(job, "EFFORT"), j.Effort)
 	}
 	return out
+}
+
+// vaultKey builds the KNOWLEDGE_<JOB>_<SUFFIX> env-var name a per-job knob lives under, keeping the
+// naming convention in one place: loadVaultConfig writes these keys into the vault map, and the Job*
+// resolvers read them back.
+func vaultKey(job, suffix string) string {
+	return "KNOWLEDGE_" + strings.ToUpper(job) + "_" + suffix
 }
 
 // JobModel resolves the model for a job in tiers: a caller-supplied override wins (a per-invocation
@@ -304,17 +310,17 @@ func loadVaultConfig(repo string) map[string]string {
 // real default (opus) — preserving the model the old slash-command frontmatter declared; other
 // harnesses default empty (use their own model). override is empty when the caller didn't specify one.
 func (c *Config) JobModel(job, override string) string {
-	var perJobEnv, vaultKey string
+	var perJobEnv string
 	switch job {
 	case "compile":
-		perJobEnv, vaultKey = c.CompileModel, "KNOWLEDGE_COMPILE_MODEL"
+		perJobEnv = c.CompileModel
 	case "synthesize":
-		perJobEnv, vaultKey = c.SynthesizeModel, "KNOWLEDGE_SYNTHESIZE_MODEL"
+		perJobEnv = c.SynthesizeModel
 	case "resolve":
-		perJobEnv, vaultKey = c.ResolveModel, "KNOWLEDGE_RESOLVE_MODEL"
+		perJobEnv = c.ResolveModel
 	}
 	// Flat order encodes the tiers: caller override, then env per-job/agent, then vault per-job/agent.
-	if m := firstNonEmpty(override, perJobEnv, c.AgentModel, c.vault[vaultKey], c.vault["KNOWLEDGE_AGENT_MODEL"]); m != "" {
+	if m := firstNonEmpty(override, perJobEnv, c.AgentModel, c.vault[vaultKey(job, "MODEL")], c.vault["KNOWLEDGE_AGENT_MODEL"]); m != "" {
 		return m
 	}
 	if c.Agent == "" || c.Agent == "claude" {
@@ -331,17 +337,17 @@ func (c *Config) JobModel(job, override string) string {
 // (low|medium|high); opencode has no knob and drops it; custom uses {{effort}} if its template
 // references it. Empty means unset. override is empty when the caller didn't specify one.
 func (c *Config) JobEffort(job, override string) string {
-	var perJobEnv, vaultKey string
+	var perJobEnv string
 	switch job {
 	case "compile":
-		perJobEnv, vaultKey = c.CompileEffort, "KNOWLEDGE_COMPILE_EFFORT"
+		perJobEnv = c.CompileEffort
 	case "synthesize":
-		perJobEnv, vaultKey = c.SynthesizeEffort, "KNOWLEDGE_SYNTHESIZE_EFFORT"
+		perJobEnv = c.SynthesizeEffort
 	case "resolve":
-		perJobEnv, vaultKey = c.ResolveEffort, "KNOWLEDGE_RESOLVE_EFFORT"
+		perJobEnv = c.ResolveEffort
 	}
 	// Flat order encodes the tiers: caller override, then env per-job/agent, then vault per-job/agent.
-	return firstNonEmpty(override, perJobEnv, c.AgentEffort, c.vault[vaultKey], c.vault["KNOWLEDGE_AGENT_EFFORT"])
+	return firstNonEmpty(override, perJobEnv, c.AgentEffort, c.vault[vaultKey(job, "EFFORT")], c.vault["KNOWLEDGE_AGENT_EFFORT"])
 }
 
 // JobSchedule resolves the effective cron schedule for a job in tiers: the operator-explicit
@@ -352,16 +358,16 @@ func (c *Config) JobEffort(job, override string) string {
 // the vault. Callers (the daemon's cron wiring, the schedules snapshot) read this rather than the
 // raw fields so the vault yaml is honored even when nothing is baked into the unit.
 func (c *Config) JobSchedule(job string) string {
-	var override, vaultKey, def string
+	var override, def string
 	switch job {
 	case "compile":
-		override, vaultKey, def = c.CompileSchedule, "KNOWLEDGE_COMPILE_SCHEDULE", DefaultCompileSchedule
+		override, def = c.CompileSchedule, DefaultCompileSchedule
 	case "synthesize":
-		override, vaultKey, def = c.SynthesizeSchedule, "KNOWLEDGE_SYNTHESIZE_SCHEDULE", DefaultSynthesizeSchedule
+		override, def = c.SynthesizeSchedule, DefaultSynthesizeSchedule
 	case "resolve":
-		override, vaultKey, def = c.ResolveSchedule, "KNOWLEDGE_RESOLVE_SCHEDULE", DefaultResolveSchedule
+		override, def = c.ResolveSchedule, DefaultResolveSchedule
 	}
-	return firstNonEmpty(override, c.vault[vaultKey], def)
+	return firstNonEmpty(override, c.vault[vaultKey(job, "SCHEDULE")], def)
 }
 
 // agentBin resolves KNOWLEDGE_AGENT_BIN, honoring the deprecated CLAUDE_BIN as a fallback. Empty
