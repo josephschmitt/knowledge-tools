@@ -259,12 +259,13 @@ answering from chat comments and labels the issue `vault:answered` just as you w
 github.com, so `resolve` closes it — handy when you don't feel like opening GitHub. Point the
 connector at the same channel the host uses.
 
-To set this up from scratch (idempotent — safe to re-run), point `KNOWLEDGE_REPO` at your
-vault repo — either inline as below, or by copying `.env.example` to `.env` and setting it
-there (the CLI loads the repo-root `.env` automatically; a real env var overrides it):
+To set this up from scratch (idempotent — safe to re-run), pass your vault path to `install` as a
+positional arg (or set `KNOWLEDGE_REPO` — inline, or by copying `.env.example` to `.env`; the CLI
+loads the repo-root `.env` automatically, and a real env var overrides it). With no path and no
+`KNOWLEDGE_REPO`, `install` offers to use the current directory:
 
 ```sh
-KNOWLEDGE_REPO=/path/to/vault knowledge-tools install
+knowledge-tools install /path/to/vault
 ```
 
 On **Linux** this writes a `knowledge-tools-daemon@.service` systemd user unit + this vault's
@@ -279,18 +280,18 @@ linger equivalent), so a night job needs the Mac on and logged in then. (The who
 launchd` grammar dance is gone — the daemon owns scheduling, so cron expressions work the same on
 both OSes.)
 
-Check state any time with `knowledge-tools status` (prints the compile + schedule snapshots and
+Check state any time with `knowledge-tools job status` (prints the compile + schedule snapshots and
 whether the daemon is running). After changing a schedule in the vault's `.knowledge/config.yaml`,
 `knowledge-tools daemon restart` picks it up; after changing one via `.env`/the environment, re-run
 `knowledge-tools install` (it re-bakes the host override). On an existing single-vault host the first
 install also removes the old bash-era per-job units it finds.
 
 **Multiple vaults** (e.g. personal vs work) run on one host as separate instances — each its own
-daemon, lock, schedule, and config. Just run `install` again per vault with a distinct
-`KNOWLEDGE_INSTANCE` (the `<vault>` above; the first one defaults to `default`):
+daemon, lock, schedule, and config. Just run `install` again per vault, passing its path and a
+distinct `--instance` (the `<vault>` above; the first one defaults to `default`):
 
 ```sh
-KNOWLEDGE_INSTANCE=work KNOWLEDGE_REPO=/path/to/work-vault knowledge-tools install
+knowledge-tools install /path/to/work-vault --instance work
 ```
 
 Each vault is a wholly independent deployment — its own service (one per vault, see
@@ -319,7 +320,7 @@ knowledge-tools daemon restart                          # the "default" vault
 KNOWLEDGE_INSTANCE=work knowledge-tools daemon restart   # the "work" vault
 ```
 
-`knowledge-tools status` (and `knowledge-tools daemon status`) now records the running daemon's
+`knowledge-tools job status` (and `knowledge-tools daemon status`) now records the running daemon's
 version and flags when a newer binary is installed but the daemon hasn't been restarted onto it yet
 — your cue to run the restart. The `daemon` command also has `start` and `stop` to pause/resume the
 unit without uninstalling it. (`knowledge-tools daemon` with no subcommand still just runs the
@@ -333,8 +334,8 @@ per-instance `KNOWLEDGE_INSTANCE` (default `default`), and idempotent (a no-op i
 installed). Run it once per vault you want to remove:
 
 ```sh
-knowledge-tools uninstall                              # remove the "default" vault
-KNOWLEDGE_INSTANCE=work knowledge-tools uninstall      # remove the "work" vault
+knowledge-tools uninstall                   # remove the "default" vault
+knowledge-tools uninstall --instance work   # remove the "work" vault
 ```
 
 It stops and removes that instance's daemon unit and its per-vault config

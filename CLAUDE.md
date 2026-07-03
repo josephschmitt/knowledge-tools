@@ -53,12 +53,18 @@ working in the repo.
     compile watcher via a `default:"withargs"` `run` subcommand, so existing units' `ExecStart=<bin>
     daemon` keeps working; plus `daemon restart` / `start` / `stop` / `status` for the OS unit's
     lifecycle — `restart` re-applies install then force-restarts the running daemon, the smooth
-    upgrade path after swapping the binary), `compile` / `synthesize` / `resolve` (one-shot jobs,
-    also what the daemon runs on schedule), `init` (scaffold a vault from the embedded template —
-    copy-if-absent), `status` (print the compile + schedule snapshots and the daemon unit state, and
-    flag when the running daemon's recorded version differs from the installed binary). (Static-site
-    *building* is out of scope here — that's the standalone `knowledge-site` image; the CLI only
-    *triggers* its rebuild after a commit, see `commit_and_push` below and `site/`.)
+    upgrade path after swapping the binary), `job` (a command group over the one-shot jobs — `job
+    compile` / `job synthesize` / `job resolve`, also what the daemon runs on schedule — plus `job
+    status`, which prints the compile + schedule snapshots and the daemon unit state and flags a
+    running-vs-installed version mismatch), and `init` (scaffold a vault from the embedded template —
+    copy-if-absent). The vault path is a **positional `[vault]` arg** on the commands that operate on
+    a vault (`install`, `init`, the `job …` subcommands), resolving arg › `KNOWLEDGE_REPO` env › cwd
+    (the create/register commands `install` & `init` confirm before the bare-cwd fallback, and error
+    instead of prompting on a non-interactive stdin); there is no `--vault`/`--repo` flag. `uninstall`
+    and the `daemon` lifecycle subcommands key off `--instance` only and never take a vault path (the
+    daemon itself reads `KNOWLEDGE_REPO` from its unit's environment). (Static-site *building* is out
+    of scope here — that's the standalone `knowledge-site` image; the CLI only *triggers* its rebuild
+    after a commit, see `commit_and_push` below and `site/`.)
   - `internal/config` ports `load-env.sh` (a repo-root `.env`; real env wins) + the `KNOWLEDGE_*`
     knobs. **Schedules moved from systemd OnCalendar to cron expressions** (robfig/cron grammar):
     `KNOWLEDGE_COMPILE_SCHEDULE` (default `@hourly`), `KNOWLEDGE_SYNTHESIZE_SCHEDULE`

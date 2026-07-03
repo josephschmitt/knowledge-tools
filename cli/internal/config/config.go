@@ -389,7 +389,7 @@ func firstNonEmpty(vals ...string) string {
 // RequireRepo returns an error if KNOWLEDGE_REPO is unset — the jobs and daemon need it.
 func (c *Config) RequireRepo() error {
 	if c.Repo == "" {
-		return fmt.Errorf("set KNOWLEDGE_REPO to the vault path (in .env, the environment, or --vault)")
+		return fmt.Errorf("no vault path — pass one to the command (kt <cmd> <path>) or set KNOWLEDGE_REPO (in .env or the environment)")
 	}
 	return nil
 }
