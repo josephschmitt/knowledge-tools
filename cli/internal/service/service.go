@@ -26,7 +26,7 @@ func commonEnv(cfg *config.Config) []envKV {
 	// KNOWLEDGE_REPO is the only value the daemon can't derive elsewhere (it's the pointer to the
 	// vault, and can't live inside it), so it's always baked. Everything else is baked only when the
 	// operator explicitly set it — vault-preference knobs (schedules, model/effort) otherwise come
-	// from <vault>/.knowledge/config.yaml, read live at daemon startup, so a bare install leaves the
+	// from <vault>/.knowledge-tools/config.yaml, read live at daemon startup, so a bare install leaves the
 	// unit as just this line and the vault yaml as the source of truth.
 	env := []envKV{{"KNOWLEDGE_REPO", cfg.Repo}}
 	cooldown := ""

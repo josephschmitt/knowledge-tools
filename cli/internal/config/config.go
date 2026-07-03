@@ -63,7 +63,7 @@ type Config struct {
 	// Per-job model/effort overrides (KNOWLEDGE_{COMPILE,SYNTHESIZE,RESOLVE}_{MODEL,EFFORT}).
 	CompileModel, SynthesizeModel, ResolveModel    string
 	CompileEffort, SynthesizeEffort, ResolveEffort string
-	// vault holds the allowlisted model/effort/schedule knobs from <repo>/.knowledge/config.yaml
+	// vault holds the allowlisted model/effort/schedule knobs from <repo>/.knowledge-tools/config.yaml
 	// (see loadVaultConfig), flattened to KNOWLEDGE_* keys — a git-versioned default tier that
 	// travels with the vault. It sits a tier BELOW the env knobs in JobModel/JobEffort and in the
 	// schedule resolution in Load: a value here applies only when the whole env layer is empty for
@@ -190,7 +190,7 @@ func Load(instance, repo string) (*Config, error) {
 		repo = os.Getenv("KNOWLEDGE_REPO")
 	}
 
-	// Vault-layer knobs from <repo>/.knowledge/config.yaml — a git-versioned default tier below the
+	// Vault-layer knobs from <repo>/.knowledge-tools/config.yaml — a git-versioned default tier below the
 	// env knobs (see JobModel/JobEffort, the schedule fields below, and the vault field). Non-fatal
 	// on error so a malformed vault file can't wedge the daemon; nil when repo is unset (uninstall).
 	vault := loadVaultConfig(repo)
@@ -227,7 +227,7 @@ func Load(instance, repo string) (*Config, error) {
 	return cfg, nil
 }
 
-// vaultConfigFile is the shape of <repo>/.knowledge/config.yaml. The struct IS the allowlist: only
+// vaultConfigFile is the shape of <repo>/.knowledge-tools/config.yaml. The struct IS the allowlist: only
 // the fields declared here are representable, so committed vault content can never set KNOWLEDGE_REPO,
 // tokens, or git/site/auth wiring — any other YAML key decodes into nothing and is dropped. Only the
 // three known job names (compile/synthesize/resolve) are honored when flattening Jobs.
@@ -249,32 +249,25 @@ type vaultConfigFile struct {
 // ignored so a stray `jobs.evil.schedule` can't smuggle in a KNOWLEDGE_* value.
 var vaultJobs = []string{"compile", "synthesize", "resolve"}
 
-// loadVaultConfig reads <repo>/.knowledge/config.yaml and flattens its allowlisted fields into a
-// map keyed by the KNOWLEDGE_* names JobModel/JobEffort and the Load schedule tier read. Returns nil
-// when repo is empty or the file can't be parsed (the latter logged to stderr and treated as
+// loadVaultConfig reads <repo>/.knowledge-tools/config.yaml and flattens its allowlisted fields into
+// a map keyed by the KNOWLEDGE_* names JobModel/JobEffort and the Load schedule tier read. Returns
+// nil when repo is empty or the file can't be parsed (the latter logged to stderr and treated as
 // absent); an absent file yields an empty map. Either way a missing or malformed file is a clean
-// no-op — c.vault reads then return "" for every key. As a migration aid, a leftover legacy
-// .knowledge/config.env (the old KEY=value format, no longer read) is flagged on stderr.
+// no-op — c.vault reads then return "" for every key.
 func loadVaultConfig(repo string) map[string]string {
 	if repo == "" {
 		return nil
 	}
-	dir := filepath.Join(repo, ".knowledge")
-	if _, err := os.Stat(filepath.Join(dir, "config.env")); err == nil {
-		fmt.Fprintf(os.Stderr, "knowledge-tools: warning: .knowledge/config.env is no longer read; "+
-			"migrate its settings to .knowledge/config.yaml\n")
-	}
-
-	b, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	b, err := os.ReadFile(filepath.Join(repo, ".knowledge-tools", "config.yaml"))
 	if err != nil {
 		if !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "knowledge-tools: warning: ignoring .knowledge/config.yaml: %v\n", err)
+			fmt.Fprintf(os.Stderr, "knowledge-tools: warning: ignoring .knowledge-tools/config.yaml: %v\n", err)
 		}
 		return nil
 	}
 	var vf vaultConfigFile
 	if err := yaml.Unmarshal(b, &vf); err != nil {
-		fmt.Fprintf(os.Stderr, "knowledge-tools: warning: ignoring .knowledge/config.yaml: %v\n", err)
+		fmt.Fprintf(os.Stderr, "knowledge-tools: warning: ignoring .knowledge-tools/config.yaml: %v\n", err)
 		return nil
 	}
 
@@ -304,7 +297,7 @@ func vaultKey(job, suffix string) string {
 
 // JobModel resolves the model for a job in tiers: a caller-supplied override wins (a per-invocation
 // value from the CLI flag / MCP tool / REST body), then the env layer (per-job, then
-// KNOWLEDGE_AGENT_MODEL), then the vault layer (per-job, then agent-wide from .knowledge/config.yaml),
+// KNOWLEDGE_AGENT_MODEL), then the vault layer (per-job, then agent-wide from .knowledge-tools/config.yaml),
 // then the agent's default. The whole env layer wins over the whole vault layer, so a deployment's
 // KNOWLEDGE_AGENT_MODEL still overrides a vault-declared per-job value. Only the claude agent has a
 // real default (opus) — preserving the model the old slash-command frontmatter declared; other
@@ -331,7 +324,7 @@ func (c *Config) JobModel(job, override string) string {
 
 // JobEffort resolves the reasoning effort for a job in tiers: a caller-supplied override wins (a
 // per-invocation value from the CLI flag / MCP tool / REST body), then the env layer (per-job, then
-// KNOWLEDGE_AGENT_EFFORT), then the vault layer (per-job, then agent-wide from .knowledge/config.yaml).
+// KNOWLEDGE_AGENT_EFFORT), then the vault layer (per-job, then agent-wide from .knowledge-tools/config.yaml).
 // No agent-specific default — effort values are harness-specific and passed through verbatim (no
 // translation): claude honors --effort (low|medium|high|xhigh|max) and codex model_reasoning_effort
 // (low|medium|high); opencode has no knob and drops it; custom uses {{effort}} if its template
@@ -352,7 +345,7 @@ func (c *Config) JobEffort(job, override string) string {
 
 // JobSchedule resolves the effective cron schedule for a job in tiers: the operator-explicit
 // override (the install --<job>-schedule flag or KNOWLEDGE_<JOB>_SCHEDULE env, captured in the
-// matching Config field) wins, then the vault layer (jobs.<job>.schedule in .knowledge/config.yaml),
+// matching Config field) wins, then the vault layer (jobs.<job>.schedule in .knowledge-tools/config.yaml),
 // then the built-in Default*Schedule. The whole env/flag layer wins over the whole vault layer,
 // mirroring JobModel/JobEffort — so a deployment overrides a vault-declared schedule without editing
 // the vault. Callers (the daemon's cron wiring, the schedules snapshot) read this rather than the

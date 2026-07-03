@@ -66,7 +66,7 @@ func TestInstanceEnvContents(t *testing.T) {
 
 func TestInstanceEnvContentsLean(t *testing.T) {
 	// A bare install — only the vault path, default cooldown, no explicit schedule/agent overrides —
-	// bakes just KNOWLEDGE_REPO, leaving schedules/model/effort to <vault>/.knowledge/config.yaml
+	// bakes just KNOWLEDGE_REPO, leaving schedules/model/effort to <vault>/.knowledge-tools/config.yaml
 	// (read live at daemon startup).
 	out := instanceEnvContents(&config.Config{
 		Repo: "/home/me/vault", Instance: "work", CompileCooldown: config.DefaultCompileCooldown,

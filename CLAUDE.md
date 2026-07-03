@@ -75,7 +75,7 @@ working in the repo.
     with an `KNOWLEDGE_AGENT_MODEL`/`_EFFORT` fallback (`JobModel`/`JobEffort`; only the claude
     agent defaults a model — opus — which the old slash-command frontmatter used to declare). The
     8 model/effort knobs **and the 3 job schedules** can ALSO be declared **in the vault**, in a
-    committed `<repo>/.knowledge/config.yaml` (`loadVaultConfig`, YAML: a `defaults:` model/effort
+    committed `<repo>/.knowledge-tools/config.yaml` (`loadVaultConfig`, YAML: a `defaults:` model/effort
     block + a `jobs:` map keyed by compile/synthesize/resolve, each with `schedule`/`model`/`effort`)
     so the choice travels with the vault and is git-versioned. The **decode struct is the allowlist**
     — only those declared fields for the three known job names are representable, so any other key
@@ -90,9 +90,9 @@ working in the repo.
     into the unit only when explicitly set — a bare `install` writes just `KNOWLEDGE_REPO` (the one value
     that can't live in the vault), leaving the yaml as the source of truth. Deliberately **not** seeded
     into `template/` (model IDs/effort scales/schedules are host/harness-specific — keeping them out of
-    the shipped skills is what preserves harness-neutrality). A leftover legacy `config.env` (the old
-    KEY=value format) is no
-    longer read; `loadVaultConfig` warns on stderr when it spots one.
+    the shipped skills is what preserves harness-neutrality). The dir is `.knowledge-tools/` (named for
+    the tool that owns it, alongside the vault's `.obsidian/`), not the domain; the earlier
+    `.knowledge/config.env` was a clean break — pre-1.0, not migrated.
   - `internal/agent` (new): the headless-agent abstraction that replaced `vault.RunClaude`. A
     `Driver` (selected by `KNOWLEDGE_AGENT`) turns a harness-neutral `Invocation` (prompt, model,
     effort, neutral shell-grant prefixes) into one harness's argv: `claude -p … --permission-mode

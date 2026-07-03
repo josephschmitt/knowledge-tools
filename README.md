@@ -170,11 +170,11 @@ reasoning-effort knobs — all set in the `.env` config file (copy `.env.example
 environment. See `.env.example`.
 
 The schedule and model/effort knobs can also live **in the vault itself**, in a committed
-`<vault>/.knowledge/config.yaml`, so the choice is git-versioned and travels with the vault instead
+`<vault>/.knowledge-tools/config.yaml`, so the choice is git-versioned and travels with the vault instead
 of the host:
 
 ```yaml
-# <vault>/.knowledge/config.yaml
+# <vault>/.knowledge-tools/config.yaml
 defaults:            # agent-wide model/effort (per-job values below win)
   model: opus
   effort: xhigh
@@ -281,7 +281,7 @@ launchd` grammar dance is gone — the daemon owns scheduling, so cron expressio
 both OSes.)
 
 Check state any time with `knowledge-tools job status` (prints the compile + schedule snapshots and
-whether the daemon is running). After changing a schedule in the vault's `.knowledge/config.yaml`,
+whether the daemon is running). After changing a schedule in the vault's `.knowledge-tools/config.yaml`,
 `knowledge-tools daemon restart` picks it up; after changing one via `.env`/the environment, re-run
 `knowledge-tools install` (it re-bakes the host override). On an existing single-vault host the first
 install also removes the old bash-era per-job units it finds.

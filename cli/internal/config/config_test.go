@@ -173,11 +173,11 @@ func TestParseEnvFileMissing(t *testing.T) {
 	}
 }
 
-// writeVaultConfig creates <repo>/.knowledge/config.yaml with the given YAML body and returns repo.
+// writeVaultConfig creates <repo>/.knowledge-tools/config.yaml with the given YAML body and returns repo.
 func writeVaultConfig(t *testing.T, body string) string {
 	t.Helper()
 	repo := t.TempDir()
-	dir := filepath.Join(repo, ".knowledge")
+	dir := filepath.Join(repo, ".knowledge-tools")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ repo: /somewhere/else
 
 func TestLoadVaultConfigMissingIsNoop(t *testing.T) {
 	clearModelEffortEnv(t)
-	cfg, err := Load("", t.TempDir()) // repo with no .knowledge/config.yaml
+	cfg, err := Load("", t.TempDir()) // repo with no .knowledge-tools/config.yaml
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,27 +381,6 @@ func TestVaultSchedule(t *testing.T) {
 	}
 	if got := cfg.JobSchedule("compile"); got != "@daily" {
 		t.Errorf("JobSchedule(compile) = %q, want @daily (env wins over vault)", got)
-	}
-}
-
-func TestLegacyConfigEnvWarns(t *testing.T) {
-	// A leftover legacy config.env (no longer read) must not affect config and must be a clean no-op
-	// for resolution — the migration warning is best-effort and not asserted here.
-	repo := t.TempDir()
-	dir := filepath.Join(repo, ".knowledge")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "config.env"), []byte("KNOWLEDGE_COMPILE_SCHEDULE=@yearly\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	clearModelEffortEnv(t)
-	cfg, err := Load("", repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := cfg.JobSchedule("compile"); got != DefaultCompileSchedule {
-		t.Errorf("JobSchedule(compile) = %q, want default (legacy config.env must be ignored)", got)
 	}
 }
 
