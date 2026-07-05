@@ -3,7 +3,7 @@
 import { promises as fs } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { VAULT_ROOT, VAULT_NAME, MAX_RESULT_CHARS } from './config.js';
+import { VAULT_ROOT, VAULT_NAME, MAX_RESULT_CHARS, REVIEW_CHANNEL } from './config.js';
 
 const LIBRARY_DIR = path.join(VAULT_ROOT, 'library');
 // notebook/ is a peer area to library/ (loose, tentative thinking; plain markdown, no
@@ -524,6 +524,96 @@ export type JobTrigger = { status: 'triggered' };
 export async function triggerJob(job: MaintenanceJob, ov?: JobOverrides): Promise<JobTrigger> {
   await writeRequestFile(REQUEST_FILE[job], ov);
   return { status: 'triggered' };
+}
+
+// --- Agent-driven job instructions ------------------------------------------------------
+//
+// In agent-driven mode (KNOWLEDGE_AGENT_DRIVEN=true, the stdio/`npx` runtime) there is no host
+// daemon to consume a request sentinel, so the trigger tools instead hand the calling agent the
+// vault's own procedure to run itself. `skillInstruction` reads the relevant SKILL.md straight out
+// of the vault and returns its body — mirroring the Go CLI's skillPrompt/stripFrontmatter
+// (cli/internal/jobs/job.go) so the same procedure drives both the host daemon and a local agent.
+
+/** The three procedures a trigger tool can hand off (compile is separate from the two maintenance jobs). */
+export type TriggerJobKind = 'compile' | MaintenanceJob;
+
+/**
+ * The vault skill name backing each trigger. synthesize/resolve have a git/GitHub variant and a
+ * files-only variant; pick by the same REVIEW_CHANNEL that the tools' answer-queue uses, so the
+ * agent runs the procedure matching where judgment calls live. compile has a single skill.
+ */
+function skillName(kind: TriggerJobKind): string {
+  if (kind === 'compile') return 'compile-inbox';
+  return REVIEW_CHANNEL === 'github' ? kind : `${kind}-files`;
+}
+
+/**
+ * Strip a leading `---`…`---` YAML frontmatter block, returning the body. A file that doesn't open
+ * with a `---` fence, or whose fence is never closed, is returned unchanged. Mirrors the Go
+ * stripFrontmatter (cli/internal/jobs/job.go). Kept separate from the review-doc parseFrontmatter
+ * because this one is CRLF- and trailing-whitespace-tolerant (a SKILL.md may reach us from a Windows
+ * Cowork/Claude Desktop client), whereas parseFrontmatter matches an LF-only fence.
+ */
+function stripFrontmatter(s: string): string {
+  const m = /^---\r?\n/.exec(s);
+  if (!m) return s;
+  const rest = s.slice(m[0].length);
+  const close = /\r?\n---[ \t]*(\r?\n|$)/.exec(rest);
+  if (!close) return s;
+  return rest.slice(close.index + close[0].length);
+}
+
+/**
+ * A short lead + trailing housekeeping wrapped around a skill body, telling the agent to run the
+ * procedure NOW against this vault (there is no scheduled job/daemon in this deployment). The skills
+ * are authored for the daemon/wrapper world, which archives the inbox and commits; with no wrapper
+ * here, compile additionally gets an explicit archive step (without it the next compile reprocesses
+ * the same inbox files — countInboxCaptures counts top-level files and skips inbox/archive/, so
+ * archiving is what drops pending_inbox_count back to 0).
+ */
+function wrapInstruction(kind: TriggerJobKind, body: string): string {
+  const lead =
+    `You are running this vault's **${skillName(kind)}** procedure directly — there is no ` +
+    `scheduled job or host daemon in this deployment, so carry it out now, yourself, against the ` +
+    `vault at \`${VAULT_ROOT}\`. Follow the steps below exactly:\n\n---\n\n`;
+  const tail =
+    kind === 'compile'
+      ? `\n\n---\n\n**After the steps above.** The procedure was written for a scheduled wrapper ` +
+        `that archives the processed inbox and commits — this deployment has none, so you do that ` +
+        `part: move every top-level file you processed out of \`inbox/\` into \`inbox/archive/\` so ` +
+        `a later compile doesn't reprocess it. If the vault is a git repository, commit the ` +
+        `library/notebook/index/log changes and the archived inbox files.`
+      : `\n\n---\n\n**After the steps above**: if the vault is a git repository, commit the resulting ` +
+        `changes. Do not modify \`inbox/\` for this pass.`;
+  return lead + body + tail;
+}
+
+/**
+ * Read the vault's own procedure for `kind` and return it as an instruction string for the calling
+ * agent to execute. Resolution mirrors the Go CLI's two candidates so a vault seeded before the
+ * skills migration still works: `.agents/skills/<name>/SKILL.md`, then legacy
+ * `.claude/commands/<name>.md`. Throws (naming both paths) when neither exists.
+ */
+export async function skillInstruction(kind: TriggerJobKind): Promise<string> {
+  const name = skillName(kind);
+  const candidates = [
+    path.join(VAULT_ROOT, '.agents', 'skills', name, 'SKILL.md'),
+    path.join(VAULT_ROOT, '.claude', 'commands', `${name}.md`),
+  ];
+  for (const file of candidates) {
+    let raw: string;
+    try {
+      raw = await fs.readFile(file, 'utf8');
+    } catch {
+      continue;
+    }
+    const body = stripFrontmatter(raw).replaceAll('$ARGUMENTS', '').trim();
+    return cap(wrapInstruction(kind, body));
+  }
+  throw new Error(
+    `No procedure for "${name}": looked for ${candidates[0]} and ${candidates[1]}. ` +
+      `Is VAULT_ROOT pointed at a vault? Seed one with \`knowledge-tools init\`.`,
+  );
 }
 
 // --- Review queue (judgment-call Q&A channel) -------------------------------------------

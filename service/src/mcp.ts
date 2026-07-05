@@ -10,9 +10,12 @@ import {
   triggerCompile,
   triggerJob,
   getVaultStatus,
+  skillInstruction,
+  countInboxCaptures,
+  type TriggerJobKind,
 } from './vault.js';
 import { listQuestions, getQuestion, answerQuestion } from './review.js';
-import { VAULT_NAME } from './config.js';
+import { VAULT_NAME, AGENT_DRIVEN } from './config.js';
 
 function fmtWhen(iso: string): string {
   const t = Date.parse(iso);
@@ -41,6 +44,19 @@ function questionError(id: string, err: unknown) {
 }
 
 /**
+ * Agent-driven handoff for a trigger tool: return the vault's own procedure for the calling agent
+ * to run itself (there is no host daemon in this mode). Surfaces a missing-skill error as text so a
+ * misconfigured VAULT_ROOT reads as a clear message rather than a tool crash.
+ */
+async function driveJob(kind: TriggerJobKind) {
+  try {
+    return text(await skillInstruction(kind));
+  } catch (err) {
+    return text(err instanceof Error ? err.message : String(err));
+  }
+}
+
+/**
  * Shared optional model/effort inputs for the three job triggers (compile/synthesize/resolve).
  * Spread into each tool's inputSchema so the fields + descriptions live in one place. Values are
  * pass-through / unvalidated (harness-specific); omit a field to fall back to the host's config/env
@@ -65,7 +81,12 @@ function nameSlug(): string {
   return s ? `-${s}` : '';
 }
 
-export function buildMcpServer(): McpServer {
+export function buildMcpServer(opts?: { agentDriven?: boolean }): McpServer {
+  // Agent-driven mode is passed explicitly by the caller (the stdio entrypoint sets it true),
+  // falling back to the KNOWLEDGE_AGENT_DRIVEN env default for the HTTP entrypoint. Read once here
+  // so the tool descriptions and dispatch below all see the same value.
+  const agentDriven = opts?.agentDriven ?? AGENT_DRIVEN;
+
   const server = new McpServer(
     // Suffix the protocol-stable base name with the vault label so a client connected to several
     // vaults can tell the servers apart; unlabeled deployments stay exactly 'knowledge-vault'.
@@ -200,14 +221,26 @@ export function buildMcpServer(): McpServer {
     'compile_run',
     {
       title: 'Trigger a compile',
-      description:
-        'Request an on-demand compile of the inbox into the library. Asynchronous: returns ' +
-        'immediately — poll vault_status to see when it finishes. Rate-limited to one manual ' +
-        'compile per hour. Only needed to process the inbox sooner than the next scheduled ' +
-        'compile; capturing alone does not require it.',
+      description: agentDriven
+        ? 'Compile the inbox into the library. Returns the vault\'s compile-inbox procedure for ' +
+          'YOU to carry out now, directly against the vault — there is no host daemon in this ' +
+          'deployment. Follow the returned steps, then archive the processed inbox files as ' +
+          'instructed. Only needed to process the inbox sooner than the next scheduled run; ' +
+          'capturing alone does not require it. (model/effort are ignored here — you are the ' +
+          'agent running the procedure.)'
+        : 'Request an on-demand compile of the inbox into the library. Asynchronous: returns ' +
+          'immediately — poll vault_status to see when it finishes. Rate-limited to one manual ' +
+          'compile per hour. Only needed to process the inbox sooner than the next scheduled ' +
+          'compile; capturing alone does not require it.',
       inputSchema: { ...jobOverrideSchema },
     },
     async ({ model, effort }) => {
+      if (agentDriven) {
+        // No daemon to run the compile — hand the agent the procedure. Keep the empty-inbox
+        // short-circuit as a courtesy so a needless run is skipped (the skill handles empty too).
+        if ((await countInboxCaptures()) === 0) return text('Inbox is empty — nothing to compile.');
+        return driveJob('compile');
+      }
       const result = await triggerCompile({ model, effort });
       switch (result.status) {
         case 'empty':
@@ -233,15 +266,21 @@ export function buildMcpServer(): McpServer {
     'synthesize_run',
     {
       title: 'Trigger a synthesize pass',
-      description:
-        'Request an on-demand synthesize — the heavy, infrequent whole-corpus maintenance pass ' +
-        'that reconciles drift across the library and opens new judgment calls (surfaced by ' +
-        'list_questions). Asynchronous: returns immediately — poll vault_status (jobs.synthesize.running ' +
-        'flips false when it finishes) to see it land. Rarely needed by hand; it runs on a schedule. ' +
-        'Does not compile the inbox (that is compile_run).',
+      description: agentDriven
+        ? 'The heavy, infrequent whole-corpus maintenance pass that reconciles drift across the ' +
+          'library and opens new judgment calls (surfaced by list_questions). Returns the vault\'s ' +
+          'synthesize procedure for YOU to carry out now, directly against the vault — there is no ' +
+          'host daemon in this deployment. Does not compile the inbox (that is compile_run). ' +
+          '(model/effort are ignored here — you are the agent running the procedure.)'
+        : 'Request an on-demand synthesize — the heavy, infrequent whole-corpus maintenance pass ' +
+          'that reconciles drift across the library and opens new judgment calls (surfaced by ' +
+          'list_questions). Asynchronous: returns immediately — poll vault_status (jobs.synthesize.running ' +
+          'flips false when it finishes) to see it land. Rarely needed by hand; it runs on a schedule. ' +
+          'Does not compile the inbox (that is compile_run).',
       inputSchema: { ...jobOverrideSchema },
     },
     async ({ model, effort }) => {
+      if (agentDriven) return driveJob('synthesize');
       await triggerJob('synthesize', { model, effort });
       return text(
         'Synthesize triggered. It runs on the home server; the library and any new judgment calls ' +
@@ -254,15 +293,21 @@ export function buildMcpServer(): McpServer {
     'resolve_run',
     {
       title: 'Trigger a resolve pass',
-      description:
-        'Request an on-demand resolve — the light maintenance pass that applies my answered ' +
-        'judgment calls (answer_question) to the library and closes them out. Asynchronous: returns ' +
-        'immediately — poll vault_status (jobs.resolve.running flips false when it finishes). A no-op ' +
-        'when nothing is answered. Use it to apply an answer now instead of waiting for the next ' +
-        'scheduled resolve.',
+      description: agentDriven
+        ? 'The light maintenance pass that applies my answered judgment calls (answer_question) to ' +
+          'the library and closes them out. Returns the vault\'s resolve procedure for YOU to carry ' +
+          'out now, directly against the vault — there is no host daemon in this deployment. A no-op ' +
+          'when nothing is answered. (model/effort are ignored here — you are the agent running the ' +
+          'procedure.)'
+        : 'Request an on-demand resolve — the light maintenance pass that applies my answered ' +
+          'judgment calls (answer_question) to the library and closes them out. Asynchronous: returns ' +
+          'immediately — poll vault_status (jobs.resolve.running flips false when it finishes). A no-op ' +
+          'when nothing is answered. Use it to apply an answer now instead of waiting for the next ' +
+          'scheduled resolve.',
       inputSchema: { ...jobOverrideSchema },
     },
     async ({ model, effort }) => {
+      if (agentDriven) return driveJob('resolve');
       await triggerJob('resolve', { model, effort });
       return text(
         'Resolve triggered. It runs on the home server; any answered judgment calls are applied to ' +
@@ -283,7 +328,11 @@ export function buildMcpServer(): McpServer {
         'is allowed; null/past = now), running, and jobs (per scheduled host job — compile, ' +
         'synthesize, resolve — each with last_run_at + next_run_at plus a live running + started_at ' +
         '+ summary; running flips false when that job finishes). Cheap to poll for a compile, ' +
-        'synthesize, or resolve to finish.',
+        'synthesize, or resolve to finish.' +
+        (agentDriven
+          ? ' In this local (agent-driven) deployment there is no scheduler, so the jobs timing ' +
+            'fields and last_compiled_at stay null — pending_inbox_count is the meaningful field.'
+          : ''),
       inputSchema: {},
     },
     async () => text(JSON.stringify(await getVaultStatus(), null, 2)),

@@ -114,6 +114,15 @@ sentinel (a small JSON payload) and take precedence over the host's `KNOWLEDGE_*
 the host-configured behavior. Values are pass-through / unvalidated (harness-specific: e.g. Claude's
 `--effort low|medium|high|xhigh|max`; opencode has no effort knob and drops it).
 
+> **Agent-driven mode (no daemon).** Everything above describes the daemon-backed HTTP deployment.
+> In **agent-driven mode** (`KNOWLEDGE_AGENT_DRIVEN=true`, the default for the stdio/`npx` runtime —
+> see [Local runtime (stdio / Cowork)](#local-runtime-stdio--cowork)) there is no daemon, so these
+> three tools instead **return the vault's own procedure** (the matching `.agents/skills/…/SKILL.md`
+> body) for the *calling* agent to run itself. `compile_run` additionally instructs the agent to
+> archive the processed inbox files afterward, keeping re-compiles idempotent. `model`/`effort` are
+> accepted and ignored (the calling agent *is* the model), and `vault_status`'s scheduler timings
+> stay `null` — `pending_inbox_count` is the field that stays meaningful.
+
 `vault_status` also returns a `jobs` map keyed by host job (`compile`, `synthesize`, `resolve`).
 Each entry carries the last/next *scheduled* run plus a live `running` / `started_at` / `summary`.
 The host can't be reached from the container, so — like `status.json` — it writes the timings to
@@ -275,6 +284,42 @@ Set all three to enable; set none to stay authless. (Half-set → the server ref
 > cloud**, so it needs a **publicly reachable** endpoint whose proxy *or* the server's own
 > discovery speaks OAuth. The Claude Code CLI runs **on your machine**, so a private network is
 > enough for it. Pick a deployment option (below) accordingly.
+
+## Local runtime (stdio / Cowork)
+
+For a **local, daemon-less** setup — run the vault inside **Cowork** or **Claude Desktop** without
+Docker, the CLI, or an authenticating proxy — the same server also speaks the **stdio** MCP
+transport, published to npm as **`@joe-sh/knowledge-tools-mcp`**. Point your MCP client at it:
+
+```jsonc
+{
+  "mcpServers": {
+    "knowledge-vault": {
+      "command": "npx",
+      "args": ["-y", "@joe-sh/knowledge-tools-mcp"],
+      "env": {
+        "VAULT_ROOT": "/absolute/path/to/your/vault"
+        // optional: "KNOWLEDGE_VAULT_NAME", "KNOWLEDGE_REVIEW_CHANNEL",
+        //           "KNOWLEDGE_GITHUB_TOKEN" + "KNOWLEDGE_GITHUB_REPO"
+      }
+    }
+  }
+}
+```
+
+The stdio entrypoint is MCP-only (no REST/Express) and turns on **agent-driven mode**
+(`KNOWLEDGE_AGENT_DRIVEN=true`) automatically. The read/capture tools (`search_notes`, `get_note`,
+`list_index`, `list_notes`, `append_to_inbox`) work straight off `VAULT_ROOT`. The three trigger
+tools don't schedule a host job — with no daemon, they **return the vault's own procedure** for the
+agent to run itself (see the note under
+[Manual compile / maintenance](#manual-compile--maintenance-compile_run-synthesize_run-resolve_run)).
+So the periodic maintenance that the host daemon used to run on a schedule is instead a **Cowork
+scheduled task** that calls `compile_run` (or `synthesize_run` / `resolve_run`) and carries out the
+returned steps. Because there's no scheduler, `vault_status`'s job timings stay `null` —
+`pending_inbox_count` is the field to watch.
+
+To run it from a source checkout instead of npm, `npm run build` and point `command` at
+`node` with `args: ["/abs/path/service/dist/stdio.js"]`.
 
 ## Local development
 

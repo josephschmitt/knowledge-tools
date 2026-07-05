@@ -1,16 +1,27 @@
 {
-  "name": "knowledge-service",
+  "name": "@joe-sh/knowledge-tools-mcp",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
-  "description": "Knowledge vault service: exposes the vault over both a Streamable HTTP MCP endpoint (/mcp) and a REST API (/api/v1). Performs no auth itself by default — deploy it behind an authenticating reverse proxy, or enable built-in token validation.",
+  "description": "Knowledge vault MCP server: run it over stdio (`npx @joe-sh/knowledge-tools-mcp`) for a local/Cowork setup, or as the Docker HTTP service exposing a Streamable HTTP MCP endpoint (/mcp) and a REST API (/api/v1). Auth is off by default — deploy the HTTP surface behind an authenticating reverse proxy, or enable built-in token validation.",
+  "bin": {
+    "knowledge-tools-mcp": "dist/stdio.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
-    "node": ">=24"
+    "node": ">=20"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "node --watch --experimental-strip-types src/index.ts"
+    "start:stdio": "node dist/stdio.js",
+    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

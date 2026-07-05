@@ -21,6 +21,16 @@ import {
   ENABLE_REST,
 } from './config.js';
 
+// A server serving no surface at all is a misconfiguration — fail fast rather than start a process
+// that only answers /healthz. (This guard is HTTP-only, so it lives here rather than in config.ts,
+// which the stdio entrypoint also imports.)
+if (!ENABLE_MCP && !ENABLE_REST) {
+  logger.error(
+    'FATAL: KNOWLEDGE_ENABLE_MCP and KNOWLEDGE_ENABLE_REST are both off — nothing to serve. Enable at least one.',
+  );
+  process.exit(1);
+}
+
 const app = express();
 app.set('trust proxy', true);
 app.disable('x-powered-by');
