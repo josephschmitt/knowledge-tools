@@ -1,0 +1,50 @@
+name: Service CI
+
+# PR gate for the npm-published stdio server (service/). Builds on every PR that touches service/**,
+# and — for the automated release PRs that service-release.yml opens — enables auto-merge once the
+# build passes, so a released fix/feat flows through to service-publish.yml without a human hand.
+# The service has no test/lint scripts today, so `npm run build` (tsc) is the gate; add more here as
+# the project grows.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'service/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install & build
+        working-directory: ./service
+        run: |
+          npm ci
+          npm run build
+
+  # Auto-merge the release PRs service-release.yml opens (branch release/service-*), once `build`
+  # passes. Uses the PAT (not GITHUB_TOKEN) so the resulting squash-merge to main triggers
+  # service-publish.yml. Requires "Allow auto-merge" enabled on the repo and a branch-protection
+  # rule that makes the `build` check required.
+  auto-merge:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.head_ref, 'release/service-')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh pr merge "$PR_NUMBER" --auto --squash

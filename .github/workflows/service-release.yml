@@ -1,0 +1,100 @@
+name: Service release PR
+
+# On a releasable service/** commit landing on main, bump service/package.json and open an
+# auto-merging release PR. Merging that PR changes service/package.json's version, which is what
+# triggers service-publish.yml. This mirrors the pj-node release flow, adapted to this monorepo:
+# scoped to service/, and using THIS repo's release policy (fix→patch, feat→minor, breaking→minor
+# pre-1.0; docs/chore/refactor/etc. cut nothing) rather than pj-node's patch-on-everything rule.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'service/**'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-pr:
+    runs-on: ubuntu-latest
+    # Skip the bump commit itself (its title carries this marker) to avoid an infinite loop.
+    if: "!contains(github.event.head_commit.message, 'chore(service): release')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Determine version bump from the commit
+        id: bump
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          FIRST_LINE=$(printf '%s\n' "$COMMIT_MSG" | head -n1)
+          BUMP=""
+          # Breaking change (type! or a BREAKING CHANGE: footer) → minor while pre-1.0, matching the
+          # CLI's documented pre-1.0 semantics; feat → minor; fix → patch; anything else → no release.
+          if printf '%s' "$FIRST_LINE" | grep -qE '^[a-z]+(\(.+\))?!:' \
+            || printf '%s\n' "$COMMIT_MSG" | grep -qE '^BREAKING CHANGE:'; then
+            BUMP=minor
+          elif printf '%s' "$FIRST_LINE" | grep -qE '^feat(\(.+\))?:'; then
+            BUMP=minor
+          elif printf '%s' "$FIRST_LINE" | grep -qE '^fix(\(.+\))?:'; then
+            BUMP=patch
+          fi
+          if [ -z "$BUMP" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Commit is not release-worthy (not fix/feat/breaking) — no release PR."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "level=$BUMP" >> "$GITHUB_OUTPUT"
+            echo "Bump level: $BUMP"
+          fi
+
+      - name: Skip if the service version already changed in this push
+        if: steps.bump.outputs.skip == 'false'
+        id: changed
+        run: |
+          OLD=$(git show HEAD~1:service/package.json | jq -r '.version' 2>/dev/null || echo "0.0.0")
+          NEW=$(jq -r '.version' service/package.json)
+          if [ "$OLD" != "$NEW" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "service version already changed ($OLD → $NEW) — publish will handle it."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.bump.outputs.skip == 'false' && steps.changed.outputs.skip == 'false'
+        with:
+          node-version: '20'
+
+      - name: Bump the service version
+        id: ver
+        if: steps.bump.outputs.skip == 'false' && steps.changed.outputs.skip == 'false'
+        working-directory: ./service
+        run: |
+          NEW_VERSION=$(npm version "${{ steps.bump.outputs.level }}" --no-git-tag-version)
+          echo "version=${NEW_VERSION#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create the release PR
+        if: steps.bump.outputs.skip == 'false' && steps.changed.outputs.skip == 'false'
+        # Pinned to a commit SHA — this step has RELEASE_PAT + write scope. Bump via the version comment.
+        uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c # v6
+        with:
+          # PAT (not GITHUB_TOKEN) so the PR — and its eventual squash-merge — trigger the CI and
+          # publish workflows (a GITHUB_TOKEN-authored PR/merge does not).
+          token: ${{ secrets.RELEASE_PAT }}
+          commit-message: "chore(service): release ${{ steps.ver.outputs.version }}"
+          branch: release/service-${{ steps.ver.outputs.version }}
+          delete-branch: true
+          title: "chore(service): release ${{ steps.ver.outputs.version }}"
+          body: |
+            Automated release PR for `@joe-sh/knowledge-tools-mcp@${{ steps.ver.outputs.version }}`.
+
+            Auto-merges once Service CI passes, then `service-publish.yml` publishes to npm (OIDC +
+            provenance) and cuts the `service/v${{ steps.ver.outputs.version }}` tag + GitHub Release.
+          labels: |
+            automated
+            release
