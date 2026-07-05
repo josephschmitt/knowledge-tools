@@ -39,8 +39,19 @@ working in the repo.
   (`src/github.ts`, opt-in via `KNOWLEDGE_GITHUB_TOKEN`+`KNOWLEDGE_GITHUB_REPO`) — set the container's
   `KNOWLEDGE_REVIEW_CHANNEL` to match the host's same-named `KNOWLEDGE_REVIEW_CHANNEL`. Built into a
   GHCR image by CI; deployed separately.
-  See `service/README.md`. (The MCP *protocol* server name stays `knowledge-vault` — only the
-  image/package is `knowledge-service`.)
+  The **same server also runs locally over stdio** for a daemon-less **Cowork / Claude Desktop**
+  setup: `src/stdio.ts` is a second entrypoint (MCP-only, no Express) that reuses `buildMcpServer()`
+  over `StdioServerTransport`, published to npm as **`@joe-sh/knowledge-tools-mcp`** for
+  `npx`. It runs the server in
+  **agent-driven mode** (passed explicitly via `buildMcpServer({agentDriven:true})`; the
+  `KNOWLEDGE_AGENT_DRIVEN` env var is the opt-in for the HTTP surface, off by default): with no host
+  daemon to consume a compile/synthesize/resolve request sentinel, those three tools instead
+  **return the vault's own `.agents/skills/<name>/SKILL.md` body** (via `skillInstruction` in
+  `src/vault.ts`, mirroring the Go CLI's `skillPrompt`) for the *calling* agent to run — a Cowork
+  scheduled task replaces the daemon. Logs go to **stderr** (`src/logger.ts`) so they never corrupt
+  the stdout JSON-RPC channel.
+  See `service/README.md`. (The MCP *protocol* server name stays `knowledge-vault`; the GHCR
+  image is `knowledge-service` and the npm package is `@joe-sh/knowledge-tools-mcp`.)
 - `cli/` — the host-side CLI (**Go + kong**, binary `knowledge-tools`, short alias `kt`). This
   replaced the old bash jobs + systemd/launchd install machinery. **One self-managed daemon per
   vault instance** (`KNOWLEDGE_INSTANCE`, default `default`) owns scheduling internally — install

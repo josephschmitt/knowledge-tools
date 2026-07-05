@@ -31,15 +31,18 @@ export const VAULT_NAME = process.env.KNOWLEDGE_VAULT_NAME ?? '';
 // (The static Quartz site is no longer a surface here — it's the standalone `knowledge-site` image.)
 export const ENABLE_MCP = (process.env.KNOWLEDGE_ENABLE_MCP ?? 'true') !== 'false';
 export const ENABLE_REST = (process.env.KNOWLEDGE_ENABLE_REST ?? 'true') !== 'false';
+// The "both surfaces off is a misconfiguration" guard lives in index.ts (the HTTP entrypoint),
+// not here: those two flags describe HTTP surfaces, and the stdio entrypoint (src/stdio.ts) imports
+// this module to reach VAULT_ROOT / REVIEW_CHANNEL without any concept of "surfaces" — a top-level
+// process.exit here would kill it spuriously.
 
-// A server serving no surface at all is a misconfiguration — fail fast rather than start a process
-// that only answers /healthz.
-if (!ENABLE_MCP && !ENABLE_REST) {
-  console.error(
-    'FATAL: KNOWLEDGE_ENABLE_MCP and KNOWLEDGE_ENABLE_REST are both off — nothing to serve. Enable at least one.',
-  );
-  process.exit(1);
-}
+// --- Agent-driven mode ---
+// When true, the three trigger tools (compile_run/synthesize_run/resolve_run) stop writing sentinel
+// files for a host daemon to consume and instead RETURN the vault's own skill procedure for the
+// calling agent to run itself. This is the mode the stdio/`npx` runtime uses (no daemon present):
+// a Cowork scheduled task replaces the daemon. OFF by default so the containerized HTTP deployment
+// (which DOES have a daemon) is byte-identical; src/stdio.ts flips the default to true.
+export const AGENT_DRIVEN = (process.env.KNOWLEDGE_AGENT_DRIVEN ?? 'false') === 'true';
 
 // --- Optional built-in auth (OAuth 2.1 resource server) ---
 // OFF by default: with these unset the server does NO auth and trusts the network it runs on —
