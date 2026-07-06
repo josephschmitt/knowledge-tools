@@ -297,6 +297,14 @@ Files: everything under `service/src/`, `service/package.json`, `service/Dockerf
     server version from `package.json` instead of hardcoded `'0.1.0'` (`mcp.ts:93`);
     remove the stale `data` line from `.dockerignore` and the stale sqlite comment in
     the Dockerfile.
+14. **Rate limiting** (AUDIT: service Security MED): add a tiny in-process limiter (no
+    new dependency — a `Map<key, {count, windowStart}>` fixed-window middleware) on the
+    write/trigger surfaces: `POST /api/v1/inbox`, the three trigger routes, and MCP
+    session creation (cap new `initialize`s per IP — complements the session cap in
+    item 3). Default 60/min per IP, knob `KNOWLEDGE_RATE_LIMIT_PER_MIN` (`0` disables).
+    Key on `req.ip`; make `trust proxy` configurable (`KNOWLEDGE_TRUST_PROXY`, default
+    `true` to preserve current behavior) and document that directly-exposed deployments
+    should set it `false` so the limit key can't be spoofed via `X-Forwarded-For`.
 
 **Verify**: `npm run build && npm test` green; manual smoke: `VAULT_ROOT=/tmp/vault-test
 node dist/index.js`, exercise `/healthz`, `POST /api/v1/inbox`, `GET /api/v1/search`,
@@ -552,6 +560,66 @@ relevance for a two-term query before/after (title matches should now rank first
 
 ---
 
+## Phase 9 — Low-priority sweep (PR: `chore: close out remaining low-severity audit findings`)
+
+The remaining LOW findings from `AUDIT.md` that didn't fit an earlier phase. Optional
+ordering-wise (no phase depends on it), but required for full audit coverage. Batch
+into one PR; where a change touches `cli/**` or `service/**`, the earlier phases'
+verification gates apply.
+
+**Service** (`service/src/`):
+1. `confine()` realpath hardening (`vault.ts:77-84`): after the existing prefix check,
+   `fs.realpath` the resolved file and re-verify containment against the realpathed
+   vault root — closes the symlink-inside-the-vault escape. Cover with a test (symlink
+   in `library/` pointing at `/etc/hostname` → treated as not found).
+2. Config sanity checks (`config.ts`): warn if `GITHUB_API_URL` is set with a
+   non-`https:` scheme; validate `KNOWLEDGE_GITHUB_REPO` matches `owner/repo` shape at
+   startup (fail fast, matching the existing half-configured-auth checks at
+   `config.ts:61-68,104-109`).
+3. Log hygiene: drop the token `sub`/`email` claims from the auth debug log
+   (`auth.ts:65` — log a truncated `sub` hash if an identifier is needed); stop
+   reflecting raw internal error messages in REST 500 bodies (`rest.ts:95,215` —
+   return `"internal error"`, keep the detail in the server log).
+4. Serve the RFC 9728 protected-resource metadata at the root well-known path too
+   (`auth.ts:26-27,115`): alias `/.well-known/oauth-protected-resource` to the same
+   document (some clients probe the root first).
+5. Session-less non-initialize POST → 400 (not 404), and echo the request's JSON-RPC
+   `id` instead of `null` in that error body (`index.ts:87-98`). Do NOT change the
+   404-with-session-id path — its semantics are deliberate (see the comment there).
+
+**CLI** (`cli/`):
+6. macOS liveness (`cmd/knowledge-tools/status.go:78`): `launchctl print` reports a
+   *loaded* agent, not a live process — additionally check the `daemon.json` PID is
+   alive (`syscall.Kill(pid, 0)`-style probe) before reporting the daemon healthy;
+   report "loaded but not running" otherwise.
+7. Remove the manual embed-sync step: make the `build` target depend on
+   `sync-template` in `cli/Makefile` so a local build can't ship a stale embedded
+   template (keep the CI drift guard unchanged as the backstop).
+
+**Site** (`site/`):
+8. Self-host fonts: change `fontOrigin: "googleFonts"` (`quartz.config.ts:45`) to
+   Quartz's local font bundling so the auth-gated private site stops calling Google
+   on every view. Verify the built page renders with the bundled fonts.
+9. Add `.md` to `TYPES` in `serve.mjs` (`text/markdown; charset=utf-8`).
+
+**CI / release** (`.github/workflows/`, `scripts/`):
+10. Guard `package-skills.yml`'s manual `workflow_dispatch` against content-identical
+    re-releases: if `git diff --quiet <last-skills-tag> HEAD -- plugins/` reports no
+    change, skip. (If Phase 7 landed, put this check inside `next-version.sh` instead.)
+11. Artifact provenance: add `provenance: true` (and `sbom: true`) to the
+    `docker/build-push-action` steps in `build-service.yml`/`build-site.yml`, and an
+    `actions/attest-build-provenance` step (SHA-pinned, `id-token: write` +
+    `attestations: write` permissions) for the CLI release archives in
+    `cli-release.yml`.
+
+**Skills** (accepted, documentation-only):
+12. The `marketplace.json` ↔ `plugin.json` description duplication is unavoidable
+    under the manifest schema — add a one-line comment-equivalent (a `_note` key is
+    invalid JSON per schema; instead note it in repo `CLAUDE.md`'s marketplace
+    section: "keep the two descriptions in sync when editing either").
+
+---
+
 ## Explicitly out of scope (do not implement)
 
 `kt doctor` / `kt logs` / `kt status --json` / `--dry-run` / notification hooks /
@@ -565,8 +633,20 @@ config-resolution `Resolved(job)` refactor (deferred: entangled with the out-of-
 
 1 (CI) → 2 (daemon) → 3 (service fixes+tests) → 4 (CLI batch 2) → 5 (site) →
 6 (skills/docs) → 7 (version script; depends on Phase 1's workflow shape) → 8 (search;
-depends on Phase 3's test harness). Phases 4-6 are mutually independent and can be
-reordered if a PR is blocked on review.
+depends on Phase 3's test harness) → 9 (low-priority sweep; item 1 depends on Phase 3's
+test harness, item 10 interacts with Phase 7). Phases 4-6 are mutually independent and
+can be reordered if a PR is blocked on review.
+
+## Coverage statement
+
+Phases 1-9 together close **every HIGH and MED finding and every LOW finding in
+`AUDIT.md`**, plus five of the six rework candidates (daemon request handling,
+release-versioning consolidation, indexed search, site publishing, review-backend
+seam). Not covered, by explicit owner decision: the entire "New feature ideas" section
+of `AUDIT.md`, the release-please migration (superseded by Phase 7's shared script),
+and the config-resolution `Resolved(job)` refactor (deferred — see out-of-scope below).
+Two audit observations need no action: `SyncFromOrigin`'s proceed-on-fetch-failure is a
+deliberate, documented port, and the embedded-template lint skip is sound as designed.
 
 ## Final verification (after all PRs merge)
 
