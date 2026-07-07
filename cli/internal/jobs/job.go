@@ -64,7 +64,14 @@ func RunIssueJob(ctx context.Context, cfg *config.Config, job Job, ov Overrides)
 		return err
 	}
 
-	skill, ghTools, commitPaths := channelConfig(job, channel)
+	skill, commitPaths := channelConfig(job, channel)
+	// Grants apply only on the github channel; the files channel runs grant-free. By here
+	// resolveAgentChannel has already downgraded github→files for a driver that can't scope grants,
+	// so a github channel implies a grant-capable driver.
+	var ghTools []string
+	if channel == "github" {
+		ghTools = cfg.JobGrants(string(job))
+	}
 
 	logPath := filepath.Join(repo, "outputs", string(job)+"-logs", st+".log")
 	log, err := vault.NewLogger(logPath)
@@ -187,41 +194,20 @@ func resolveAgentChannel(detected, forced string, driver agent.Driver) (string, 
 	return detected, false, nil
 }
 
-// compileGrants are the neutral gh subcommand prefixes the compile skill may run unattended on the
-// github review channel — mirroring /compile-inbox's allowed-tools frontmatter — so it can open a
-// judgment call as a GitHub issue: search/list to dedupe against existing issues, create to open
-// one, and label list/create to tag it. Each driver re-encodes these into its own allowlist syntax
-// (the claude driver into Bash(gh issue list:*) …), exactly as it does synthesize's grants.
-var compileGrants = []string{
-	"gh issue list",
-	"gh issue create",
-	"gh search issues",
-	"gh label list",
-	"gh label create",
-}
-
-// channelConfig returns the skill name, neutral shell-grant prefixes, and commit pathspecs for a
-// job+channel. Ports the case blocks in vault-job.sh. The grants are bare command prefixes (e.g.
-// "gh issue list"); each agent driver re-encodes them into its own allowlist syntax (the claude
-// driver into Bash(gh issue list:*)). They must cover exactly the gh subcommands the skill uses so
-// the headless run can't stall on an unanswerable permission prompt.
-func channelConfig(job Job, channel string) (skill string, ghTools, commitPaths []string) {
+// channelConfig returns the skill name and commit pathspecs for a job+channel. Ports the case blocks
+// in vault-job.sh. The gh tool grants are resolved separately via config.JobGrants (channel-gated by
+// the caller), so this stays the channel-structure mapper.
+func channelConfig(job Job, channel string) (skill string, commitPaths []string) {
 	// notebook/ is committed alongside library/: synthesize repairs notebook↔library origin links
 	// (and notebook/index.md), so its edits must be staged. resolve is library-scoped, but listing
 	// notebook/ is harmless there (git add only commits what actually changed).
 	if channel == "files" {
 		// The files channel writes question files under inbox/.review/, so commit that subdir too
 		// — never the raw top-level inbox/ captures compile hasn't processed yet.
-		return string(job) + "-files", nil, []string{"library", "notebook", "index.md", "log.md", "inbox/.review"}
+		return string(job) + "-files", []string{"library", "notebook", "index.md", "log.md", "inbox/.review"}
 	}
 	// github channel.
-	commitPaths = []string{"library", "notebook", "index.md", "log.md"}
-	if job == JobSynthesize {
-		ghTools = []string{"gh issue list", "gh issue view", "gh issue create", "gh search issues"}
-	} else {
-		ghTools = []string{"gh issue list", "gh issue view", "gh issue comment", "gh issue edit", "gh issue close"}
-	}
-	return string(job), ghTools, commitPaths
+	return string(job), []string{"library", "notebook", "index.md", "log.md"}
 }
 
 // skillPrompt resolves the procedure for a job, strips its YAML frontmatter, substitutes

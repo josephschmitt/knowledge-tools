@@ -34,6 +34,39 @@ const (
 	DefaultResolveSchedule    = "CRON_TZ=America/Detroit 30 3 * * *"
 )
 
+// Default*Grants are the neutral gh subcommand prefixes each job may run unattended on the github
+// review channel — the built-in default tier under the KNOWLEDGE_<JOB>_GRANTS env knob and the
+// vault's jobs.<job>.grants (see JobGrants). Each agent driver re-encodes these into its own
+// allowlist syntax (the claude driver into Bash(gh issue list:*) …). They must cover exactly the gh
+// subcommands the job's skill runs so the headless agent can't stall on an unanswerable permission
+// prompt. compile and synthesize both OPEN judgment-call issues and tag them (hence the label
+// grants); resolve only CLOSES answered ones. Values are bare command prefixes — never contain a
+// comma — so they round-trip through the comma-joined env/vault string encoding safely.
+var (
+	DefaultCompileGrants = []string{
+		"gh issue list",
+		"gh issue create",
+		"gh search issues",
+		"gh label list",
+		"gh label create",
+	}
+	DefaultSynthesizeGrants = []string{
+		"gh issue list",
+		"gh issue view",
+		"gh issue create",
+		"gh search issues",
+		"gh label list",
+		"gh label create",
+	}
+	DefaultResolveGrants = []string{
+		"gh issue list",
+		"gh issue view",
+		"gh issue comment",
+		"gh issue edit",
+		"gh issue close",
+	}
+)
+
 // instanceRe is the slug allowed for KNOWLEDGE_INSTANCE — same constraint install.sh enforced,
 // so the value is safe to embed in unit names, file paths, and JSON without escaping.
 var instanceRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -63,7 +96,7 @@ type Config struct {
 	// Per-job model/effort overrides (KNOWLEDGE_{COMPILE,SYNTHESIZE,RESOLVE}_{MODEL,EFFORT}).
 	CompileModel, SynthesizeModel, ResolveModel    string
 	CompileEffort, SynthesizeEffort, ResolveEffort string
-	// vault holds the allowlisted model/effort/schedule knobs from <repo>/.knowledge-tools/config.yaml
+	// vault holds the allowlisted model/effort/schedule/grants knobs from <repo>/.knowledge-tools/config.yaml
 	// (see loadVaultConfig), flattened to KNOWLEDGE_* keys — a git-versioned default tier that
 	// travels with the vault. It sits a tier BELOW the env knobs in JobModel/JobEffort and in the
 	// schedule resolution in Load: a value here applies only when the whole env layer is empty for
@@ -87,6 +120,14 @@ type Config struct {
 	CompileSchedule    string
 	SynthesizeSchedule string
 	ResolveSchedule    string
+	// Per-job gh tool grants (KNOWLEDGE_{COMPILE,SYNTHESIZE,RESOLVE}_GRANTS) as an operator-explicit
+	// OVERRIDE only — a comma-separated list of neutral gh subcommand prefixes, empty otherwise.
+	// Resolve the effective list via JobGrants (override > vault jobs.<job>.grants > Default*Grants);
+	// like the schedule fields, these raw values are what commonEnv persists, so an unset knob leaves
+	// the daemon unit lean and the vault yaml (or built-in default) as the source of truth.
+	CompileGrants    string
+	SynthesizeGrants string
+	ResolveGrants    string
 	// SiteRebuildURL is KNOWLEDGE_SITE_REBUILD_URL — if set, CommitAndPush POSTs to it after a
 	// commit lands, telling the knowledge-site container to rebuild. Empty disables the trigger.
 	SiteRebuildURL string
@@ -196,32 +237,37 @@ func Load(instance, repo string) (*Config, error) {
 	vault := loadVaultConfig(repo)
 
 	cfg := &Config{
-		Repo:               repo,
-		vault:              vault,
-		Instance:           instance,
-		Agent:              envOr("KNOWLEDGE_AGENT", DefaultAgent),
-		AgentBin:           agentBin(),
-		AgentCmd:           os.Getenv("KNOWLEDGE_AGENT_CMD"),
-		AgentModel:         os.Getenv("KNOWLEDGE_AGENT_MODEL"),
-		AgentEffort:        os.Getenv("KNOWLEDGE_AGENT_EFFORT"),
-		CompileModel:       os.Getenv("KNOWLEDGE_COMPILE_MODEL"),
-		SynthesizeModel:    os.Getenv("KNOWLEDGE_SYNTHESIZE_MODEL"),
-		ResolveModel:       os.Getenv("KNOWLEDGE_RESOLVE_MODEL"),
-		CompileEffort:      os.Getenv("KNOWLEDGE_COMPILE_EFFORT"),
-		SynthesizeEffort:   os.Getenv("KNOWLEDGE_SYNTHESIZE_EFFORT"),
-		ResolveEffort:      os.Getenv("KNOWLEDGE_RESOLVE_EFFORT"),
-		CompileCooldown:    envInt("KNOWLEDGE_COMPILE_COOLDOWN", DefaultCompileCooldown),
-		ReviewChannel:      os.Getenv("KNOWLEDGE_REVIEW_CHANNEL"),
-		GithubRepo:         os.Getenv("KNOWLEDGE_GITHUB_REPO"),
-		VaultLock:          envOr("KNOWLEDGE_VAULT_LOCK", defaultVaultLock(instance)),
+		Repo:             repo,
+		vault:            vault,
+		Instance:         instance,
+		Agent:            envOr("KNOWLEDGE_AGENT", DefaultAgent),
+		AgentBin:         agentBin(),
+		AgentCmd:         os.Getenv("KNOWLEDGE_AGENT_CMD"),
+		AgentModel:       os.Getenv("KNOWLEDGE_AGENT_MODEL"),
+		AgentEffort:      os.Getenv("KNOWLEDGE_AGENT_EFFORT"),
+		CompileModel:     os.Getenv("KNOWLEDGE_COMPILE_MODEL"),
+		SynthesizeModel:  os.Getenv("KNOWLEDGE_SYNTHESIZE_MODEL"),
+		ResolveModel:     os.Getenv("KNOWLEDGE_RESOLVE_MODEL"),
+		CompileEffort:    os.Getenv("KNOWLEDGE_COMPILE_EFFORT"),
+		SynthesizeEffort: os.Getenv("KNOWLEDGE_SYNTHESIZE_EFFORT"),
+		ResolveEffort:    os.Getenv("KNOWLEDGE_RESOLVE_EFFORT"),
+		CompileCooldown:  envInt("KNOWLEDGE_COMPILE_COOLDOWN", DefaultCompileCooldown),
+		ReviewChannel:    os.Getenv("KNOWLEDGE_REVIEW_CHANNEL"),
+		GithubRepo:       os.Getenv("KNOWLEDGE_GITHUB_REPO"),
+		VaultLock:        envOr("KNOWLEDGE_VAULT_LOCK", defaultVaultLock(instance)),
 		// Schedules capture only the operator-explicit env override here; the vault tier and default
 		// are applied lazily by JobSchedule (flag > env > vault > default). Keeping the raw override
 		// in the struct is what lets commonEnv persist only what the operator set.
 		CompileSchedule:    os.Getenv("KNOWLEDGE_COMPILE_SCHEDULE"),
 		SynthesizeSchedule: os.Getenv("KNOWLEDGE_SYNTHESIZE_SCHEDULE"),
 		ResolveSchedule:    os.Getenv("KNOWLEDGE_RESOLVE_SCHEDULE"),
-		SiteRebuildURL:     os.Getenv("KNOWLEDGE_SITE_REBUILD_URL"),
-		SiteRebuildToken:   os.Getenv("KNOWLEDGE_SITE_REBUILD_TOKEN"),
+		// Grants capture only the operator-explicit env override here (comma-separated); the vault
+		// tier and built-in default are applied lazily by JobGrants.
+		CompileGrants:    os.Getenv("KNOWLEDGE_COMPILE_GRANTS"),
+		SynthesizeGrants: os.Getenv("KNOWLEDGE_SYNTHESIZE_GRANTS"),
+		ResolveGrants:    os.Getenv("KNOWLEDGE_RESOLVE_GRANTS"),
+		SiteRebuildURL:   os.Getenv("KNOWLEDGE_SITE_REBUILD_URL"),
+		SiteRebuildToken: os.Getenv("KNOWLEDGE_SITE_REBUILD_TOKEN"),
 	}
 
 	return cfg, nil
@@ -237,11 +283,15 @@ type vaultConfigFile struct {
 		Model  string `yaml:"model"`
 		Effort string `yaml:"effort"`
 	} `yaml:"defaults"`
-	// Jobs holds per-job schedule/model/effort, keyed by job name (compile|synthesize|resolve).
+	// Jobs holds per-job schedule/model/effort/grants, keyed by job name (compile|synthesize|resolve).
+	// Grants is a native YAML sequence of neutral gh subcommand prefixes; adding it here is what makes
+	// it representable at all — the struct is still the allowlist, so infra/secret keys (repo, tokens,
+	// git/site/auth wiring) remain unrepresentable and decode into nothing.
 	Jobs map[string]struct {
-		Schedule string `yaml:"schedule"`
-		Model    string `yaml:"model"`
-		Effort   string `yaml:"effort"`
+		Schedule string   `yaml:"schedule"`
+		Model    string   `yaml:"model"`
+		Effort   string   `yaml:"effort"`
+		Grants   []string `yaml:"grants"`
 	} `yaml:"jobs"`
 }
 
@@ -284,6 +334,9 @@ func loadVaultConfig(repo string) map[string]string {
 		setNonEmpty(vaultKey(job, "SCHEDULE"), j.Schedule)
 		setNonEmpty(vaultKey(job, "MODEL"), j.Model)
 		setNonEmpty(vaultKey(job, "EFFORT"), j.Effort)
+		// Grants is a list; the vault map stores strings, so join with the same comma the env knob
+		// uses and re-split in JobGrants. Grant prefixes never contain a comma, so this round-trips.
+		setNonEmpty(vaultKey(job, "GRANTS"), strings.Join(j.Grants, ","))
 	}
 	return out
 }
@@ -361,6 +414,45 @@ func (c *Config) JobSchedule(job string) string {
 		override, def = c.ResolveSchedule, DefaultResolveSchedule
 	}
 	return firstNonEmpty(override, c.vault[vaultKey(job, "SCHEDULE")], def)
+}
+
+// JobGrants resolves the gh tool grants for a job on the github review channel, in tiers mirroring
+// JobSchedule: the operator-explicit override (KNOWLEDGE_<JOB>_GRANTS env / the matching Config
+// field, comma-separated) wins, then the vault layer (jobs.<job>.grants in .knowledge-tools/config.yaml),
+// then the built-in Default*Grants. Replace semantics — a configured value fully replaces the
+// default list (it is not merged), so operators re-list every prefix they want. The whole env layer
+// wins over the whole vault layer. Grants are inherently per-job (each job runs different gh
+// subcommands), so there is no agent-wide tier. The returned prefixes are neutral (e.g. "gh issue
+// list"); each agent driver re-encodes them (the claude driver into Bash(gh issue list:*)). Callers
+// apply these only on the github channel — the files channel runs grant-free.
+func (c *Config) JobGrants(job string) []string {
+	var override string
+	var def []string
+	switch job {
+	case "compile":
+		override, def = c.CompileGrants, DefaultCompileGrants
+	case "synthesize":
+		override, def = c.SynthesizeGrants, DefaultSynthesizeGrants
+	case "resolve":
+		override, def = c.ResolveGrants, DefaultResolveGrants
+	}
+	if s := firstNonEmpty(override, c.vault[vaultKey(job, "GRANTS")]); s != "" {
+		return splitGrants(s)
+	}
+	return def
+}
+
+// splitGrants parses a comma-separated grants string into trimmed, non-empty prefixes. Used for both
+// the KNOWLEDGE_<JOB>_GRANTS env value and the comma-joined vault value. Returns nil if nothing
+// usable remains (e.g. a value of just commas/whitespace).
+func splitGrants(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // agentBin resolves KNOWLEDGE_AGENT_BIN, honoring the deprecated CLAUDE_BIN as a fallback. Empty

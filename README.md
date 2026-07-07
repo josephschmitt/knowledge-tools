@@ -169,9 +169,9 @@ changes and pushes if an `origin` remote exists. Which agent runs is set by `KNO
 reasoning-effort knobs — all set in the `.env` config file (copy `.env.example`) or the
 environment. See `.env.example`.
 
-The schedule and model/effort knobs can also live **in the vault itself**, in a committed
-`<vault>/.knowledge-tools/config.yaml`, so the choice is git-versioned and travels with the vault instead
-of the host:
+The schedule, model/effort, and per-job gh tool grants can also live **in the vault itself**, in a
+committed `<vault>/.knowledge-tools/config.yaml`, so the choice is git-versioned and travels with the
+vault instead of the host:
 
 ```yaml
 # <vault>/.knowledge-tools/config.yaml
@@ -183,19 +183,27 @@ jobs:
     schedule: "@hourly"
   synthesize:
     schedule: "CRON_TZ=America/Detroit 0 3 * * *"
+    grants:          # gh subcommands this job may run unattended; replaces the built-in default
+      - gh issue list
+      - gh issue create
+      - gh search issues
+      - gh label list
+      - gh label create
   resolve:
     schedule: "CRON_TZ=America/Detroit 0 4 * * *"
     effort: high
 ```
 
 The Go struct that decodes this file **is** the allowlist: only `defaults.{model,effort}` and, for
-the three known jobs, `{schedule,model,effort}` are representable — any other key (a stray
+the three known jobs, `{schedule,model,effort,grants}` are representable — any other key (a stray
 `github_repo:`, `repo:`, …) simply decodes into nothing, so vault content can't touch
 repo/git/site/auth wiring. Every knob is a default *below* the env: anything set in `.env`, the
-environment, or an `install` flag overrides it, so a deployment can always win without editing the
-vault. The daemon reads this file once at startup, so run `knowledge-tools daemon restart` after
-editing it — nothing needs to be re-installed. (It's intentionally not created by `init` — model IDs,
-effort scales, and schedules are host/harness-specific, so seeded vaults stay neutral.)
+environment (e.g. `KNOWLEDGE_SYNTHESIZE_GRANTS`), or an `install` flag overrides it, so a deployment
+can always win without editing the vault. `grants` is a full replacement for that job's default list
+(not a merge), applied only on the github review channel. The daemon reads this file once at startup,
+so run `knowledge-tools daemon restart` after editing it — nothing needs to be re-installed. (It's
+intentionally not created by `init` — model IDs, effort scales, schedules, and grants are
+host/harness-specific, so seeded vaults stay neutral.)
 
 The vault **need not be a git repo**: when the wrapper finds no work tree it skips the commit
 and leaves history to whatever syncs the folder (Dropbox, Syncthing, …). Combined with the
@@ -238,10 +246,12 @@ Where a judgment call lives — and whether you need GitHub at all — is set by
   once with `gh auth login` (stored in `~/.config/gh`). The generated jobs put the relevant local
   profile dirs on PATH (`~/.nix-profile/bin` + `~/.local/bin` on Linux, the Homebrew prefixes on
   macOS) and rely on `HOME` for the auth; the run is
-  granted only the exact `gh issue` subcommands each command's frontmatter declares (via
-  `--allowedTools`), never a blanket skip-permissions. The required labels
-  (`vault:judgment-call`, `vault:needs-verification`, and `vault:answered`) must exist on the
-  repo — create them once with `gh label create`. `synthesize` opens issues under the first
+  granted only the exact `gh` subcommands configured for that job (the built-in `config.Default*Grants`,
+  overridable per job via `KNOWLEDGE_<JOB>_GRANTS` or the vault's `jobs.<job>.grants`), passed to the
+  agent via `--allowedTools` — never a blanket skip-permissions. The required labels
+  (`vault:judgment-call`, `vault:needs-verification`, and `vault:answered`) are created on demand by
+  `compile`/`synthesize` (both hold `gh label create`/`gh label list` grants), or you can pre-create
+  them with `gh label create`. `synthesize` opens issues under the first
   two; you mark a settled one `vault:answered` and `resolve` then applies it (or asks a
   follow-up and clears the label).
 - **`files`** — calls are markdown files in `inbox/.review/`, each with a `status` of

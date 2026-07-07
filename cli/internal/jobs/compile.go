@@ -140,7 +140,7 @@ func Compile(ctx context.Context, cfg *config.Config, manual bool, ov Overrides)
 		// grant-free — issue-opening is secondary to the compile, so a missing grant never fails the run.
 		var ghTools []string
 		if detectChannel(cfg) == "github" && driver.SupportsShellGrants() {
-			ghTools = compileGrants
+			ghTools = cfg.JobGrants("compile")
 			log.Logf("compile granted gh issue/label tools (agent=%s)", driver.Name())
 		}
 		inv := agent.Invocation{
