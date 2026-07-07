@@ -422,6 +422,9 @@ func (c *Config) JobSchedule(job string) string {
 // Replace semantics — a configured value fully replaces the default list (it is not merged), so
 // operators re-list every prefix they want. The whole env layer wins over the whole vault layer.
 // Grants are inherently per-job (each runs different gh subcommands), so there is no agent-wide tier.
+// A configured value that parses to no usable prefixes (whitespace/comma-only env, or an empty
+// `grants: []` sequence that joins to "") falls through to the default — there is no way to express
+// "grant nothing" here; the grant-free path is the files review channel, not an empty grants value.
 func (c *Config) JobGrants(job string) []string {
 	var override string
 	var def []string
@@ -433,8 +436,8 @@ func (c *Config) JobGrants(job string) []string {
 	case "resolve":
 		override, def = c.ResolveGrants, DefaultResolveGrants
 	}
-	if s := firstNonEmpty(override, c.vault[vaultKey(job, "GRANTS")]); s != "" {
-		return splitGrants(s)
+	if g := splitGrants(firstNonEmpty(override, c.vault[vaultKey(job, "GRANTS")])); len(g) > 0 {
+		return g
 	}
 	return def
 }

@@ -427,6 +427,11 @@ func TestJobGrants(t *testing.T) {
 			ResolveGrants: "gh issue close",
 			vault:         map[string]string{"KNOWLEDGE_RESOLVE_GRANTS": "gh issue view"},
 		}, []string{"gh issue close"}},
+		// A configured value that parses to nothing usable (whitespace/comma-only) falls through to the
+		// default rather than silently granting nothing — there's no "grant nothing" via config.
+		{"comma/whitespace-only env falls through to default", Config{
+			ResolveGrants: " , , ",
+		}, DefaultResolveGrants},
 	}
 	for _, tc := range cases {
 		if got := tc.cfg.JobGrants("resolve"); !slices.Equal(got, tc.want) {
