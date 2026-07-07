@@ -416,15 +416,12 @@ func (c *Config) JobSchedule(job string) string {
 	return firstNonEmpty(override, c.vault[vaultKey(job, "SCHEDULE")], def)
 }
 
-// JobGrants resolves the gh tool grants for a job on the github review channel, in tiers mirroring
-// JobSchedule: the operator-explicit override (KNOWLEDGE_<JOB>_GRANTS env / the matching Config
-// field, comma-separated) wins, then the vault layer (jobs.<job>.grants in .knowledge-tools/config.yaml),
-// then the built-in Default*Grants. Replace semantics — a configured value fully replaces the
-// default list (it is not merged), so operators re-list every prefix they want. The whole env layer
-// wins over the whole vault layer. Grants are inherently per-job (each job runs different gh
-// subcommands), so there is no agent-wide tier. The returned prefixes are neutral (e.g. "gh issue
-// list"); each agent driver re-encodes them (the claude driver into Bash(gh issue list:*)). Callers
-// apply these only on the github channel — the files channel runs grant-free.
+// JobGrants resolves the gh tool grants for a job in tiers mirroring JobSchedule: the operator-explicit
+// override (KNOWLEDGE_<JOB>_GRANTS env / the matching Config field, comma-separated) wins, then the
+// vault layer (jobs.<job>.grants in .knowledge-tools/config.yaml), then the built-in Default*Grants.
+// Replace semantics — a configured value fully replaces the default list (it is not merged), so
+// operators re-list every prefix they want. The whole env layer wins over the whole vault layer.
+// Grants are inherently per-job (each runs different gh subcommands), so there is no agent-wide tier.
 func (c *Config) JobGrants(job string) []string {
 	var override string
 	var def []string
