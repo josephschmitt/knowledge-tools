@@ -36,63 +36,29 @@ func TestHasAnsweredLine(t *testing.T) {
 }
 
 func TestChannelConfig(t *testing.T) {
-	// files channel: -files skill, no gh tools, commits inbox/.review too.
-	skill, gh, paths := channelConfig(JobSynthesize, "files")
+	// channelConfig now only maps the channel structure (skill name + commit pathspecs); the gh tool
+	// grants are resolved separately via config.JobGrants (see the config package tests).
+
+	// files channel: -files skill, commits inbox/.review too.
+	skill, paths := channelConfig(JobSynthesize, "files")
 	if skill != "synthesize-files" {
 		t.Errorf("files skill = %q", skill)
-	}
-	if gh != nil {
-		t.Errorf("files gh tools = %v, want nil", gh)
 	}
 	if !contains(paths, "inbox/.review") {
 		t.Errorf("files commit paths = %v, want inbox/.review", paths)
 	}
 
-	// github synthesize: producer gh grants (create), no comment/close. Grants are bare prefixes
-	// now (the agent driver wraps them), not Bash(...:*) strings.
-	_, gh, paths = channelConfig(JobSynthesize, "github")
-	if !contains(gh, "gh issue create") {
-		t.Errorf("synthesize gh grants missing create: %v", gh)
-	}
-	if contains(gh, "gh issue close") {
-		t.Errorf("synthesize should not grant close: %v", gh)
+	// github channel: bare skill name, and inbox/.review is NOT committed (issues live on GitHub).
+	skill, paths = channelConfig(JobSynthesize, "github")
+	if skill != "synthesize" {
+		t.Errorf("github synthesize skill = %q", skill)
 	}
 	if contains(paths, "inbox/.review") {
 		t.Errorf("github commit paths should not include inbox/.review: %v", paths)
 	}
 
-	// github resolve: consumer gh grants (comment/edit/close), no create.
-	skill, gh, _ = channelConfig(JobResolve, "github")
-	if skill != "resolve" {
+	if skill, _ := channelConfig(JobResolve, "github"); skill != "resolve" {
 		t.Errorf("github resolve skill = %q", skill)
-	}
-	if !contains(gh, "gh issue close") {
-		t.Errorf("resolve gh grants missing close: %v", gh)
-	}
-	if contains(gh, "gh issue create") {
-		t.Errorf("resolve should not grant create: %v", gh)
-	}
-}
-
-func TestCompileGrants(t *testing.T) {
-	// Mirrors /compile-inbox's allowed-tools frontmatter so compile can open a judgment call as a
-	// GitHub issue: dedupe (list/search), create, and label (list/create). Bare prefixes — the agent
-	// driver wraps them into Bash(...:*).
-	want := []string{
-		"gh issue list",
-		"gh issue create",
-		"gh search issues",
-		"gh label list",
-		"gh label create",
-	}
-	for _, g := range want {
-		if !contains(compileGrants, g) {
-			t.Errorf("compileGrants missing %q: %v", g, compileGrants)
-		}
-	}
-	// Producer-only: compile opens issues, it never closes them (resolve's job).
-	if contains(compileGrants, "gh issue close") {
-		t.Errorf("compile should not grant close: %v", compileGrants)
 	}
 }
 

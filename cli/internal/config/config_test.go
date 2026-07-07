@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -188,12 +189,13 @@ func writeVaultConfig(t *testing.T, body string) string {
 }
 
 // vaultEnvKeys are the KNOWLEDGE_* knobs the vault config.yaml can also supply (model/effort +
-// schedules). Tests clear them so the ambient environment doesn't pollute vault-tier assertions.
+// schedules + grants). Tests clear them so the ambient environment doesn't pollute vault-tier assertions.
 var vaultEnvKeys = []string{
 	"KNOWLEDGE_AGENT_MODEL", "KNOWLEDGE_AGENT_EFFORT",
 	"KNOWLEDGE_COMPILE_MODEL", "KNOWLEDGE_SYNTHESIZE_MODEL", "KNOWLEDGE_RESOLVE_MODEL",
 	"KNOWLEDGE_COMPILE_EFFORT", "KNOWLEDGE_SYNTHESIZE_EFFORT", "KNOWLEDGE_RESOLVE_EFFORT",
 	"KNOWLEDGE_COMPILE_SCHEDULE", "KNOWLEDGE_SYNTHESIZE_SCHEDULE", "KNOWLEDGE_RESOLVE_SCHEDULE",
+	"KNOWLEDGE_COMPILE_GRANTS", "KNOWLEDGE_SYNTHESIZE_GRANTS", "KNOWLEDGE_RESOLVE_GRANTS",
 }
 
 // clearModelEffortEnv unsets every vault-settable env knob so a test isn't polluted by the ambient
@@ -215,6 +217,9 @@ func TestLoadVaultConfigAllowlist(t *testing.T) {
 jobs:
   synthesize:
     model: opus
+    grants:
+      - gh issue list
+      - gh label create
   evil:
     schedule: "@yearly"
 github_repo: evil/repo
@@ -227,6 +232,13 @@ repo: /somewhere/else
 	}
 	if cfg.vault["KNOWLEDGE_SYNTHESIZE_MODEL"] != "opus" {
 		t.Errorf("vault[SYNTHESIZE_MODEL] = %q, want opus", cfg.vault["KNOWLEDGE_SYNTHESIZE_MODEL"])
+	}
+	// The grants sequence is a declared field, so it flows through (comma-joined in the map).
+	if cfg.vault["KNOWLEDGE_SYNTHESIZE_GRANTS"] != "gh issue list,gh label create" {
+		t.Errorf("vault[SYNTHESIZE_GRANTS] = %q, want the joined sequence", cfg.vault["KNOWLEDGE_SYNTHESIZE_GRANTS"])
+	}
+	if got := cfg.JobGrants("synthesize"); !slices.Contains(got, "gh label create") || slices.Contains(got, "gh issue create") {
+		t.Errorf("JobGrants(synthesize) = %v, want the vault list to replace the default", got)
 	}
 	if cfg.vault["KNOWLEDGE_AGENT_EFFORT"] != "high" {
 		t.Errorf("vault[AGENT_EFFORT] = %q, want high", cfg.vault["KNOWLEDGE_AGENT_EFFORT"])
@@ -381,6 +393,91 @@ func TestVaultSchedule(t *testing.T) {
 	}
 	if got := cfg.JobSchedule("compile"); got != "@daily" {
 		t.Errorf("JobSchedule(compile) = %q, want @daily (env wins over vault)", got)
+	}
+}
+
+func TestJobGrants(t *testing.T) {
+	// Defaults per job, with the synthesize fix: it now carries the label grants (matching compile),
+	// while resolve stays close-only and never gets create/label.
+	if got := (&Config{}).JobGrants("synthesize"); !slices.Contains(got, "gh label create") {
+		t.Errorf("default synthesize grants missing 'gh label create': %v", got)
+	}
+	if got := (&Config{}).JobGrants("compile"); !slices.Contains(got, "gh label create") || slices.Contains(got, "gh issue close") {
+		t.Errorf("default compile grants = %v, want label create and no close", got)
+	}
+	if got := (&Config{}).JobGrants("resolve"); !slices.Contains(got, "gh issue close") || slices.Contains(got, "gh issue create") {
+		t.Errorf("default resolve grants = %v, want close and no create", got)
+	}
+
+	// Replace semantics + tiers: env override wins over vault, both fully replace the default, and the
+	// comma-separated string is split and trimmed.
+	cases := []struct {
+		name string
+		cfg  Config
+		want []string
+	}{
+		{"default when nothing set", Config{}, DefaultResolveGrants},
+		{"env override replaces default", Config{
+			ResolveGrants: "gh issue list, gh issue close",
+		}, []string{"gh issue list", "gh issue close"}},
+		{"vault replaces default when env empty", Config{
+			vault: map[string]string{"KNOWLEDGE_RESOLVE_GRANTS": "gh issue view"},
+		}, []string{"gh issue view"}},
+		{"env wins over vault", Config{
+			ResolveGrants: "gh issue close",
+			vault:         map[string]string{"KNOWLEDGE_RESOLVE_GRANTS": "gh issue view"},
+		}, []string{"gh issue close"}},
+		// A configured value that parses to nothing usable (whitespace/comma-only) falls through to the
+		// default rather than silently granting nothing — there's no "grant nothing" via config.
+		{"comma/whitespace-only env falls through to default", Config{
+			ResolveGrants: " , , ",
+		}, DefaultResolveGrants},
+	}
+	for _, tc := range cases {
+		if got := tc.cfg.JobGrants("resolve"); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: JobGrants(resolve) = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestVaultGrantsViaLoad(t *testing.T) {
+	clearModelEffortEnv(t)
+	repo := writeVaultConfig(t, `jobs:
+  synthesize:
+    grants:
+      - gh issue list
+      - gh issue create
+      - gh label create
+`)
+	// The vault grants flow through JobGrants when no env var is set — and the raw override field
+	// stays empty, so nothing gets baked into the daemon unit.
+	cfg, err := Load("", repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SynthesizeGrants != "" {
+		t.Errorf("SynthesizeGrants override = %q, want empty (vault value must not populate the raw field)", cfg.SynthesizeGrants)
+	}
+	want := []string{"gh issue list", "gh issue create", "gh label create"}
+	if got := cfg.JobGrants("synthesize"); !slices.Equal(got, want) {
+		t.Errorf("JobGrants(synthesize) = %v, want %v (from vault)", got, want)
+	}
+	// A job the vault omits falls back to the built-in default.
+	if got := cfg.JobGrants("resolve"); !slices.Equal(got, DefaultResolveGrants) {
+		t.Errorf("JobGrants(resolve) = %v, want default", got)
+	}
+
+	// A deployment's env var still wins over the vault grants (and populates the override field).
+	t.Setenv("KNOWLEDGE_SYNTHESIZE_GRANTS", "gh issue list")
+	cfg, err = Load("", repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SynthesizeGrants != "gh issue list" {
+		t.Errorf("SynthesizeGrants override = %q, want the env value", cfg.SynthesizeGrants)
+	}
+	if got := cfg.JobGrants("synthesize"); !slices.Equal(got, []string{"gh issue list"}) {
+		t.Errorf("JobGrants(synthesize) = %v, want env value to win over vault", got)
 	}
 }
 

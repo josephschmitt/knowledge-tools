@@ -52,6 +52,11 @@ func commonEnv(cfg *config.Config) []envKV {
 		{"KNOWLEDGE_COMPILE_EFFORT", cfg.CompileEffort},
 		{"KNOWLEDGE_SYNTHESIZE_EFFORT", cfg.SynthesizeEffort},
 		{"KNOWLEDGE_RESOLVE_EFFORT", cfg.ResolveEffort},
+		// Per-job gh grants: raw operator override only (empty unless a KNOWLEDGE_<JOB>_GRANTS env
+		// set it) — an unset knob stays out of the unit so the vault yaml / built-in default wins.
+		{"KNOWLEDGE_COMPILE_GRANTS", cfg.CompileGrants},
+		{"KNOWLEDGE_SYNTHESIZE_GRANTS", cfg.SynthesizeGrants},
+		{"KNOWLEDGE_RESOLVE_GRANTS", cfg.ResolveGrants},
 	} {
 		// KNOWLEDGE_AGENT defaults to "claude"; omit it from the unit when it's the default so an
 		// unconfigured deployment's env file is unchanged.

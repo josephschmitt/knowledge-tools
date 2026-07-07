@@ -20,6 +20,7 @@ func testCfg() *config.Config {
 		CompileSchedule:    "@hourly",
 		SynthesizeSchedule: "CRON_TZ=America/Detroit 30 4 * * 0",
 		ResolveSchedule:    "30 3 * * *",
+		SynthesizeGrants:   "gh issue list,gh label create",
 		SiteRebuildURL:     "http://knowledge-site:8080/rebuild",
 		SiteRebuildToken:   "s3cret",
 	}
@@ -48,6 +49,7 @@ func TestInstanceEnvContents(t *testing.T) {
 		"KNOWLEDGE_COMPILE_SCHEDULE=@hourly",
 		"KNOWLEDGE_SYNTHESIZE_SCHEDULE=CRON_TZ=America/Detroit 30 4 * * 0",
 		"KNOWLEDGE_RESOLVE_SCHEDULE=30 3 * * *",
+		"KNOWLEDGE_SYNTHESIZE_GRANTS=gh issue list,gh label create",
 		"KNOWLEDGE_COMPILE_COOLDOWN=1800",
 		"KNOWLEDGE_REVIEW_CHANNEL=files",
 		"KNOWLEDGE_GITHUB_REPO=me/vault",
@@ -76,6 +78,7 @@ func TestInstanceEnvContentsLean(t *testing.T) {
 	}
 	for _, absent := range []string{
 		"KNOWLEDGE_COMPILE_SCHEDULE", "KNOWLEDGE_SYNTHESIZE_SCHEDULE", "KNOWLEDGE_RESOLVE_SCHEDULE",
+		"KNOWLEDGE_COMPILE_GRANTS", "KNOWLEDGE_SYNTHESIZE_GRANTS", "KNOWLEDGE_RESOLVE_GRANTS",
 		"KNOWLEDGE_COMPILE_COOLDOWN", "KNOWLEDGE_AGENT",
 	} {
 		if strings.Contains(out, absent) {

@@ -84,23 +84,27 @@ working in the repo.
     (claude | codex | opencode | custom), `KNOWLEDGE_AGENT_BIN` (deprecated `CLAUDE_BIN` is a
     fallback), `KNOWLEDGE_AGENT_CMD` (custom template), and per-job `*_MODEL`/`*_EFFORT` overrides
     with an `KNOWLEDGE_AGENT_MODEL`/`_EFFORT` fallback (`JobModel`/`JobEffort`; only the claude
-    agent defaults a model — opus — which the old slash-command frontmatter used to declare). The
-    8 model/effort knobs **and the 3 job schedules** can ALSO be declared **in the vault**, in a
+    agent defaults a model — opus — which the old slash-command frontmatter used to declare), plus
+    per-job **gh tool grants** (`KNOWLEDGE_<JOB>_GRANTS`, comma-separated; `JobGrants` resolving env >
+    vault > the built-in `config.Default*Grants`). The
+    8 model/effort knobs, the 3 job schedules, **and the 3 per-job grant lists** can ALSO be declared **in the vault**, in a
     committed `<repo>/.knowledge-tools/config.yaml` (`loadVaultConfig`, YAML: a `defaults:` model/effort
-    block + a `jobs:` map keyed by compile/synthesize/resolve, each with `schedule`/`model`/`effort`)
+    block + a `jobs:` map keyed by compile/synthesize/resolve, each with `schedule`/`model`/`effort`/`grants`
+    — `grants` a native YAML sequence of gh subcommand prefixes, replace-not-merge over the default)
     so the choice travels with the vault and is git-versioned. The **decode struct is the allowlist**
     — only those declared fields for the three known job names are representable, so any other key
     (a stray `repo:`/`github_repo:`/`site_rebuild_url:` or an unknown job) decodes into nothing and
-    can't redirect repo/git/site/auth wiring. The values flatten to `KNOWLEDGE_*` keys in the `vault`
-    map, a tier **below** the env in both `JobModel`/`JobEffort` and the schedule resolution in `Load`
-    (`firstNonEmpty(env, vault, default)` — schedules via `JobSchedule`, mirroring `JobModel`/`JobEffort`)
+    can't redirect repo/git/site/auth wiring (grants are a per-job tuning knob like model/effort — the
+    allowlist still bars the infra/secret keys). The values flatten to `KNOWLEDGE_*` keys in the `vault`
+    map (the grant list comma-joined), a tier **below** the env in `JobModel`/`JobEffort`/`JobGrants` and the schedule resolution in `Load`
+    (`firstNonEmpty(env, vault, default)` — schedules via `JobSchedule`, grants via `JobGrants`, mirroring `JobModel`/`JobEffort`)
     — the whole env layer (and `install` flags) wins over the whole vault layer, so a deployment always
     overrides without editing the vault. The daemon re-reads the vault yaml at startup, so `daemon
-    restart` applies a yaml edit with no re-install. The raw `Config.{Compile,Synthesize,Resolve}Schedule`
-    fields hold the operator **override only** (env/flag, empty otherwise) so `commonEnv` bakes a schedule
+    restart` applies a yaml edit with no re-install. The raw `Config.{Compile,Synthesize,Resolve}{Schedule,Grants}`
+    fields hold the operator **override only** (env/flag, empty otherwise) so `commonEnv` bakes a schedule/grant
     into the unit only when explicitly set — a bare `install` writes just `KNOWLEDGE_REPO` (the one value
     that can't live in the vault), leaving the yaml as the source of truth. Deliberately **not** seeded
-    into `template/` (model IDs/effort scales/schedules are host/harness-specific — keeping them out of
+    into `template/` (model IDs/effort scales/schedules/grants are host/harness-specific — keeping them out of
     the shipped skills is what preserves harness-neutrality). The dir is `.knowledge-tools/` (named for
     the tool that owns it, alongside the vault's `.obsidian/`), not the domain; the earlier
     `.knowledge/config.env` was a clean break — pre-1.0, not migrated.
@@ -171,7 +175,8 @@ working in the repo.
   `outputs/`), and empty `index.md`/`log.md`. The jobs feed each skill's **body** (frontmatter
   stripped, `$ARGUMENTS` substituted) to the agent as the prompt — deterministic across harnesses,
   not reliant on slash-command resolution or auto-activation; model/effort live in the CLI config,
-  and the gh grant list lives in Go (`channelConfig`), not skill frontmatter. `knowledge-tools init`
+  and the gh grant list defaults live in Go (`config.Default*Grants`, resolved by `JobGrants` and
+  overridable via env / the vault's `jobs.<job>.grants`), not skill frontmatter. `knowledge-tools init`
   copies these into a new vault (from its embedded copy — keep `cli/internal/initvault/template/` in
   sync via `make sync-template`). The seed deliberately scopes to the **library + notebook**
   knowledge areas and **defers `tasks/`** (the live vault's third area): the task workflow is coupled
