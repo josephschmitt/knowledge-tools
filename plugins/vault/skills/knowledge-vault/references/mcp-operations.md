@@ -104,5 +104,5 @@ not on the query surface.
 - **Output:** the question's full markdown, or a "Question not found" message.
 
 ### answer_question
-- **Inputs:** `id` (from `list_questions`) and `answer` (Joe's decision, in his words).
+- **Inputs:** `id` (from `list_questions`) and `answer` (the user's decision, in their own words).
 - **Output:** a confirmation that the answer was recorded and marked answered.
