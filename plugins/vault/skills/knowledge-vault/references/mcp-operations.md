@@ -1,6 +1,6 @@
 # MCP Operations (I/O shapes)
 
-The vault's service runs on homelab and is connected to claude.ai as a custom MCP connector.
+The vault's service runs on the vault host and is connected as a custom MCP connector.
 This file is the **I/O-shape mirror** of `service/src/mcp.ts` — inputs, outputs, and return
 formats only. The *rules* for each tool live in the tool's own description (loaded with the
 tool); the *why* and choreography live in `SKILL.md`. Keep this in sync with the server when
