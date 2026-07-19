@@ -59,21 +59,23 @@ not on the query surface.
   reasoning effort; empty falls back to the host's config/env chain then the harness default.
 - **Output:** text describing one of four outcomes — *triggered*, *throttled* (names when the
   next manual compile is available), *busy*, or *empty*. Asynchronous: returns immediately
-  without a result summary.
+  without a result summary. Agent-driven mode instead returns the compile procedure text for
+  the caller to run (or the *empty* message).
 
 ### synthesize_run
 - **Inputs:** `model` (optional string), `effort` (optional string) — as in `compile_run`.
 - **Output:** text confirming the whole-corpus synthesize pass was triggered. Asynchronous:
   returns immediately without a result summary. Poll `vault_status` → `jobs.synthesize`:
   `running` is `true` while it runs and flips `false` when it finishes; `summary` describes the
-  outcome.
+  outcome. Agent-driven mode instead returns the synthesize procedure text for the caller to run.
 
 ### resolve_run
 - **Inputs:** `model` (optional string), `effort` (optional string) — as in `compile_run`.
 - **Output:** text confirming the resolve pass (applies answered judgment calls) was triggered.
   Asynchronous: returns immediately; a no-op host-side when nothing is answered. Poll
   `vault_status` → `jobs.resolve` (`running` flips `false` when done; `summary` notes the
-  outcome, e.g. `nothing to resolve`).
+  outcome, e.g. `nothing to resolve`). Agent-driven mode instead returns the resolve procedure
+  text for the caller to run.
 
 ### vault_status
 - **Inputs:** none.
@@ -92,6 +94,9 @@ not on the query surface.
     the live run status (`running` flips `false` when the job finishes; `false`/`null` when the
     host predates the per-job status surface). A job's `next_run_at` is its scheduled cadence —
     distinct from `manual_compile_available_at` (the on-demand compile cooldown).
+
+  Agent-driven mode keeps this schema, but `last_compiled_at` and the `jobs` timing fields stay
+  `null` — `pending_inbox_count` is the meaningful field.
 
 ### list_questions
 - **Inputs:** `status` (optional; one of `open`, `answered`, `applied`). Omit for all.
