@@ -1,6 +1,6 @@
 # MCP Operations (I/O shapes)
 
-The vault's service runs on homelab and is connected to claude.ai as a custom MCP connector.
+The vault's service runs on the vault host and is connected as a custom MCP connector.
 This file is the **I/O-shape mirror** of `service/src/mcp.ts` — inputs, outputs, and return
 formats only. The *rules* for each tool live in the tool's own description (loaded with the
 tool); the *why* and choreography live in `SKILL.md`. Keep this in sync with the server when
@@ -15,6 +15,14 @@ not on the query surface.
 > → `GET /api/v1/search?q=`, `append_to_inbox` → `POST /api/v1/inbox`, `answer_question`
 > → `POST /api/v1/questions/<id>/answer`. Same in-process core, so behavior matches 1:1. Full
 > route table in `service/README.md`.
+
+> **Agent-driven deployments** (the local stdio server, or HTTP with `KNOWLEDGE_AGENT_DRIVEN`
+> set): the three job triggers below change shape — instead of triggering a host job,
+> `compile_run` / `synthesize_run` / `resolve_run` return the body of the vault's own
+> `.agents/skills/<job>/SKILL.md` procedure for the *calling* agent to run (`compile_run`
+> still returns the empty-inbox message when there's nothing to compile, and `model`/`effort`
+> are ignored). `vault_status` keeps its schema but `last_compiled_at` and the `jobs` timing
+> fields stay `null` — `pending_inbox_count` is the meaningful field.
 
 ## Shapes
 
@@ -51,21 +59,23 @@ not on the query surface.
   reasoning effort; empty falls back to the host's config/env chain then the harness default.
 - **Output:** text describing one of four outcomes — *triggered*, *throttled* (names when the
   next manual compile is available), *busy*, or *empty*. Asynchronous: returns immediately
-  without a result summary.
+  without a result summary. Agent-driven mode instead returns the compile procedure text for
+  the caller to run (or the *empty* message).
 
 ### synthesize_run
 - **Inputs:** `model` (optional string), `effort` (optional string) — as in `compile_run`.
 - **Output:** text confirming the whole-corpus synthesize pass was triggered. Asynchronous:
   returns immediately without a result summary. Poll `vault_status` → `jobs.synthesize`:
   `running` is `true` while it runs and flips `false` when it finishes; `summary` describes the
-  outcome.
+  outcome. Agent-driven mode instead returns the synthesize procedure text for the caller to run.
 
 ### resolve_run
 - **Inputs:** `model` (optional string), `effort` (optional string) — as in `compile_run`.
 - **Output:** text confirming the resolve pass (applies answered judgment calls) was triggered.
   Asynchronous: returns immediately; a no-op host-side when nothing is answered. Poll
   `vault_status` → `jobs.resolve` (`running` flips `false` when done; `summary` notes the
-  outcome, e.g. `nothing to resolve`).
+  outcome, e.g. `nothing to resolve`). Agent-driven mode instead returns the resolve procedure
+  text for the caller to run.
 
 ### vault_status
 - **Inputs:** none.
@@ -85,6 +95,9 @@ not on the query surface.
     host predates the per-job status surface). A job's `next_run_at` is its scheduled cadence —
     distinct from `manual_compile_available_at` (the on-demand compile cooldown).
 
+  Agent-driven mode keeps this schema, but `last_compiled_at` and the `jobs` timing fields stay
+  `null` — `pending_inbox_count` is the meaningful field.
+
 ### list_questions
 - **Inputs:** `status` (optional; one of `open`, `answered`, `applied`). Omit for all.
 - **Output:** text — one line per question: `[status] <id> (<kind>) — <one-line summary>`,
@@ -96,5 +109,5 @@ not on the query surface.
 - **Output:** the question's full markdown, or a "Question not found" message.
 
 ### answer_question
-- **Inputs:** `id` (from `list_questions`) and `answer` (Joe's decision, in his words).
+- **Inputs:** `id` (from `list_questions`) and `answer` (the user's decision, in their own words).
 - **Output:** a confirmation that the answer was recorded and marked answered.
