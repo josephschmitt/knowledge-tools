@@ -5,7 +5,7 @@ Checks, for every `plugins/*/skills/*/SKILL.md` and `template/.agents/skills/*/S
 
 - YAML frontmatter parses.
 - `name`: present, 1-64 chars, lowercase [a-z0-9-], matches the directory name.
-- `description`: present, 1-1024 chars.
+- `description`: present, non-empty, max 1024 UTF-8 bytes.
 - No two skills share a `name`.
 
 Exits non-zero and prints a human-readable report on any failure.
@@ -95,11 +95,17 @@ def validate_skill(skill_md: Path, report: Report, expected_name: str) -> str | 
 
     if not isinstance(description, str) or not description.strip():
         report.error(scope, "`description` is required and must be a non-empty string")
-    elif len(description) > DESCRIPTION_MAX:
-        report.error(
-            scope,
-            f"`description` is {len(description)} chars, max is {DESCRIPTION_MAX}",
-        )
+    else:
+        # Measure UTF-8 bytes, not code points: claude.ai's directory rejects a
+        # skill whose description exceeds the byte limit, which silently drops the
+        # whole plugin from the marketplace. A description full of em-dashes can
+        # pass a code-point check while busting the byte budget.
+        description_bytes = len(description.encode("utf-8"))
+        if description_bytes > DESCRIPTION_MAX:
+            report.error(
+                scope,
+                f"`description` is {description_bytes} bytes, max is {DESCRIPTION_MAX}",
+            )
 
     return name if isinstance(name, str) else None
 
