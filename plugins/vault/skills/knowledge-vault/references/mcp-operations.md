@@ -16,6 +16,14 @@ not on the query surface.
 > → `POST /api/v1/questions/<id>/answer`. Same in-process core, so behavior matches 1:1. Full
 > route table in `service/README.md`.
 
+> **Agent-driven deployments** (the local stdio server, or HTTP with `KNOWLEDGE_AGENT_DRIVEN`
+> set): the three job triggers below change shape — instead of triggering a host job,
+> `compile_run` / `synthesize_run` / `resolve_run` return the body of the vault's own
+> `.agents/skills/<job>/SKILL.md` procedure for the *calling* agent to run (`compile_run`
+> still returns the empty-inbox message when there's nothing to compile, and `model`/`effort`
+> are ignored). `vault_status` keeps its schema but `last_compiled_at` and the `jobs` timing
+> fields stay `null` — `pending_inbox_count` is the meaningful field.
+
 ## Shapes
 
 ### append_to_inbox

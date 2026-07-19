@@ -1,25 +1,30 @@
 ---
 name: knowledge-vault
-description: Capture raw material — knowledge and tasks — into Joe's personal vault and answer questions from it, through the vault's MCP connector. Use whenever Joe wants to SAVE something — "save this", "remember this", "capture this", "file this away" — or stash an action — "remind me to…", "I need to…", "add a task", "todo" — or to RECALL — "what do I know about X", "what's on my plate", "what do I need to do" — or to handle the judgment calls the vault is waiting on — "what's my vault waiting on", "answer that vault question". Use it even when Joe doesn't name the vault but is clearly trying to stash a finding or action, pull up prior knowledge, or settle a question the vault raised. Capture writes raw material to the inbox and does NOT synthesize, categorize, or build tasks — the homelab compiler turns dumps into library notes and TaskNotes tasks, and Joe owns task lifecycle in Obsidian. Heavy compilation runs automatically on homelab and is out of scope here.
+description: Capture raw material — knowledge and tasks — into Joe's personal vault and answer questions from it, through the vault's MCP connector. Use whenever Joe wants to SAVE something — "save this", "remember this", "capture this", "file this away" — or stash an action — "remind me to…", "I need to…", "add a task", "todo" — or to RECALL — "what do I know about X", "what's on my plate", "what do I need to do" — or to handle the judgment calls the vault is waiting on — "what's my vault waiting on", "answer that vault question". Use it even when Joe doesn't name the vault but is clearly stashing a finding or action, recalling knowledge, or settling a vault question. Capture writes raw material to the inbox and does NOT synthesize, categorize, or build tasks — the vault's compiler turns dumps into library notes and TaskNotes tasks, and Joe owns task lifecycle in Obsidian. Compilation runs on the vault host and is out of scope here — except on a local agent-driven vault, where the job tools hand YOU the procedure to run.
 ---
 
 # Knowledge & Tasks Vault
 
 This skill is the conversational front door to Joe's personal vault: a markdown knowledge
-base — plus a TaskNotes task list — living on his home server (homelab), reachable from here
-through its MCP connector. Two jobs live in this interface: capturing raw material (knowledge
-or tasks) and answering questions from what's already been compiled.
+base — plus a TaskNotes task list — living on his home server (homelab), reachable through
+its MCP connector from whatever surface this skill is loaded on (claude.ai, the Claude Code
+plugin, Cowork / Claude Desktop over the local stdio server). Two jobs live in this
+interface: capturing raw material (knowledge or tasks) and answering questions from what's
+already been compiled.
 
 ## How the system is split
 
 The work is divided on purpose, so don't duplicate it:
 
-- **This interface (claude.ai): capture + query.** Drop raw material — a fact, a finding, or
-  an action item — into the inbox, and answer Joe's questions from the compiled library.
-- **homelab (Claude Code + `CLAUDE.md` + a scheduled job): compile + maintain.** The heavy
-  synthesis — turning the inbox into durable, cross-linked notes *and* TaskNotes task files,
-  and keeping both healthy — runs there, where there's full filesystem access and the vault's
-  conventions live.
+- **This interface (the connector, wherever it's loaded): capture + query.** Drop raw
+  material — a fact, a finding, or an action item — into the inbox, and answer Joe's
+  questions from the compiled library.
+- **The vault host (homelab — Claude Code + `CLAUDE.md` + scheduled jobs): compile +
+  maintain.** The heavy synthesis — turning the inbox into durable, cross-linked notes *and*
+  TaskNotes task files, and keeping both healthy — runs there, where there's full filesystem
+  access and the vault's conventions live. (A vault can also be connected **locally,
+  agent-driven** — the stdio server with no daemon behind it; there the job-trigger tools
+  hand the compile/maintain procedures back to *you* to run. See "Triggering jobs" below.)
 
 The reason capture stays dumb here is that synthesis is better done in one place, on a
 schedule, with the whole vault in view. Pre-organizing a capture from this interface just
@@ -142,15 +147,26 @@ Joe: "What do I know about lake house options for the trip with Adam?"
 You: `search_notes` → `get_note` on the matching paths → answer from them, naming the note(s);
 if it's thin, say where the gap is.
 
-## Triggering a compile
+## Triggering jobs (compile, synthesize, resolve)
 
-A scheduled job on homelab compiles the inbox into the library hourly, so a manual compile is
-occasional, not routine — capturing alone never requires it. When Joe explicitly wants the
-inbox processed sooner, call `compile_run` and relay what it returns: it reports its own
-outcome (triggered, throttled, busy, or empty) and whether to wait or not, and his captures
-stay safe in the inbox regardless. To confirm a run finished, poll `vault_status`. Never run
-the synthesis yourself from this interface — it belongs on homelab where the full vault and
-`CLAUDE.md` conventions live.
+A scheduled job on the vault host compiles the inbox into the library hourly, so a manual
+compile is occasional, not routine — capturing alone never requires it. When Joe explicitly
+wants the inbox processed sooner, call `compile_run` and relay what it returns: it reports
+its own outcome (triggered, throttled, busy, or empty) and whether to wait or not, and his
+captures stay safe in the inbox regardless. To confirm a run finished, poll `vault_status`
+(each job's `running` flag flips false when it lands). `synthesize_run` and `resolve_run`
+trigger the two maintenance passes the same way — rarely needed by hand.
+
+**Two deployment shapes — the tool's reply tells you which.** Against the usual daemon-backed
+deployment, these three tools are asynchronous triggers: the host runs the job, and you get a
+"triggered" confirmation to relay. Never run the compile or synthesis yourself against such a
+vault — the job belongs on the host, where the full vault and its `CLAUDE.md` conventions
+live. But a **local, agent-driven** vault (the stdio server, no daemon behind it) has no host
+to hand the job to: there the same tools *return the vault's own procedure* for you to carry
+out directly, and running it IS that deployment's compile path — follow the returned steps
+rather than refusing. Don't guess the mode up front; act on the shape of the response. (In
+that local mode `vault_status`'s job-timing fields stay null — `pending_inbox_count` is the
+meaningful field.)
 
 ## Answering judgment calls
 
