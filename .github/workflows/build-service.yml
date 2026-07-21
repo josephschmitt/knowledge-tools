@@ -1,9 +1,13 @@
 name: Build & push knowledge-service image
 
 # Builds the knowledge-service image (MCP /mcp + REST /api/v1) and pushes it to GHCR so the
-# homelab pulls a published image instead of building from a source checkout on disk. The
-# published package is public (set once in the package settings after the first push) even
-# though this repo is private — the image holds only server code, no vault content or secrets.
+# homelab pulls a published image instead of building from a source checkout on disk. The GHCR
+# package is public (set once in the package settings after the first push); the image holds only
+# server code, no vault content or secrets.
+#
+# The npm side of the service (the stdio runtime, @joe-sh/knowledge-tools-mcp) is published
+# separately by service-publish.yml when service/package.json's version changes — see also
+# service-release.yml (bump → release PR) and service-ci.yml (PR gate + auto-merge).
 
 on:
   push:

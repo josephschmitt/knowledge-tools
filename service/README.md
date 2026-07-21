@@ -340,14 +340,39 @@ curl -s localhost:3000/healthz             # {"ok":true}
 curl -s localhost:3000/api/v1/status       # the vault_status JSON
 ```
 
-## Image (CI)
+## Releasing (CI)
 
-Pushes to `main` that touch `service/**` trigger `.github/workflows/build-service.yml`, which
-builds the image (linux/amd64 + arm64) and pushes it to
-**`ghcr.io/josephschmitt/knowledge-service:latest`** (also tagged with the commit SHA).
-Deployments pull this published image — they do not build from a source checkout. The package
-is **public** (set once in the GHCR package settings after the first push), so the host
+Two independent outputs, both from `service/**` pushes to `main`:
+
+**The container image.** `.github/workflows/build-service.yml` builds the image (linux/amd64 +
+arm64) and pushes it to **`ghcr.io/josephschmitt/knowledge-service:latest`** (also tagged with the
+commit SHA). Deployments pull this published image — they do not build from a source checkout. The
+package is **public** (set once in the GHCR package settings after the first push), so the host
 pulls without authenticating; the image carries only server code, no vault content.
+
+**The npm package** (`@joe-sh/knowledge-tools-mcp`, the stdio runtime) is released by a three-workflow
+flow keyed on `service/package.json`'s `version`:
+
+1. `service-release.yml` — a releasable `service/**` commit on `main` (`fix`→patch, `feat`→minor,
+   breaking→minor pre-1.0) bumps the version and opens an auto-merging `release/service-<v>` PR.
+2. `service-ci.yml` — builds the PR and, for those release PRs, enables auto-merge once green.
+3. `service-publish.yml` — on the merged version change, publishes to npm and cuts the
+   `service/vX.Y.Z` tag + a GitHub Release.
+
+Publishing is **tokenless (OIDC trusted publishing)** with sigstore **provenance** — there is no
+`NPM_TOKEN`. That requires three one-time setup steps, done outside this repo:
+
+- **npmjs.com** → the package's *Trusted Publisher* set to repo `josephschmitt/knowledge-tools`,
+  workflow `service-publish.yml`, environment `npm`. (Provenance needs this repo to be public.)
+- A repo secret **`RELEASE_PAT`** — a PAT with `contents:write` + `pull-requests:write`, used by the
+  release-PR creation and auto-merge (a `GITHUB_TOKEN`-authored PR/merge would not trigger the
+  downstream CI/publish workflows).
+- Repo settings: **Allow auto-merge** on, and a branch-protection rule making the Service CI `build`
+  check required (so `--auto` waits for it).
+
+To cut a release you normally do nothing but land a `fix`/`feat` commit under `service/`; to force
+one, bump `service/package.json`'s version by hand and merge — `service-publish.yml` fires on the
+version change regardless of how it got there.
 
 ## Deploying behind auth
 

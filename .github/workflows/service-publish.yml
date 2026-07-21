@@ -1,0 +1,104 @@
+name: Publish knowledge-tools-mcp to npm
+
+# When service/package.json's version changes on main (normally because a release PR merged),
+# publish the stdio MCP server to npm and cut a namespaced tag + GitHub Release.
+#
+# Auth is OIDC "trusted publishing" — no NPM_TOKEN secret. It needs `id-token: write`, an `npm`
+# deployment environment, and a trusted publisher configured ON npmjs.com for
+# @joe-sh/knowledge-tools-mcp:
+#   repository:  josephschmitt/knowledge-tools
+#   workflow:    service-publish.yml
+#   environment: npm
+# Provenance (the sigstore attestation shown on the npm page) rides along; it requires this repo to
+# be public. See service/README.md → "Local runtime (stdio / Cowork)".
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'service/package.json'
+
+permissions:
+  contents: write # push the tag + create the GitHub Release
+  id-token: write # OIDC token for npm trusted publishing / provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check whether the service version changed
+        id: version
+        run: |
+          OLD=$(git show HEAD~1:service/package.json | jq -r '.version' 2>/dev/null || echo "")
+          NEW=$(jq -r '.version' service/package.json)
+          if [ "$OLD" != "$NEW" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$NEW" >> "$GITHUB_OUTPUT"
+            echo "Version changed: ${OLD:-<none>} → $NEW"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Version unchanged ($NEW) — nothing to publish."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.version.outputs.changed == 'true'
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Update npm (trusted publishing needs npm >= 11.5.1)
+        if: steps.version.outputs.changed == 'true'
+        run: npm install -g npm@latest
+
+      - name: Install & build
+        if: steps.version.outputs.changed == 'true'
+        working-directory: ./service
+        run: |
+          npm ci
+          npm run build
+
+      - name: Publish to npm (OIDC + provenance)
+        if: steps.version.outputs.changed == 'true'
+        working-directory: ./service
+        run: |
+          set +e
+          out=$(npm publish 2>&1); code=$?
+          set -e
+          echo "$out"
+          if [ "$code" -ne 0 ]; then
+            # Idempotent on rerun: if a prior run published but a later step (tag/release) failed,
+            # the version is already on npm — that's not an error, fall through to (re)create the
+            # tag and release. Any other failure is real.
+            echo "$out" | grep -qiE 'cannot publish over|previously published' \
+              && echo "Version already on npm — continuing to tag/release." \
+              || exit "$code"
+          fi
+
+      - name: Push the release tag
+        if: steps.version.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Idempotent: on a rerun the tag may already exist (publish above is retryable).
+          if git ls-remote --exit-code --tags origin "refs/tags/service/v$VERSION" >/dev/null 2>&1; then
+            echo "Tag service/v$VERSION already exists — skipping."
+          else
+            git tag "service/v$VERSION"
+            git push origin "service/v$VERSION"
+          fi
+
+      - name: Create the GitHub Release
+        if: steps.version.outputs.changed == 'true'
+        # Pinned to a commit SHA (this workflow can read id-token). Bump via the trailing version comment.
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: service/v${{ steps.version.outputs.version }}
+          name: knowledge-tools-mcp v${{ steps.version.outputs.version }}
+          generate_release_notes: true

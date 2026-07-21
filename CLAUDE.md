@@ -42,7 +42,7 @@ working in the repo.
   The **same server also runs locally over stdio** for a daemon-less **Cowork / Claude Desktop**
   setup: `src/stdio.ts` is a second entrypoint (MCP-only, no Express) that reuses `buildMcpServer()`
   over `StdioServerTransport`, published to npm as **`@joe-sh/knowledge-tools-mcp`** for
-  `npx`. It runs the server in
+  `npx` (CI publishes it from `service-publish.yml`; see the CI section). It runs the server in
   **agent-driven mode** (passed explicitly via `buildMcpServer({agentDriven:true})`; the
   `KNOWLEDGE_AGENT_DRIVEN` env var is the opt-in for the HTTP surface, off by default): with no host
   daemon to consume a compile/synthesize/resolve request sentinel, those three tools instead
@@ -337,7 +337,24 @@ manual escape hatch (re-cuts, hotfixes).
 - `validate-skills.yml` — runs `validate_skills.py` on skill/script changes and pushes.
 - `package-skills.yml` — builds per-skill zips and cuts/updates releases (above).
 - `build-service.yml` — builds and pushes the multi-arch `ghcr.io/josephschmitt/knowledge-service`
-  image on `service/**` changes.
+  image on `service/**` changes. (Image only — the npm side is the three `service-*` workflows below.)
+- The **npm release trio** for `@joe-sh/knowledge-tools-mcp` (the stdio runtime), mirroring the
+  pj-node flow adapted to this monorepo — scoped to `service/`, this repo's release policy, and a
+  `service/vX.Y.Z` tag namespace alongside `cli/v*` and `skills/v*`:
+  - `service-release.yml` — on a `service/**` push to `main`, computes a bump from the head commit's
+    conventional prefix (`fix`→patch, `feat`→minor, breaking→minor pre-1.0; docs/chore/etc. cut
+    nothing), runs `npm version` on `service/package.json`, and opens an auto-merging
+    `release/service-<v>` PR via `peter-evans/create-pull-request`. Loop-guarded on the
+    `chore(service): release` commit title + an already-bumped check.
+  - `service-ci.yml` — PR gate on `service/**` (`npm ci` + `npm run build`); for `release/service-*`
+    PRs it enables `--auto --squash` merge once the build passes.
+  - `service-publish.yml` — when `service/package.json`'s version changes on `main` (i.e. a release
+    PR merged), publishes to npm via **OIDC trusted publishing** (`id-token: write` + an `npm`
+    environment + `publishConfig.provenance`, **no `NPM_TOKEN`**), then pushes the `service/vX.Y.Z`
+    tag and cuts a GitHub Release. Both the PR flow and the tokenless publish need a **`RELEASE_PAT`**
+    secret (the PAT is what lets the release PR + its merge trigger downstream workflows) and a
+    one-time **trusted-publisher registration on npmjs.com** (repo `josephschmitt/knowledge-tools`,
+    workflow `service-publish.yml`, environment `npm`); provenance requires this repo to be public.
 - `cli-ci.yml` — on `cli/**` (+ `template/**`) changes: `go test`/`vet`/`golangci-lint` (ubuntu +
   macos + a windows build), `goreleaser check`, and a drift guard that the embedded
   `cli/internal/initvault/template/` matches the repo-root `template/` (run `make sync-template`).
